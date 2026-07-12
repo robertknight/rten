@@ -597,6 +597,64 @@ logical_boolean_op!(And, and, |x, y| x && y);
 logical_boolean_op!(Or, or, |x, y| x || y);
 logical_boolean_op!(Xor, xor, |x, y| x ^ y);
 
+/// Apply a binary operation whose operands and result all have the same type.
+///
+/// This wrapper around [`binary_op`] ties the operand types together so that
+/// type inference can determine the type of the second operand.
+fn same_type_binary_op<T: Copy + Debug>(
+    pool: &BufferPool,
+    a: TensorView<T>,
+    b: TensorView<T>,
+    op: &impl Fn(T, T) -> T,
+) -> Result<Tensor<T>, OpError> {
+    binary_op(pool, a, b, op)
+}
+
+/// Define a bitwise binary operator.
+///
+/// These accept two integer tensors of the same type, broadcast them and
+/// produce a result of the same type.
+macro_rules! bitwise_binary_op {
+    ($op:ident, $expr:expr) => {
+        #[derive(Debug)]
+        pub struct $op {}
+
+        impl Operator for $op {
+            fn name(&self) -> &str {
+                stringify!($op)
+            }
+
+            fn max_inputs(&self) -> Option<usize> {
+                Some(2)
+            }
+
+            fn is_commutative(&self) -> bool {
+                true
+            }
+
+            fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+                let inputs = ctx.inputs();
+                let a = inputs.require(0)?;
+                map_value_view!(a, a, [Int32Tensor, Int8Tensor, UInt8Tensor], {
+                    let b = inputs.require_as(1)?;
+                    #[allow(clippy::redundant_closure_call)]
+                    same_type_binary_op(ctx.pool(), a, b, &$expr).into_op_result()
+                })
+            }
+
+            fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+                Some([OutputType::CopyFromInput(0)].into())
+            }
+
+            fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+                Some(&BinaryOp)
+            }
+        }
+    };
+}
+
+bitwise_binary_op!(BitwiseAnd, |x, y| x & y);
+
 /// Check the RHS input of a Div / Mod op for zeros.
 ///
 /// This is used to avoid a divide-by-zero panic for integer inputs. For float
@@ -1291,9 +1349,9 @@ mod tests {
 
     use super::fast_broadcast_cycles_repeats;
     use super::{
-        Add, DivMode, add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal,
-        less, less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
-        where_op, xor,
+        Add, BitwiseAnd, DivMode, add, add_in_place, and, div, div_in_place, equal, greater,
+        greater_or_equal, less, less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place,
+        sub, sub_in_place, where_op, xor,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
@@ -1496,6 +1554,22 @@ mod tests {
         let b = Tensor::from([0, 0, 1, 1]);
         let expected = Tensor::from([0, 0, 0, 1]);
         let result = and(&pool, a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_bitwise_and() {
+        let a = Tensor::from([0x0f0fi32, -1, 0, 0x1234]);
+        let b = Tensor::from([0x00ffi32, 0x7fff_ffff, 123, 0x1010]);
+        let expected = Tensor::from([0x000fi32, 0x7fff_ffff, 0, 0x1010]);
+        let result: Tensor<i32> = BitwiseAnd {}.run_simple((a.view(), b.view())).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Broadcast
+        let a = Tensor::from([0b1010i32, 0b0110]);
+        let b = Tensor::from(0b0011i32);
+        let expected = Tensor::from([0b0010i32, 0b0010]);
+        let result: Tensor<i32> = BitwiseAnd {}.run_simple((a.view(), b.view())).unwrap();
         assert_eq!(&result, &expected);
     }
 

@@ -162,6 +162,7 @@ enum OperatorType: ubyte {
   Selu,
   Shrink,
   BitwiseNot,
+  BitwiseAnd,
 }
 
 enum RNNDirection: ubyte {

@@ -156,6 +156,7 @@ class OperatorType(object):
     Selu = 146
     Shrink = 147
     BitwiseNot = 148
+    BitwiseAnd = 149
 
 
 class RNNDirection(object):
