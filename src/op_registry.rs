@@ -279,6 +279,7 @@ pub mod op_types {
     declare_op!(ConstantOfShape);
     declare_op!(ConvTranspose);
     declare_op!(Cos);
+    declare_op!(CumProd, onnx_only);
     declare_op!(CumSum);
     declare_op!(DFT, feature = "fft");
     declare_op!(DequantizeLinear);
