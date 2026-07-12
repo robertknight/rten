@@ -153,6 +153,7 @@ class OperatorType(object):
     ReduceLogSum = 143
     ReduceLogSumExp = 144
     Softsign = 145
+    Mish = 146
 
 
 class RNNDirection(object):
