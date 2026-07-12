@@ -1,6 +1,6 @@
 use rten_base::iter::range_chunks_exact;
 use rten_base::unroll::{unroll_loop, unroll_loop_x4};
-use rten_simd::ops::{Extend, Interleave, NumOps};
+use rten_simd::ops::{BitOps, Extend, Interleave, NumOps};
 use rten_simd::{Isa, Simd};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 

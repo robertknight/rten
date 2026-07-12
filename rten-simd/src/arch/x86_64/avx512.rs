@@ -27,7 +27,7 @@ use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::ops::{
-    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
     SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd};
@@ -175,9 +175,62 @@ macro_rules! simd_int_ops_common {
     };
 }
 
-unsafe impl NumOps<f32> for Avx512Isa {
+unsafe impl BitOps<f32> for Avx512Isa {
     simd_ops_common!(F32x16, __mmask16);
 
+    #[inline]
+    fn and(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_and_ps(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn not(self, x: F32x16) -> F32x16 {
+        let all_ones: F32x16 = self.splat(f32::from_bits(0xFFFFFFFF));
+        unsafe { _mm512_andnot_ps(x.0, all_ones.0) }.into()
+    }
+
+    #[inline]
+    fn or(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_or_ps(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn xor(self, x: F32x16, y: F32x16) -> F32x16 {
+        unsafe { _mm512_xor_ps(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn splat(self, x: f32) -> F32x16 {
+        unsafe { _mm512_set1_ps(x) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const f32) -> F32x16 {
+        unsafe { _mm512_loadu_ps(ptr) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: F32x16, y: F32x16, mask: <F32x16 as Simd>::Mask) -> F32x16 {
+        unsafe { _mm512_mask_blend_ps(mask, y.0, x.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: __mmask16) -> F32x16 {
+        unsafe { _mm512_mask_loadu_ps(_mm512_set1_ps(0.), mask, ptr) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: F32x16, ptr: *mut f32, mask: __mmask16) {
+        unsafe { _mm512_mask_storeu_ps(ptr, mask, x.0) }
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: F32x16, ptr: *mut f32) {
+        unsafe { _mm512_storeu_ps(ptr, x.0) }
+    }
+}
+
+unsafe impl NumOps<f32> for Avx512Isa {
     #[inline]
     fn add(self, x: F32x16, y: F32x16) -> F32x16 {
         unsafe { _mm512_add_ps(x.0, y.0) }.into()
@@ -234,57 +287,6 @@ unsafe impl NumOps<f32> for Avx512Isa {
     }
 
     #[inline]
-    fn and(self, x: F32x16, y: F32x16) -> F32x16 {
-        unsafe { _mm512_and_ps(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn not(self, x: F32x16) -> F32x16 {
-        let all_ones: F32x16 = self.splat(f32::from_bits(0xFFFFFFFF));
-        unsafe { _mm512_andnot_ps(x.0, all_ones.0) }.into()
-    }
-
-    #[inline]
-    fn or(self, x: F32x16, y: F32x16) -> F32x16 {
-        unsafe { _mm512_or_ps(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn xor(self, x: F32x16, y: F32x16) -> F32x16 {
-        unsafe { _mm512_xor_ps(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn splat(self, x: f32) -> F32x16 {
-        unsafe { _mm512_set1_ps(x) }.into()
-    }
-
-    #[inline]
-    unsafe fn load_ptr(self, ptr: *const f32) -> F32x16 {
-        unsafe { _mm512_loadu_ps(ptr) }.into()
-    }
-
-    #[inline]
-    fn select(self, x: F32x16, y: F32x16, mask: <F32x16 as Simd>::Mask) -> F32x16 {
-        unsafe { _mm512_mask_blend_ps(mask, y.0, x.0) }.into()
-    }
-
-    #[inline]
-    unsafe fn load_ptr_mask(self, ptr: *const f32, mask: __mmask16) -> F32x16 {
-        unsafe { _mm512_mask_loadu_ps(_mm512_set1_ps(0.), mask, ptr) }.into()
-    }
-
-    #[inline]
-    unsafe fn store_ptr_mask(self, x: F32x16, ptr: *mut f32, mask: __mmask16) {
-        unsafe { _mm512_mask_storeu_ps(ptr, mask, x.0) }
-    }
-
-    #[inline]
-    unsafe fn store_ptr(self, x: F32x16, ptr: *mut f32) {
-        unsafe { _mm512_storeu_ps(ptr, x.0) }
-    }
-
-    #[inline]
     fn sum(self, x: F32x16) -> f32 {
         unsafe { _mm512_reduce_add_ps(x.0) }
     }
@@ -329,43 +331,13 @@ impl FloatOps<f32> for Avx512Isa {
     }
 }
 
-unsafe impl NumOps<i32> for Avx512Isa {
+unsafe impl BitOps<i32> for Avx512Isa {
     simd_ops_common!(I32x16, __mmask16);
     simd_int_ops_common!(I32x16);
 
     #[inline]
-    fn add(self, x: I32x16, y: I32x16) -> I32x16 {
-        unsafe { _mm512_add_epi32(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn sub(self, x: I32x16, y: I32x16) -> I32x16 {
-        unsafe { _mm512_sub_epi32(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn mul(self, x: I32x16, y: I32x16) -> I32x16 {
-        unsafe { _mm512_mullo_epi32(x.0, y.0) }.into()
-    }
-
-    #[inline]
     fn splat(self, x: i32) -> I32x16 {
         unsafe { _mm512_set1_epi32(x) }.into()
-    }
-
-    #[inline]
-    fn eq(self, x: I32x16, y: I32x16) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_EQ) }
-    }
-
-    #[inline]
-    fn ge(self, x: I32x16, y: I32x16) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_NLT) }
-    }
-
-    #[inline]
-    fn gt(self, x: I32x16, y: I32x16) -> __mmask16 {
-        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 
     #[inline]
@@ -391,6 +363,38 @@ unsafe impl NumOps<i32> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr_mask(self, x: I32x16, ptr: *mut i32, mask: __mmask16) {
         unsafe { _mm512_mask_storeu_epi32(ptr, mask, x.0) }
+    }
+}
+
+unsafe impl NumOps<i32> for Avx512Isa {
+    #[inline]
+    fn add(self, x: I32x16, y: I32x16) -> I32x16 {
+        unsafe { _mm512_add_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: I32x16, y: I32x16) -> I32x16 {
+        unsafe { _mm512_sub_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: I32x16, y: I32x16) -> I32x16 {
+        unsafe { _mm512_mullo_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: I32x16, y: I32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_EQ) }
+    }
+
+    #[inline]
+    fn ge(self, x: I32x16, y: I32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_NLT) }
+    }
+
+    #[inline]
+    fn gt(self, x: I32x16, y: I32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epi32_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 }
 
@@ -464,43 +468,13 @@ impl ToFloat<i32> for Avx512Isa {
     }
 }
 
-unsafe impl NumOps<i16> for Avx512Isa {
+unsafe impl BitOps<i16> for Avx512Isa {
     simd_ops_common!(I16x32, __mmask32);
     simd_int_ops_common!(I16x32);
 
     #[inline]
-    fn add(self, x: I16x32, y: I16x32) -> I16x32 {
-        unsafe { _mm512_add_epi16(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn sub(self, x: I16x32, y: I16x32) -> I16x32 {
-        unsafe { _mm512_sub_epi16(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn mul(self, x: I16x32, y: I16x32) -> I16x32 {
-        unsafe { _mm512_mullo_epi16(x.0, y.0) }.into()
-    }
-
-    #[inline]
     fn splat(self, x: i16) -> I16x32 {
         unsafe { _mm512_set1_epi16(x) }.into()
-    }
-
-    #[inline]
-    fn eq(self, x: I16x32, y: I16x32) -> __mmask32 {
-        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_EQ) }
-    }
-
-    #[inline]
-    fn ge(self, x: I16x32, y: I16x32) -> __mmask32 {
-        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_NLT) }
-    }
-
-    #[inline]
-    fn gt(self, x: I16x32, y: I16x32) -> __mmask32 {
-        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 
     #[inline]
@@ -526,6 +500,38 @@ unsafe impl NumOps<i16> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr_mask(self, x: I16x32, ptr: *mut i16, mask: __mmask32) {
         unsafe { _mm512_mask_storeu_epi16(ptr, mask, x.0) }
+    }
+}
+
+unsafe impl NumOps<i16> for Avx512Isa {
+    #[inline]
+    fn add(self, x: I16x32, y: I16x32) -> I16x32 {
+        unsafe { _mm512_add_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: I16x32, y: I16x32) -> I16x32 {
+        unsafe { _mm512_sub_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: I16x32, y: I16x32) -> I16x32 {
+        unsafe { _mm512_mullo_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: I16x32, y: I16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_EQ) }
+    }
+
+    #[inline]
+    fn ge(self, x: I16x32, y: I16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_NLT) }
+    }
+
+    #[inline]
+    fn gt(self, x: I16x32, y: I16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epi16_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 }
 
@@ -595,50 +601,13 @@ impl Interleave<i16> for Avx512Isa {
     }
 }
 
-unsafe impl NumOps<i8> for Avx512Isa {
+unsafe impl BitOps<i8> for Avx512Isa {
     simd_ops_common!(I8x64, __mmask64);
     simd_int_ops_common!(I8x64);
 
     #[inline]
-    fn add(self, x: I8x64, y: I8x64) -> I8x64 {
-        unsafe { _mm512_add_epi8(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn sub(self, x: I8x64, y: I8x64) -> I8x64 {
-        unsafe { _mm512_sub_epi8(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn mul(self, x: I8x64, y: I8x64) -> I8x64 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
-        let (y_lo, y_hi) = Extend::<i8>::extend(self, y);
-
-        let i16_ops = self.i16();
-        let prod_lo = i16_ops.mul(x_lo, y_lo);
-        let prod_hi = i16_ops.mul(x_hi, y_hi);
-
-        self.narrow_truncate(prod_lo, prod_hi)
-    }
-
-    #[inline]
     fn splat(self, x: i8) -> I8x64 {
         unsafe { _mm512_set1_epi8(x) }.into()
-    }
-
-    #[inline]
-    fn eq(self, x: I8x64, y: I8x64) -> __mmask64 {
-        unsafe { _mm512_cmpeq_epi8_mask(x.0, y.0) }
-    }
-
-    #[inline]
-    fn ge(self, x: I8x64, y: I8x64) -> __mmask64 {
-        unsafe { _mm512_cmpge_epi8_mask(x.0, y.0) }
-    }
-
-    #[inline]
-    fn gt(self, x: I8x64, y: I8x64) -> __mmask64 {
-        unsafe { _mm512_cmpgt_epi8_mask(x.0, y.0) }
     }
 
     #[inline]
@@ -664,6 +633,45 @@ unsafe impl NumOps<i8> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr_mask(self, x: I8x64, ptr: *mut i8, mask: __mmask64) {
         unsafe { _mm512_mask_storeu_epi8(ptr, mask, x.0) }
+    }
+}
+
+unsafe impl NumOps<i8> for Avx512Isa {
+    #[inline]
+    fn add(self, x: I8x64, y: I8x64) -> I8x64 {
+        unsafe { _mm512_add_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: I8x64, y: I8x64) -> I8x64 {
+        unsafe { _mm512_sub_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: I8x64, y: I8x64) -> I8x64 {
+        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+        let (y_lo, y_hi) = Extend::<i8>::extend(self, y);
+
+        let i16_ops = self.i16();
+        let prod_lo = i16_ops.mul(x_lo, y_lo);
+        let prod_hi = i16_ops.mul(x_hi, y_hi);
+
+        self.narrow_truncate(prod_lo, prod_hi)
+    }
+
+    #[inline]
+    fn eq(self, x: I8x64, y: I8x64) -> __mmask64 {
+        unsafe { _mm512_cmpeq_epi8_mask(x.0, y.0) }
+    }
+
+    #[inline]
+    fn ge(self, x: I8x64, y: I8x64) -> __mmask64 {
+        unsafe { _mm512_cmpge_epi8_mask(x.0, y.0) }
+    }
+
+    #[inline]
+    fn gt(self, x: I8x64, y: I8x64) -> __mmask64 {
+        unsafe { _mm512_cmpgt_epi8_mask(x.0, y.0) }
     }
 }
 
@@ -736,50 +744,13 @@ impl Interleave<i8> for Avx512Isa {
     }
 }
 
-unsafe impl NumOps<u8> for Avx512Isa {
+unsafe impl BitOps<u8> for Avx512Isa {
     simd_ops_common!(U8x64, __mmask64);
     simd_int_ops_common!(U8x64);
 
     #[inline]
-    fn add(self, x: U8x64, y: U8x64) -> U8x64 {
-        unsafe { _mm512_add_epi8(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn sub(self, x: U8x64, y: U8x64) -> U8x64 {
-        unsafe { _mm512_sub_epi8(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn mul(self, x: U8x64, y: U8x64) -> U8x64 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
-        let (y_lo, y_hi) = Extend::<u8>::extend(self, y);
-
-        let u16_ops = self.u16();
-        let prod_lo = u16_ops.mul(x_lo, y_lo);
-        let prod_hi = u16_ops.mul(x_hi, y_hi);
-
-        self.narrow_truncate(prod_lo, prod_hi)
-    }
-
-    #[inline]
     fn splat(self, x: u8) -> U8x64 {
         unsafe { _mm512_set1_epi8(x as i8) }.into()
-    }
-
-    #[inline]
-    fn eq(self, x: U8x64, y: U8x64) -> __mmask64 {
-        unsafe { _mm512_cmpeq_epu8_mask(x.0, y.0) }
-    }
-
-    #[inline]
-    fn ge(self, x: U8x64, y: U8x64) -> __mmask64 {
-        unsafe { _mm512_cmpge_epu8_mask(x.0, y.0) }
-    }
-
-    #[inline]
-    fn gt(self, x: U8x64, y: U8x64) -> __mmask64 {
-        unsafe { _mm512_cmpgt_epu8_mask(x.0, y.0) }
     }
 
     #[inline]
@@ -805,6 +776,45 @@ unsafe impl NumOps<u8> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr_mask(self, x: U8x64, ptr: *mut u8, mask: __mmask64) {
         unsafe { _mm512_mask_storeu_epi8(ptr as *mut i8, mask, x.0) }
+    }
+}
+
+unsafe impl NumOps<u8> for Avx512Isa {
+    #[inline]
+    fn add(self, x: U8x64, y: U8x64) -> U8x64 {
+        unsafe { _mm512_add_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: U8x64, y: U8x64) -> U8x64 {
+        unsafe { _mm512_sub_epi8(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: U8x64, y: U8x64) -> U8x64 {
+        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+        let (y_lo, y_hi) = Extend::<u8>::extend(self, y);
+
+        let u16_ops = self.u16();
+        let prod_lo = u16_ops.mul(x_lo, y_lo);
+        let prod_hi = u16_ops.mul(x_hi, y_hi);
+
+        self.narrow_truncate(prod_lo, prod_hi)
+    }
+
+    #[inline]
+    fn eq(self, x: U8x64, y: U8x64) -> __mmask64 {
+        unsafe { _mm512_cmpeq_epu8_mask(x.0, y.0) }
+    }
+
+    #[inline]
+    fn ge(self, x: U8x64, y: U8x64) -> __mmask64 {
+        unsafe { _mm512_cmpge_epu8_mask(x.0, y.0) }
+    }
+
+    #[inline]
+    fn gt(self, x: U8x64, y: U8x64) -> __mmask64 {
+        unsafe { _mm512_cmpgt_epu8_mask(x.0, y.0) }
     }
 }
 
@@ -939,43 +949,13 @@ impl Narrow<U16x32> for Avx512Isa {
     }
 }
 
-unsafe impl NumOps<u16> for Avx512Isa {
+unsafe impl BitOps<u16> for Avx512Isa {
     simd_ops_common!(U16x32, __mmask32);
     simd_int_ops_common!(U16x32);
 
     #[inline]
-    fn add(self, x: U16x32, y: U16x32) -> U16x32 {
-        unsafe { _mm512_add_epi16(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn sub(self, x: U16x32, y: U16x32) -> U16x32 {
-        unsafe { _mm512_sub_epi16(x.0, y.0) }.into()
-    }
-
-    #[inline]
-    fn mul(self, x: U16x32, y: U16x32) -> U16x32 {
-        unsafe { _mm512_mullo_epi16(x.0, y.0) }.into()
-    }
-
-    #[inline]
     fn splat(self, x: u16) -> U16x32 {
         unsafe { _mm512_set1_epi16(x as i16) }.into()
-    }
-
-    #[inline]
-    fn eq(self, x: U16x32, y: U16x32) -> __mmask32 {
-        unsafe { _mm512_cmp_epu16_mask(x.0, y.0, _MM_CMPINT_EQ) }
-    }
-
-    #[inline]
-    fn ge(self, x: U16x32, y: U16x32) -> __mmask32 {
-        unsafe { _mm512_cmp_epu16_mask(x.0, y.0, _MM_CMPINT_NLT) }
-    }
-
-    #[inline]
-    fn gt(self, x: U16x32, y: U16x32) -> __mmask32 {
-        unsafe { _mm512_cmp_epu16_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 
     #[inline]
@@ -1001,6 +981,38 @@ unsafe impl NumOps<u16> for Avx512Isa {
     #[inline]
     unsafe fn store_ptr_mask(self, x: U16x32, ptr: *mut u16, mask: __mmask32) {
         unsafe { _mm512_mask_storeu_epi16(ptr as *mut i16, mask, x.0) }
+    }
+}
+
+unsafe impl NumOps<u16> for Avx512Isa {
+    #[inline]
+    fn add(self, x: U16x32, y: U16x32) -> U16x32 {
+        unsafe { _mm512_add_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: U16x32, y: U16x32) -> U16x32 {
+        unsafe { _mm512_sub_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: U16x32, y: U16x32) -> U16x32 {
+        unsafe { _mm512_mullo_epi16(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: U16x32, y: U16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epu16_mask(x.0, y.0, _MM_CMPINT_EQ) }
+    }
+
+    #[inline]
+    fn ge(self, x: U16x32, y: U16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epu16_mask(x.0, y.0, _MM_CMPINT_NLT) }
+    }
+
+    #[inline]
+    fn gt(self, x: U16x32, y: U16x32) -> __mmask32 {
+        unsafe { _mm512_cmp_epu16_mask(x.0, y.0, _MM_CMPINT_NLE) }
     }
 }
 

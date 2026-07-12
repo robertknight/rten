@@ -4,7 +4,7 @@
 //! is just `x.max(0)` which is easy for compilers to auto-vectorize. Variants
 //! such as leaky ReLU however do benefit.
 
-use rten_simd::ops::NumOps;
+use rten_simd::ops::{BitOps, NumOps};
 use rten_simd::{Isa, SimdUnaryOp};
 
 /// Computes the leaky ReLU activation function.

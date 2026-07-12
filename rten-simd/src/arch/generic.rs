@@ -2,8 +2,8 @@ use std::array;
 use std::mem::transmute;
 
 use crate::ops::{
-    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
-    ToFloat,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
+    SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -143,7 +143,7 @@ unsafe impl Isa for GenericIsa {
     }
 }
 
-macro_rules! simd_ops_common {
+macro_rules! bit_ops_common {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
         #[inline]
         fn len(self) -> usize {
@@ -163,7 +163,7 @@ macro_rules! simd_ops_common {
             mask: <$simd as Simd>::Mask,
         ) -> $simd {
             let mask_array = mask.0;
-            let mut vec = <Self as NumOps<$elem>>::zero(self).0;
+            let mut vec = <Self as BitOps<$elem>>::zero(self).0;
             for i in 0..mask_array.len() {
                 if mask_array[i] != 0 {
                     vec[i] = *ptr.add(i);
@@ -181,13 +181,41 @@ macro_rules! simd_ops_common {
         ) {
             let mask_array = mask.0;
             let x_array = x.0;
-            for i in 0..<Self as NumOps<$elem>>::len(self) {
+            for i in 0..<Self as BitOps<$elem>>::len(self) {
                 if mask_array[i] != 0 {
                     *ptr.add(i) = x_array[i];
                 }
             }
         }
 
+        #[inline]
+        fn splat(self, x: $elem) -> $simd {
+            $simd([x; $len])
+        }
+
+        #[inline]
+        unsafe fn load_ptr(self, ptr: *const $elem) -> $simd {
+            let xs = array::from_fn(|i| *ptr.add(i));
+            $simd(xs)
+        }
+
+        #[inline]
+        fn select(self, x: $simd, y: $simd, mask: <$simd as Simd>::Mask) -> $simd {
+            let xs = array::from_fn(|i| if mask.0[i] != 0 { x.0[i] } else { y.0[i] });
+            $simd(xs)
+        }
+
+        #[inline]
+        unsafe fn store_ptr(self, x: $simd, ptr: *mut $elem) {
+            for i in 0..$len {
+                *ptr.add(i) = x.0[i];
+            }
+        }
+    };
+}
+
+macro_rules! num_ops_common {
+    ($simd:ident, $mask:ident) => {
         #[inline]
         fn add(self, x: $simd, y: $simd) -> $simd {
             x.map_with(y, |x, y| x + y)
@@ -233,30 +261,6 @@ macro_rules! simd_ops_common {
         fn max(self, x: $simd, y: $simd) -> $simd {
             x.map_with(y, |x, y| x.max(y))
         }
-
-        #[inline]
-        fn splat(self, x: $elem) -> $simd {
-            $simd([x; $len])
-        }
-
-        #[inline]
-        unsafe fn load_ptr(self, ptr: *const $elem) -> $simd {
-            let xs = array::from_fn(|i| *ptr.add(i));
-            $simd(xs)
-        }
-
-        #[inline]
-        fn select(self, x: $simd, y: $simd, mask: <$simd as Simd>::Mask) -> $simd {
-            let xs = array::from_fn(|i| if mask.0[i] != 0 { x.0[i] } else { y.0[i] });
-            $simd(xs)
-        }
-
-        #[inline]
-        unsafe fn store_ptr(self, x: $simd, ptr: *mut $elem) {
-            for i in 0..$len {
-                *ptr.add(i) = x.0[i];
-            }
-        }
     };
 }
 
@@ -284,10 +288,10 @@ macro_rules! simd_int_ops_common {
     };
 }
 
-unsafe impl NumOps<f32> for GenericIsa {
+unsafe impl BitOps<f32> for GenericIsa {
     type Simd = F32x4;
 
-    simd_ops_common!(F32x4, f32, 4, M32);
+    bit_ops_common!(F32x4, f32, 4, M32);
 
     #[inline]
     fn and(self, x: F32x4, y: F32x4) -> F32x4 {
@@ -308,6 +312,10 @@ unsafe impl NumOps<f32> for GenericIsa {
     fn xor(self, x: F32x4, y: F32x4) -> F32x4 {
         x.map_with(y, |x, y| f32::from_bits(x.to_bits() ^ y.to_bits()))
     }
+}
+
+unsafe impl NumOps<f32> for GenericIsa {
+    num_ops_common!(F32x4, M32);
 }
 
 impl FloatOps<f32> for GenericIsa {
@@ -346,11 +354,15 @@ impl FloatOps<f32> for GenericIsa {
 
 macro_rules! impl_simd_int_ops {
     ($simd:ident, $elem:ty, $len:expr, $mask:ident) => {
-        unsafe impl NumOps<$elem> for GenericIsa {
+        unsafe impl BitOps<$elem> for GenericIsa {
             type Simd = $simd;
 
-            simd_ops_common!($simd, $elem, $len, $mask);
+            bit_ops_common!($simd, $elem, $len, $mask);
             simd_int_ops_common!($simd);
+        }
+
+        unsafe impl NumOps<$elem> for GenericIsa {
+            num_ops_common!($simd, $mask);
         }
 
         impl IntOps<$elem> for GenericIsa {

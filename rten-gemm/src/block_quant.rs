@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use rten_base::iter::range_chunks;
 use rten_base::num::AsUsize;
 use rten_parallel::par_iter::ParIter;
-use rten_simd::ops::{Extend, IntOps, Interleave, NumOps, ToFloat};
+use rten_simd::ops::{BitOps, Extend, IntOps, Interleave, NumOps, ToFloat};
 use rten_simd::{Isa, Simd, SimdOp};
 use rten_tensor::{AsView, AssumeInit, Contiguous, Layout, NdTensor, NdTensorView};
 

@@ -2,7 +2,7 @@
 
 #![allow(clippy::excessive_precision)]
 
-use rten_simd::ops::{FloatOps, IntOps, NumOps};
+use rten_simd::ops::{BitOps, FloatOps, IntOps, NumOps};
 use rten_simd::{Isa, Simd, SimdUnaryOp};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2

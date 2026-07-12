@@ -1,4 +1,4 @@
-use rten_simd::ops::{FloatOps, NumOps};
+use rten_simd::ops::{BitOps, FloatOps, NumOps};
 use rten_simd::{Isa, Simd, SimdIterable, SimdOp};
 
 /// Computes the sum of a sequence of numbers.

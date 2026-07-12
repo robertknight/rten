@@ -21,8 +21,8 @@ use std::arch::wasm32::{f32x4_relaxed_madd, f32x4_relaxed_nmadd};
 
 use super::{lanes, simd_type};
 use crate::ops::{
-    Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps, SignedIntOps,
-    ToFloat,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
+    SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd};
 
@@ -142,7 +142,7 @@ macro_rules! simd_ops_common {
         unsafe fn load_ptr_mask(self, ptr: *const <$simd as Simd>::Elem, mask: $mask) -> $simd {
             type Elem = <$simd as Simd>::Elem;
             let mask_array = Mask::to_array(mask);
-            let mut vec = Simd::to_array(NumOps::<Elem>::zero(self));
+            let mut vec = Simd::to_array(BitOps::<Elem>::zero(self));
             for i in 0..mask_array.len() {
                 if mask_array[i] {
                     vec[i] = *ptr.add(i);
@@ -162,7 +162,7 @@ macro_rules! simd_ops_common {
 
             let mask_array = Mask::to_array(mask);
             let x_array = Simd::to_array(x);
-            for i in 0..NumOps::<Elem>::len(self) {
+            for i in 0..BitOps::<Elem>::len(self) {
                 if mask_array[i] {
                     *ptr.add(i) = x_array[i];
                 }
@@ -196,9 +196,16 @@ macro_rules! simd_ops_common {
     };
 }
 
-unsafe impl NumOps<f32> for Wasm32Isa {
+unsafe impl BitOps<f32> for Wasm32Isa {
     simd_ops_common!(F32x4, M32, i32);
 
+    #[inline]
+    fn splat(self, x: f32) -> F32x4 {
+        F32x4(f32x4_splat(x))
+    }
+}
+
+unsafe impl NumOps<f32> for Wasm32Isa {
     #[inline]
     fn add(self, x: F32x4, y: F32x4) -> F32x4 {
         F32x4(f32x4_add(x.0, y.0))
@@ -262,11 +269,6 @@ unsafe impl NumOps<f32> for Wasm32Isa {
     }
 
     #[inline]
-    fn splat(self, x: f32) -> F32x4 {
-        F32x4(f32x4_splat(x))
-    }
-
-    #[inline]
     fn sum(self, x: F32x4) -> f32 {
         // See https://github.com/WebAssembly/simd/issues/20.
         let lo_2 = x.0;
@@ -325,9 +327,16 @@ impl FloatOps<f32> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<i32> for Wasm32Isa {
+unsafe impl BitOps<i32> for Wasm32Isa {
     simd_ops_common!(I32x4, M32, i32);
 
+    #[inline]
+    fn splat(self, x: i32) -> I32x4 {
+        I32x4(i32x4_splat(x))
+    }
+}
+
+unsafe impl NumOps<i32> for Wasm32Isa {
     #[inline]
     fn add(self, x: I32x4, y: I32x4) -> I32x4 {
         I32x4(i32x4_add(x.0, y.0))
@@ -341,11 +350,6 @@ unsafe impl NumOps<i32> for Wasm32Isa {
     #[inline]
     fn mul(self, x: I32x4, y: I32x4) -> I32x4 {
         I32x4(i32x4_mul(x.0, y.0))
-    }
-
-    #[inline]
-    fn splat(self, x: i32) -> I32x4 {
-        I32x4(i32x4_splat(x))
     }
 
     #[inline]
@@ -413,9 +417,16 @@ impl ToFloat<i32> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<i16> for Wasm32Isa {
+unsafe impl BitOps<i16> for Wasm32Isa {
     simd_ops_common!(I16x8, M16, i16);
 
+    #[inline]
+    fn splat(self, x: i16) -> I16x8 {
+        I16x8(i16x8_splat(x))
+    }
+}
+
+unsafe impl NumOps<i16> for Wasm32Isa {
     #[inline]
     fn add(self, x: I16x8, y: I16x8) -> I16x8 {
         I16x8(i16x8_add(x.0, y.0))
@@ -429,11 +440,6 @@ unsafe impl NumOps<i16> for Wasm32Isa {
     #[inline]
     fn mul(self, x: I16x8, y: I16x8) -> I16x8 {
         I16x8(i16x8_mul(x.0, y.0))
-    }
-
-    #[inline]
-    fn splat(self, x: i16) -> I16x8 {
-        I16x8(i16x8_splat(x))
     }
 
     #[inline]
@@ -503,9 +509,16 @@ impl NarrowSaturate<i16, u8> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<i8> for Wasm32Isa {
+unsafe impl BitOps<i8> for Wasm32Isa {
     simd_ops_common!(I8x16, M8, i8);
 
+    #[inline]
+    fn splat(self, x: i8) -> I8x16 {
+        I8x16(i8x16_splat(x))
+    }
+}
+
+unsafe impl NumOps<i8> for Wasm32Isa {
     #[inline]
     fn add(self, x: I8x16, y: I8x16) -> I8x16 {
         I8x16(i8x16_add(x.0, y.0))
@@ -528,11 +541,6 @@ unsafe impl NumOps<i8> for Wasm32Isa {
         );
 
         I8x16(prod_i8)
-    }
-
-    #[inline]
-    fn splat(self, x: i8) -> I8x16 {
-        I8x16(i8x16_splat(x))
     }
 
     #[inline]
@@ -594,9 +602,16 @@ impl Interleave<i8> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<u8> for Wasm32Isa {
+unsafe impl BitOps<u8> for Wasm32Isa {
     simd_ops_common!(U8x16, M8, i8);
 
+    #[inline]
+    fn splat(self, x: u8) -> U8x16 {
+        U8x16(u8x16_splat(x))
+    }
+}
+
+unsafe impl NumOps<u8> for Wasm32Isa {
     #[inline]
     fn add(self, x: U8x16, y: U8x16) -> U8x16 {
         U8x16(u8x16_add(x.0, y.0))
@@ -622,11 +637,6 @@ unsafe impl NumOps<u8> for Wasm32Isa {
     }
 
     #[inline]
-    fn splat(self, x: u8) -> U8x16 {
-        U8x16(u8x16_splat(x))
-    }
-
-    #[inline]
     fn eq(self, x: U8x16, y: U8x16) -> M8 {
         M8(u8x16_eq(x.0, y.0))
     }
@@ -642,9 +652,16 @@ unsafe impl NumOps<u8> for Wasm32Isa {
     }
 }
 
-unsafe impl NumOps<u16> for Wasm32Isa {
+unsafe impl BitOps<u16> for Wasm32Isa {
     simd_ops_common!(U16x8, M16, u16);
 
+    #[inline]
+    fn splat(self, x: u16) -> U16x8 {
+        U16x8(u16x8_splat(x))
+    }
+}
+
+unsafe impl NumOps<u16> for Wasm32Isa {
     #[inline]
     fn add(self, x: U16x8, y: U16x8) -> U16x8 {
         U16x8(u16x8_add(x.0, y.0))
@@ -658,11 +675,6 @@ unsafe impl NumOps<u16> for Wasm32Isa {
     #[inline]
     fn mul(self, x: U16x8, y: U16x8) -> U16x8 {
         U16x8(u16x8_mul(x.0, y.0))
-    }
-
-    #[inline]
-    fn splat(self, x: u16) -> U16x8 {
-        U16x8(u16x8_splat(x))
     }
 
     #[inline]

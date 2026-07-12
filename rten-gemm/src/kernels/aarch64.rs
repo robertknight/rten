@@ -491,7 +491,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
     ) {
         use rten_simd::{
             Isa, Simd,
-            ops::{Extend, NumOps},
+            ops::{BitOps, Extend},
         };
         use std::arch::aarch64::{vget_low_u16, vmlal_high_laneq_u16, vmlal_laneq_u16};
 
@@ -896,7 +896,7 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
     ) {
         use rten_simd::{
             Isa,
-            ops::{Concat, NumOps},
+            ops::{BitOps, Concat},
         };
 
         const MR: usize = ArmInt8MMKernel::MR;

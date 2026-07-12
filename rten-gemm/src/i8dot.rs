@@ -320,7 +320,7 @@ mod x86_64 {
 
 #[cfg(test)]
 mod tests {
-    use rten_simd::ops::NumOps;
+    use rten_simd::ops::{BitOps, NumOps};
     use rten_simd::{Isa, SimdIterable};
 
     use super::{Int8DotIsa, SimdInt8DotOp};

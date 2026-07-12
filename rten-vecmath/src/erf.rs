@@ -4,7 +4,7 @@
 
 use std::f32::consts::SQRT_2;
 
-use rten_simd::ops::{FloatOps, NumOps};
+use rten_simd::ops::{BitOps, FloatOps, NumOps};
 use rten_simd::{Isa, SimdUnaryOp};
 
 use crate::exp::ReducedRangeExp;
