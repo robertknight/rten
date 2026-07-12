@@ -272,6 +272,26 @@ impl SimdUnaryOp<f32> for Elu {
     }
 }
 
+/// Computes the CELU activation function.
+///
+/// Computes `max(0, x) + min(0, alpha * (exp(x / alpha) - 1))`.
+pub struct Celu {
+    pub alpha: f32,
+}
+
+impl SimdUnaryOp<f32> for Celu {
+    #[inline(always)]
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
+        let ops = isa.f32();
+        let alpha = ops.splat(self.alpha);
+
+        let pos = ops.max(x, ops.zero());
+        let exp = Exp::apply(isa, ops.div(x, alpha));
+        let neg = ops.min(ops.mul(alpha, ops.sub(exp, ops.one())), ops.zero());
+        ops.add(pos, neg)
+    }
+}
+
 /// Computes the Mish activation function.
 ///
 /// Computes `x * tanh(softplus(x))` where `softplus(x) = ln(1 + exp(x))`.
@@ -308,7 +328,7 @@ mod tests {
 
     use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
     use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
-    use crate::{Elu, Exp, Mish, Sigmoid, Silu, Swish};
+    use crate::{Celu, Elu, Exp, Mish, Sigmoid, Silu, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.
     const MAX_EXP_ERROR_ULPS: f32 = 1.0;
@@ -330,6 +350,19 @@ mod tests {
 
     fn reference_swish(x: f32, alpha: f32) -> f32 {
         x * reference_sigmoid(alpha * x)
+    }
+
+    #[test]
+    fn test_celu() {
+        let alpha = 2.0;
+        let test = UnaryOpTester {
+            reference: |x: f32| x.max(0.) + (alpha * ((x / alpha).exp() - 1.)).min(0.),
+            simd: Celu { alpha },
+            range: arange(-6., 6., 0.001),
+            // See `test_selu` for why an absolute tolerance is used.
+            tolerance: Tolerance::Absolute(1e-6),
+        };
+        test.run();
     }
 
     #[test]
