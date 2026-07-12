@@ -1,11 +1,13 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
 use rten_base::byte_cast::{FromByteArray, cast_slice};
 use rten_onnx::onnx;
-use rten_simd::float16::f16_to_f32;
+use rten_simd::{SimdOp, f16};
 use rten_tensor::{ArcTensor, Storage, Tensor};
+use rten_vecmath::{ExtendInit, F16ToF32};
 
 use super::external_data::{DataLoader, DataLocation, DataSlice};
 use super::load_error::{LoadError, LoadErrorImpl, load_error};
@@ -502,18 +504,13 @@ fn load_constant(
             )?
         }
 
-        Some(onnx::DataType::FLOAT16) => {
-            let f16_bytes_to_f32 = |bytes: [u8; 2]| f16_to_f32(u16::from_le_bytes(bytes));
-            convert_constant(
-                name,
-                &shape,
-                raw_data.as_deref(),
-                external_data,
-                &initializer.int32_data,
-                |x| f16_to_f32(x as u16),
-                f16_bytes_to_f32,
-            )?
-        }
+        Some(onnx::DataType::FLOAT16) => convert_f16_constant(
+            name,
+            &shape,
+            raw_data.as_deref(),
+            external_data,
+            &initializer.int32_data,
+        )?,
 
         Some(dtype) => {
             return Err(load_error!(
@@ -644,6 +641,56 @@ where
     } else {
         typed_data.iter().copied().map(convert).collect()
     };
+    let tensor = tensor_from_elements(shape, data, name)?;
+    Ok(Constant::new(name, tensor))
+}
+
+/// View a little-endian byte buffer as a slice of `f16` values without copying.
+///
+/// Returns `None` if the bytes are not `u16`-aligned, have a length that is not
+/// a multiple of 2, or the host is big-endian.
+fn f16_slice_from_le_bytes(bytes: &[u8]) -> Option<&[f16]> {
+    if cfg!(target_endian = "big") {
+        // The reinterpret assumes the bytes are little-endian `f16` bit patterns.
+        return None;
+    }
+    // `cast_slice` checks alignment and length. `f16` is not `FromByteArray`
+    // (it lives in another crate), so cast to `u16` first.
+    let u16s: &[u16] = cast_slice(bytes)?;
+    // Safety: `f16` is `repr(transparent)` over `u16`, so `&[u16]` and `&[f16]`
+    // have identical layout and alignment.
+    Some(unsafe { std::slice::from_raw_parts(u16s.as_ptr() as *const f16, u16s.len()) })
+}
+
+/// Load an f16 constant, converting the elements to f32.
+fn convert_f16_constant(
+    name: Option<&str>,
+    shape: &[usize],
+    raw_data: Option<&[u8]>,
+    external_data: Option<DataSlice>,
+    int32_data: &[i32],
+) -> Result<Constant, LoadError> {
+    let ext_bytes = external_data.as_ref().map(|data| data.data());
+
+    // Obtain the f16 values. Byte buffers are reinterpreted in place, which
+    // requires them to be 2-byte aligned.
+    let f16s: Cow<[f16]> = if let Some(bytes) = raw_data.or(ext_bytes) {
+        let halfs = f16_slice_from_le_bytes(bytes).ok_or_else(|| {
+            load_error!(GraphError, name, "f16 tensor data is not 2-byte aligned")
+        })?;
+        Cow::Borrowed(halfs)
+    } else {
+        int32_data
+            .iter()
+            .map(|&x| f16::from_bits(x as u16))
+            .collect()
+    };
+
+    // Convert f16 -> f32 using SIMD.
+    let n = f16s.len();
+    let mut data: Vec<f32> = Vec::with_capacity(n);
+    data.extend_init(|spare_capacity| F16ToF32::new(&f16s, &mut spare_capacity[..n]).dispatch());
+
     let tensor = tensor_from_elements(shape, data, name)?;
     Ok(Constant::new(name, tensor))
 }
@@ -1318,8 +1365,10 @@ mod tests {
 
         let i64_tensor = external_tensor("i64_tensor", onnx::DataType::INT64, 8, 8);
         let f32_tensor = external_tensor("f32_tensor", onnx::DataType::FLOAT, 16, 4);
-        let bool_tensor = external_tensor("bool_tensor", onnx::DataType::BOOL, 20, 1);
-        let f16_tensor = external_tensor("f16_tensor", onnx::DataType::FLOAT16, 21, 2);
+        // The f16 data must be 2-byte aligned, so place it at an even offset
+        // ahead of the single-byte bool.
+        let f16_tensor = external_tensor("f16_tensor", onnx::DataType::FLOAT16, 20, 2);
+        let bool_tensor = external_tensor("bool_tensor", onnx::DataType::BOOL, 22, 1);
         let f64_tensor = external_tensor("f64_tensor", onnx::DataType::DOUBLE, 23, 8);
 
         let model_proto = onnx::GraphProto::default()
@@ -1331,12 +1380,12 @@ mod tests {
             .into_model();
 
         let mut buf = Vec::new();
-        buf.extend(0i64.to_le_bytes());
-        buf.extend(1i64.to_le_bytes());
-        buf.extend((3.14f32).to_le_bytes());
-        buf.push(1u8);
-        buf.extend([0x00, 0x3C]); // 1.0 in f16
-        buf.extend((1.23f64).to_le_bytes());
+        buf.extend(0i64.to_le_bytes()); // offset 0
+        buf.extend(1i64.to_le_bytes()); // offset 8
+        buf.extend((3.14f32).to_le_bytes()); // offset 16
+        buf.extend([0x00, 0x3C]); // offset 20: 1.0 in f16
+        buf.push(1u8); // offset 22: bool
+        buf.extend((1.23f64).to_le_bytes()); // offset 23
         let loader = MemLoader::from_entries([("test.onnx.data".to_string(), buf)]);
 
         let model = load_model(model_proto, Some(&loader)).unwrap();
