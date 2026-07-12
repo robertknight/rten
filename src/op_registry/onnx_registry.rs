@@ -16,9 +16,11 @@ use super::ReadOpError;
 use crate::graph::Graph;
 use crate::operator::Operator;
 use crate::ops;
+#[cfg(feature = "contrib")]
+use crate::ops::AccuracyLevel;
 use crate::ops::{
-    AccuracyLevel, BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode,
-    Padding, ResizeMode, ScatterReduction,
+    BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
+    ResizeMode, ScatterReduction,
 };
 use crate::value::{DataType, Scalar};
 
@@ -91,6 +93,30 @@ impl OnnxOpRegistry {
                         })
                     }
                     let id = OpId::new(stringify!($op));
+                    reg.register_op_with_factory(id, &stub);
+                }
+            };
+
+            // Variants for ops in a non-default domain. The domain (and op
+            // type, if it differs from the Rust type name) must match the
+            // op's `ReadOp::id`, as it is used to register the stub when the
+            // feature is disabled.
+            ($domain:literal, $op:ident, feature=$feature:literal) => {
+                register_op!($domain, stringify!($op), $op, feature = $feature);
+            };
+
+            ($domain:literal, $op_type:expr, $op:ident, feature=$feature:literal) => {
+                #[cfg(feature = $feature)]
+                reg.register_op::<ops::$op>();
+                #[cfg(not(feature = $feature))]
+                {
+                    fn stub(_op: &onnx::NodeProto, _ctx: &dyn OpLoadContext) -> ReadOpResult {
+                        Err(ReadOpError::FeatureNotEnabled {
+                            name: stringify!($op).to_string(),
+                            feature: $feature.to_string(),
+                        })
+                    }
+                    let id = OpId::with_domain($domain, $op_type);
                     reg.register_op_with_factory(id, &stub);
                 }
             };
@@ -243,16 +269,25 @@ impl OnnxOpRegistry {
         register_op!(Xor);
 
         // ai.onnx experimental
-        register_op!(SimplifiedLayerNormalization);
+        register_op!("ai.onnx", SimplifiedLayerNormalization, feature = "contrib");
 
         // com.microsoft ops.
-        register_op!(BiasGelu);
-        register_op!(GroupQueryAttention);
-        register_op!(MatMulNBits);
-        register_op!(MultiHeadAttention);
-        register_op!(SkipLayerNormalization);
-        register_op!(SkipSimplifiedLayerNormalization);
-        register_op!(RotaryEmbeddingMicrosoft);
+        register_op!("com.microsoft", BiasGelu, feature = "contrib");
+        register_op!("com.microsoft", GroupQueryAttention, feature = "contrib");
+        register_op!("com.microsoft", MatMulNBits, feature = "contrib");
+        register_op!("com.microsoft", MultiHeadAttention, feature = "contrib");
+        register_op!("com.microsoft", SkipLayerNormalization, feature = "contrib");
+        register_op!(
+            "com.microsoft",
+            SkipSimplifiedLayerNormalization,
+            feature = "contrib"
+        );
+        register_op!(
+            "com.microsoft",
+            "RotaryEmbedding",
+            RotaryEmbeddingMicrosoft,
+            feature = "contrib"
+        );
 
         reg
     }
@@ -787,6 +822,7 @@ impl_read_op!(BatchNormalization, |attrs: &Attrs| {
     Ok(ops::BatchNormalization { epsilon })
 });
 
+#[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", BiasGelu, |_attrs: &Attrs| {
     Ok(ops::BiasGelu {})
 });
@@ -1290,6 +1326,7 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
 impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
 
+#[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", MatMulNBits, |attrs: &Attrs| {
     // Spec allows any value between 2 and 8.
     attrs.check_eq("bits", 4)?;
@@ -1380,6 +1417,7 @@ impl_read_op!(Mod, |attrs: &Attrs| {
 
 impl_read_op!(Mul);
 
+#[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", GroupQueryAttention, |attrs: &Attrs| {
     let num_heads = attrs.require("num_heads")?.cast_int()?;
     let kv_num_heads = attrs.require("kv_num_heads")?.cast_int()?;
@@ -1407,6 +1445,7 @@ impl_read_op!("com.microsoft", GroupQueryAttention, |attrs: &Attrs| {
     })
 });
 
+#[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", MultiHeadAttention, |attrs: &Attrs| {
     let mask_filter_value: f32 = attrs.get_as("mask_filter_value").unwrap_or(-10000.0);
     let num_heads = attrs.require("num_heads")?.cast_int()?;
@@ -1673,6 +1712,7 @@ impl_read_op!(Upsample, |attrs: &Attrs| {
     Ok(ParsedOp::new(ops::Upsample { mode }).with_inputs(const_inputs))
 });
 
+#[cfg(feature = "contrib")]
 impl_read_op!(
     "com.microsoft",
     "RotaryEmbedding",
@@ -1764,6 +1804,7 @@ impl_read_op!(Shape, |attrs: &Attrs| {
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
 
+#[cfg(feature = "contrib")]
 impl_read_op!("ai.onnx", SimplifiedLayerNormalization, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     let epsilon = attrs.get_as("epsilon");
@@ -1776,12 +1817,14 @@ impl_read_op!(Sin);
 impl_read_op!(Sinh);
 impl_read_op!(Size);
 
+#[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", SkipLayerNormalization, |attrs: &Attrs| {
     let epsilon = attrs.require("epsilon")?.as_f32();
 
     Ok(ops::SkipLayerNormalization { epsilon })
 });
 
+#[cfg(feature = "contrib")]
 impl_read_op!(
     "com.microsoft",
     SkipSimplifiedLayerNormalization,
@@ -1905,11 +1948,13 @@ mod tests {
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
     use crate::graph::Graph;
     use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
+    #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, GroupQueryAttention, Padding, ResizeMode, RotaryEmbedding,
-        RotaryEmbeddingMicrosoft, Upsample,
+        ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, RotaryEmbedding, Upsample,
     };
+    #[cfg(feature = "contrib")]
+    use crate::ops::{GroupQueryAttention, RotaryEmbeddingMicrosoft};
     use crate::value::Scalar;
 
     #[derive(Default)]
@@ -1948,6 +1993,7 @@ mod tests {
         assert_eq!(op.name(), "MatMul");
     }
 
+    #[cfg(feature = "contrib")]
     #[test]
     fn test_read_domain_op_with_distinct_impl_name() {
         let reg = OnnxOpRegistry::with_all_ops();
@@ -1965,6 +2011,7 @@ mod tests {
         assert_eq!(rotary.name(), "com.microsoft.RotaryEmbedding");
     }
 
+    #[cfg(feature = "contrib")]
     #[test]
     fn test_read_group_query_attention_local_window_size() {
         let reg = OnnxOpRegistry::with_all_ops();
@@ -2010,6 +2057,7 @@ mod tests {
         assert_eq!(rotary.num_heads, 0);
     }
 
+    #[cfg(feature = "contrib")]
     #[test]
     fn test_read_rotary_embedding_microsoft_allows_missing_num_heads() {
         let reg = OnnxOpRegistry::with_all_ops();
@@ -2130,6 +2178,28 @@ mod tests {
         assert!(
             matches!(op, Err(ReadOpError::OperatorUnavailable { name }) if name == Some("com.foobar/MatMul".to_string()))
         );
+    }
+
+    // Contrib ops load when the `contrib` feature is enabled and report which
+    // feature is missing when it is not.
+    #[test]
+    fn test_read_contrib_op() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("MatMulNBits")
+            .with_domain("com.microsoft")
+            .with_attr("bits", 4i64)
+            .with_attr("block_size", 32i64);
+        let result = reg.read_op(&node, &FakeOpLoadContext::default());
+
+        #[cfg(feature = "contrib")]
+        assert!(result.is_ok());
+
+        #[cfg(not(feature = "contrib"))]
+        assert!(matches!(
+            result,
+            Err(ReadOpError::FeatureNotEnabled { name, feature })
+                if name == "MatMulNBits" && feature == "contrib"
+        ));
     }
 
     #[test]

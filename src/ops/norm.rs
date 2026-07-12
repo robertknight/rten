@@ -820,12 +820,12 @@ impl Operator for Softmax {
     }
 }
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 pub use contrib::{
     SimplifiedLayerNormalization, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
 };
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 mod contrib;
 
 #[cfg(test)]

@@ -507,66 +507,6 @@ fn concat_past_kv<'a, 'b>(
     }
 }
 
-/// Build the present key or value cache for grouped-query attention.
-///
-/// `new` contains the new key or value tokens with shape `(batch, seq,
-/// kv_heads, head_size)`. `past`, if present, has shape `(batch, kv_heads,
-/// past_seq, head_size)`. `past_len(b)` is the offset at which batch `b`'s new
-/// tokens are written (which can be less than `past_seq` when the cache is
-/// right-padded). The result has shape `(batch, kv_heads, present_seq,
-/// head_size)`.
-///
-/// The `past` cache is extended in-place if possible.
-fn gqa_present_cache(
-    pool: &BufferPool,
-    past: Option<PastCache>,
-    new: NdTensorView<f32, 4>,
-    past_len: impl Fn(usize) -> usize,
-    present_seq: usize,
-) -> NdTensor<f32, 4> {
-    let [batch, seq, kv_heads, head_size] = new.shape();
-    let past_seq = past.as_ref().map(|p| p.shape()[2]).unwrap_or(0);
-    let is_append = (0..batch).all(|b| past_len(b) == past_seq);
-
-    // Extend owned past cache in-place if possible.
-    let past = match past {
-        Some(PastCache::Owned(mut past)) if is_append && past.has_capacity(2, present_seq) => {
-            // `new` is (batch, seq, kv_heads, head_size); the cache is
-            // (batch, kv_heads, seq, head_size).
-            past.append(2, &new.permuted([0, 2, 1, 3]))
-                .expect("cache has capacity");
-            return past;
-        }
-        past => past,
-    };
-
-    // Otherwise allocate a new present cache with both past and new tokens.
-    let mut present = NdTensor::zeros_in(pool, [batch, kv_heads, present_seq, head_size]);
-    {
-        let past = past.as_ref().map(|p| p.view());
-        for b in 0..batch {
-            let past_b = past_len(b);
-            for h in 0..kv_heads {
-                if let Some(past) = past.as_ref() {
-                    present
-                        .slice_mut((b, h, ..past_b))
-                        .copy_from(&past.slice((b, h, ..past_b)));
-                }
-                present
-                    .slice_mut((b, h, past_b..past_b + seq))
-                    .copy_from(&new.slice((b, .., h)));
-            }
-        }
-    }
-
-    // Return the old owned buffer to the pool.
-    if let Some(PastCache::Owned(past)) = past {
-        past.auto_return(pool);
-    }
-
-    present
-}
-
 /// Compute scaled dot-product attention for a single (batch, head):
 ///
 /// `out = softmax(score_mod(scale · Q Kᵀ)) · V`
@@ -1032,10 +972,10 @@ impl_infer_shapes!(
     }
 );
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 pub use contrib::{GroupQueryAttention, MultiHeadAttention};
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 mod contrib;
 
 #[cfg(test)]

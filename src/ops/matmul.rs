@@ -797,10 +797,10 @@ impl Operator for MatMulIntegerToFloat {
     }
 }
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 pub use contrib::{AccuracyLevel, MatMulNBits};
 
-#[cfg(feature = "onnx_format")]
+#[cfg(feature = "contrib")]
 mod contrib;
 
 #[cfg(test)]
