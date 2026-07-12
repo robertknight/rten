@@ -158,6 +158,7 @@ enum OperatorType: ubyte {
   LpNormalization,
   ReduceLogSum,
   ReduceLogSumExp,
+  Softsign,
 }
 
 enum RNNDirection: ubyte {

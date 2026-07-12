@@ -152,6 +152,7 @@ class OperatorType(object):
     LpNormalization = 142
     ReduceLogSum = 143
     ReduceLogSumExp = 144
+    Softsign = 145
 
 
 class RNNDirection(object):
