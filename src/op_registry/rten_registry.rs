@@ -114,6 +114,7 @@ impl RtenOpRegistry {
         register_op!(BitwiseNot);
         register_op!(BitwiseOr);
         register_op!(BitwiseXor);
+        register_op!(BlackmanWindow);
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
@@ -743,6 +744,15 @@ impl_read_op!(GRU, attrs_as_gruattrs, |attrs: sg::GRUAttrs| {
         linear_before_reset: attrs.linear_before_reset(),
     })
 });
+impl_read_op!(
+    BlackmanWindow,
+    attrs_as_hann_window_attrs,
+    |attrs: sg::HannWindowAttrs| {
+        Ok(ops::BlackmanWindow {
+            periodic: attrs.periodic(),
+        })
+    }
+);
 impl_read_op!(
     HammingWindow,
     attrs_as_hann_window_attrs,

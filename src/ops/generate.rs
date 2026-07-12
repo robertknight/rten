@@ -2,6 +2,7 @@ use std::ops;
 
 use rten_base::num::Identities;
 use rten_shape_inference::ops as shape_ops;
+use rten_simd::SimdUnaryOp;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
@@ -14,6 +15,7 @@ use crate::operator::{
 };
 use crate::ops::{map_dtype, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Scalar, ValueType, ValueView};
+use rten_vecmath as vecmath;
 
 pub fn constant_of_shape<T: Copy>(
     pool: &BufferPool,
@@ -240,19 +242,58 @@ fn cosine_window(size: usize, periodic: bool, coeffs: [f32; 3]) -> Tensor {
         // numpy's window functions.
         return Tensor::full(&[size], 1.);
     }
-    let n = n as f32;
-    (0..size)
-        .map(|i| {
-            let theta = 2. * std::f32::consts::PI * (i as f32) / n;
-            a0 - a1 * theta.cos() + a2 * (2. * theta).cos()
-        })
-        .collect()
+    // Fill the output with `theta = 2 * pi * i / n`, apply a vectorized
+    // cosine, then evaluate the window polynomial. `cos(2 * theta)` is
+    // computed from `cos(theta)` using the double angle formula.
+    let step = 2. * std::f32::consts::PI / (n as f32);
+    let mut data: Vec<f32> = (0..size).map(|i| i as f32 * step).collect();
+    vecmath::Cos::new().map_mut(&mut data);
+    if a2 == 0. {
+        for c in &mut data {
+            *c = a0 - a1 * *c;
+        }
+    } else {
+        for c in &mut data {
+            let cos_2theta = 2. * *c * *c - 1.;
+            *c = a0 - a1 * *c + a2 * cos_2theta;
+        }
+    }
+    Tensor::from_data(&[size], data)
 }
 
 /// Read the scalar `size` input of a window operator.
 fn window_size(size: i32) -> Result<usize, OpError> {
     size.try_into()
         .map_err(|_| OpError::InvalidValue("`size` must be non-negative"))
+}
+
+#[derive(Debug)]
+pub struct BlackmanWindow {
+    pub periodic: bool,
+}
+
+impl Operator for BlackmanWindow {
+    fn name(&self) -> &str {
+        "BlackmanWindow"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let size: i32 = ctx.inputs().require_as(0)?;
+        cosine_window(window_size(size)?, self.periodic, [0.42, 0.5, 0.08]).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // The output shape depends on the value of the `size` input.
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -399,8 +440,47 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::operator::{OpError, OperatorExt};
-    use crate::ops::{ConstantOfShape, EyeLike, HammingWindow, HannWindow, OneHot, range};
+    use crate::ops::{
+        BlackmanWindow, ConstantOfShape, EyeLike, HammingWindow, HannWindow, OneHot, range,
+    };
     use crate::value::{DataType, Scalar, Value};
+
+    #[test]
+    fn test_blackman_window() {
+        // Periodic window of size 4: cos(theta) values are [1, 0, -1, 0] and
+        // cos(2 * theta) values are [1, -1, 1, -1].
+        let op = BlackmanWindow { periodic: true };
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(4)).unwrap();
+        let expected = Tensor::from([
+            0.42 - 0.5 + 0.08,
+            0.42 - 0.08,
+            0.42 + 0.5 + 0.08,
+            0.42 - 0.08,
+        ]);
+        assert!(
+            result
+                .iter()
+                .zip(expected.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+
+        // Symmetric window of size 5.
+        let op = BlackmanWindow { periodic: false };
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(5)).unwrap();
+        let expected = Tensor::from([
+            0.42 - 0.5 + 0.08,
+            0.42 - 0.08,
+            0.42 + 0.5 + 0.08,
+            0.42 - 0.08,
+            0.42 - 0.5 + 0.08,
+        ]);
+        assert!(
+            result
+                .iter()
+                .zip(expected.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+    }
 
     #[test]
     fn test_hamming_window() {

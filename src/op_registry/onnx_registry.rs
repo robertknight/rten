@@ -144,6 +144,7 @@ impl OnnxOpRegistry {
         register_op!(BitwiseNot);
         register_op!(BitwiseOr);
         register_op!(BitwiseXor);
+        register_op!(BlackmanWindow);
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
@@ -1269,6 +1270,18 @@ impl_read_op!(GRU, |attrs: &Attrs| {
     })
 });
 
+impl_read_op!(BlackmanWindow, |attrs: &Attrs| {
+    if let Some(dtype) = attrs.get("output_datatype")
+        && dtype.as_dtype()? != DataType::Float
+    {
+        return Err(ReadOpError::attr_error(
+            "output_datatype",
+            "only float output is supported",
+        ));
+    }
+    let periodic = attrs.get_as("periodic").unwrap_or(true);
+    Ok(ops::BlackmanWindow { periodic })
+});
 impl_read_op!(HammingWindow, |attrs: &Attrs| {
     if let Some(dtype) = attrs.get("output_datatype")
         && dtype.as_dtype()? != DataType::Float

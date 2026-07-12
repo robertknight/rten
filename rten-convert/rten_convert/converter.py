@@ -400,6 +400,13 @@ def op_node_from_onnx_operator(
                 "direction", sg.BitShiftDirection, "LEFT"
             )
 
+        case "BlackmanWindow":
+            attrs = sg.HannWindowAttrsT()
+            attr_reader.check_attr(
+                "output_datatype", "int", TensorProto.DataType.FLOAT
+            )
+            attrs.periodic = bool(attr_reader.get_attr("periodic", "int", 1))
+
         case "Cast":
             attrs = sg.CastAttrsT()
             to = attr_reader.get_attr(
