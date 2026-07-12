@@ -79,7 +79,7 @@ pub(crate) use {
     control_flow::{If, Loop},
     conv::{Conv, ConvInteger, ConvIntegerToFloat},
     conv_transpose::ConvTranspose,
-    convert::{Cast, CastLike},
+    convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
     embedding::RotaryEmbedding,
     gather::{Gather, GatherElements, GatherND, ReverseSequence},
