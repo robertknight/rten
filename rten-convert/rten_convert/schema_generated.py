@@ -154,6 +154,7 @@ class OperatorType(object):
     ThresholdedRelu = 144
     Celu = 145
     Selu = 146
+    Shrink = 147
 
 
 class RNNDirection(object):
@@ -256,6 +257,7 @@ class OperatorAttrs(object):
     RotaryEmbeddingAttrs = 59
     AttentionAttrs = 60
     SeluAttrs = 61
+    ShrinkAttrs = 62
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -383,6 +385,8 @@ def OperatorAttrsCreator(unionType, table):
         return AttentionAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.SeluAttrs:
         return SeluAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.ShrinkAttrs:
+        return ShrinkAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -6774,6 +6778,100 @@ class SeluAttrsT(object):
         return seluAttrs
 
 
+class ShrinkAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ShrinkAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsShrinkAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ShrinkAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # ShrinkAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ShrinkAttrs
+    def Bias(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # ShrinkAttrs
+    def Lambd(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.5
+
+def ShrinkAttrsStart(builder):
+    builder.StartObject(2)
+
+def ShrinkAttrsAddBias(builder, bias):
+    builder.PrependFloat32Slot(0, bias, 0.0)
+
+def ShrinkAttrsAddLambd(builder, lambd):
+    builder.PrependFloat32Slot(1, lambd, 0.5)
+
+def ShrinkAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class ShrinkAttrsT(object):
+
+    # ShrinkAttrsT
+    def __init__(
+        self,
+        bias = 0.0,
+        lambd = 0.5,
+    ):
+        self.bias = bias  # type: float
+        self.lambd = lambd  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        shrinkAttrs = ShrinkAttrs()
+        shrinkAttrs.Init(buf, pos)
+        return cls.InitFromObj(shrinkAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, shrinkAttrs):
+        x = ShrinkAttrsT()
+        x._UnPack(shrinkAttrs)
+        return x
+
+    # ShrinkAttrsT
+    def _UnPack(self, shrinkAttrs):
+        if shrinkAttrs is None:
+            return
+        self.bias = shrinkAttrs.Bias()
+        self.lambd = shrinkAttrs.Lambd()
+
+    # ShrinkAttrsT
+    def Pack(self, builder):
+        ShrinkAttrsStart(builder)
+        ShrinkAttrsAddBias(builder, self.bias)
+        ShrinkAttrsAddLambd(builder, self.lambd)
+        shrinkAttrs = ShrinkAttrsEnd(builder)
+        return shrinkAttrs
+
+
 class TopKAttrs(object):
     __slots__ = ['_tab']
 
@@ -7230,7 +7328,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

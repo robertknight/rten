@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 146;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 147;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 147] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 148] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -165,6 +165,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 147] = [
     OperatorType::ThresholdedRelu,
     OperatorType::Celu,
     OperatorType::Selu,
+    OperatorType::Shrink,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -319,9 +320,10 @@ impl OperatorType {
     pub const ThresholdedRelu: Self = Self(144);
     pub const Celu: Self = Self(145);
     pub const Selu: Self = Self(146);
+    pub const Shrink: Self = Self(147);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 146;
+    pub const ENUM_MAX: u8 = 147;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -470,6 +472,7 @@ impl OperatorType {
         Self::ThresholdedRelu,
         Self::Celu,
         Self::Selu,
+        Self::Shrink,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -621,6 +624,7 @@ impl OperatorType {
             Self::ThresholdedRelu => Some("ThresholdedRelu"),
             Self::Celu => Some("Celu"),
             Self::Selu => Some("Selu"),
+            Self::Shrink => Some("Shrink"),
             _ => None,
         }
     }
@@ -1256,13 +1260,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 61;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 62;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 62] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 63] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1325,6 +1329,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 62] = [
     OperatorAttrs::RotaryEmbeddingAttrs,
     OperatorAttrs::AttentionAttrs,
     OperatorAttrs::SeluAttrs,
+    OperatorAttrs::ShrinkAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1394,9 +1399,10 @@ impl OperatorAttrs {
     pub const RotaryEmbeddingAttrs: Self = Self(59);
     pub const AttentionAttrs: Self = Self(60);
     pub const SeluAttrs: Self = Self(61);
+    pub const ShrinkAttrs: Self = Self(62);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 61;
+    pub const ENUM_MAX: u8 = 62;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1460,6 +1466,7 @@ impl OperatorAttrs {
         Self::RotaryEmbeddingAttrs,
         Self::AttentionAttrs,
         Self::SeluAttrs,
+        Self::ShrinkAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1526,6 +1533,7 @@ impl OperatorAttrs {
             Self::RotaryEmbeddingAttrs => Some("RotaryEmbeddingAttrs"),
             Self::AttentionAttrs => Some("AttentionAttrs"),
             Self::SeluAttrs => Some("SeluAttrs"),
+            Self::ShrinkAttrs => Some("ShrinkAttrs"),
             _ => None,
         }
     }
@@ -10501,6 +10509,137 @@ impl ::core::fmt::Debug for SeluAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ShrinkAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShrinkAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ShrinkAttrs<'a> {
+    type Inner = ShrinkAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> ShrinkAttrs<'a> {
+    pub const VT_BIAS: ::flatbuffers::VOffsetT = 4;
+    pub const VT_LAMBD: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        ShrinkAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args ShrinkAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<ShrinkAttrs<'bldr>> {
+        let mut builder = ShrinkAttrsBuilder::new(_fbb);
+        builder.add_lambd(args.lambd);
+        builder.add_bias(args.bias);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn bias(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(ShrinkAttrs::VT_BIAS, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn lambd(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(ShrinkAttrs::VT_LAMBD, Some(0.5))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for ShrinkAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<f32>("bias", Self::VT_BIAS, false)?
+            .visit_field::<f32>("lambd", Self::VT_LAMBD, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ShrinkAttrsArgs {
+    pub bias: f32,
+    pub lambd: f32,
+}
+impl<'a> Default for ShrinkAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ShrinkAttrsArgs {
+            bias: 0.0,
+            lambd: 0.5,
+        }
+    }
+}
+
+pub struct ShrinkAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ShrinkAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_bias(&mut self, bias: f32) {
+        self.fbb_.push_slot::<f32>(ShrinkAttrs::VT_BIAS, bias, 0.0);
+    }
+    #[inline]
+    pub fn add_lambd(&mut self, lambd: f32) {
+        self.fbb_
+            .push_slot::<f32>(ShrinkAttrs::VT_LAMBD, lambd, 0.5);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> ShrinkAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        ShrinkAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<ShrinkAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for ShrinkAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("ShrinkAttrs");
+        ds.field("bias", &self.bias());
+        ds.field("lambd", &self.lambd());
+        ds.finish()
+    }
+}
 pub enum TopKAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -11902,6 +12041,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_shrink_attrs(&self) -> Option<ShrinkAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ShrinkAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ShrinkAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -11975,6 +12129,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::RotaryEmbeddingAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<RotaryEmbeddingAttrs>>("OperatorAttrs::RotaryEmbeddingAttrs", pos),
           OperatorAttrs::AttentionAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<AttentionAttrs>>("OperatorAttrs::AttentionAttrs", pos),
           OperatorAttrs::SeluAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<SeluAttrs>>("OperatorAttrs::SeluAttrs", pos),
+          OperatorAttrs::ShrinkAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ShrinkAttrs>>("OperatorAttrs::ShrinkAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -12665,6 +12820,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::SeluAttrs => {
                 if let Some(x) = self.attrs_as_selu_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ShrinkAttrs => {
+                if let Some(x) = self.attrs_as_shrink_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

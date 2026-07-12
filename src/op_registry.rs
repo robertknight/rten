@@ -325,6 +325,7 @@ pub mod op_types {
     declare_op!(SequenceInsert);
     declare_op!(SequenceLength);
     declare_op!(Shape);
+    declare_op!(Shrink);
     declare_op!(Sigmoid);
     declare_op!(Sign);
     declare_op!(Sin);

@@ -704,6 +704,23 @@ impl GetKernel<f32> for Selu {
     }
 }
 
+#[derive(Debug)]
+pub struct Shrink {
+    pub bias: f32,
+    pub lambd: f32,
+}
+
+impl_operator!(Shrink, [FloatTensor]);
+
+impl GetKernel<f32> for Shrink {
+    fn get_kernel(&self) -> impl UnaryKernel<f32> + Send + Sync {
+        SimdKernel(vecmath::Shrink {
+            bias: self.bias,
+            lambd: self.lambd,
+        })
+    }
+}
+
 declare_operator!(Sigmoid);
 impl_operator!(Sigmoid, [FloatTensor]);
 impl_operator_fn!(Sigmoid, sigmoid);
@@ -826,7 +843,7 @@ mod tests {
 
     use super::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Celu, Cos, Cosh, Elu, Exp, Gelu, IsInf, IsNaN,
-        Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Selu, Sigmoid, Sign, Silu, Sin, Sinh,
+        Log, Mish, Neg, Not, PRelu, Reciprocal, Relu, Selu, Shrink, Sigmoid, Sign, Silu, Sin, Sinh,
         Softplus, Softsign, Sqrt, Swish, Tan, Tanh, ThresholdedRelu, ceil, clip, clip_in_place,
         erf, floor, hard_sigmoid, hard_swish, leaky_relu, round,
     };
@@ -1258,6 +1275,23 @@ mod tests {
             }
         },
         Tensor::from([-2., -0.5, 0., 0.5, 2.])
+    );
+    test_unary_op!(
+        test_shrink,
+        Shrink {
+            bias: 1.5,
+            lambd: 1.0,
+        },
+        |&x: &f32| {
+            if x < -1.0 {
+                x + 1.5
+            } else if x > 1.0 {
+                x - 1.5
+            } else {
+                0.
+            }
+        },
+        Tensor::from([-3., -1., -0.5, 0., 0.5, 1., 3.])
     );
     test_unary_op!(test_sign, Sign {}, |x: &f32| x.signum());
 

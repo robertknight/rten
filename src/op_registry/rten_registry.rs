@@ -213,6 +213,7 @@ impl RtenOpRegistry {
         register_op!(SequenceInsert);
         register_op!(SequenceLength);
         register_op!(Shape);
+        register_op!(Shrink);
         register_op!(Sigmoid);
         register_op!(Sign);
         register_op!(Sin);
@@ -1075,6 +1076,12 @@ impl_read_op!(Selu, attrs_as_selu_attrs, |attrs: sg::SeluAttrs| {
     Ok(ops::Selu {
         alpha: attrs.alpha(),
         gamma: attrs.gamma(),
+    })
+});
+impl_read_op!(Shrink, attrs_as_shrink_attrs, |attrs: sg::ShrinkAttrs| {
+    Ok(ops::Shrink {
+        bias: attrs.bias(),
+        lambd: attrs.lambd(),
     })
 });
 impl_read_op!(Sigmoid);

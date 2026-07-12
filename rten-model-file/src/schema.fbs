@@ -160,6 +160,7 @@ enum OperatorType: ubyte {
   ThresholdedRelu,
   Celu,
   Selu,
+  Shrink,
 }
 
 enum RNNDirection: ubyte {
@@ -273,6 +274,7 @@ union OperatorAttrs {
   RotaryEmbeddingAttrs,
   AttentionAttrs,
   SeluAttrs,
+  ShrinkAttrs,
 }
 
 table ArgMaxAttrs {
@@ -623,6 +625,11 @@ table DFTAttrs {
 table SeluAttrs {
   alpha:float = 1.6732632;
   gamma:float = 1.0507009;
+}
+
+table ShrinkAttrs {
+  bias:float = 0.0;
+  lambd:float = 0.5;
 }
 
 table TopKAttrs {

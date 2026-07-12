@@ -797,6 +797,11 @@ def op_node_from_onnx_operator(
             attr_reader.generate_input_from_attr(2, "ends", "ints")
             attr_reader.generate_input_from_attr(3, "axes", "ints")
 
+        case "Shrink":
+            attrs = sg.ShrinkAttrsT()
+            attrs.bias = attr_reader.get_attr("bias", "float", 0.0)
+            attrs.lambd = attr_reader.get_attr("lambd", "float", 0.5)
+
         case "Softmax":
             attrs = sg.SoftmaxAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", 0)

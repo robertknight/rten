@@ -244,6 +244,7 @@ impl OnnxOpRegistry {
         register_op!(SequenceInsert);
         register_op!(SequenceLength);
         register_op!(Shape);
+        register_op!(Shrink);
         register_op!(Sigmoid);
         register_op!(Sign);
         register_op!(Sin);
@@ -1815,6 +1816,11 @@ impl_read_op!(Selu, |attrs: &Attrs| {
     let alpha = attrs.get_as("alpha").unwrap_or(1.6732632);
     let gamma = attrs.get_as("gamma").unwrap_or(1.0507009);
     Ok(ops::Selu { alpha, gamma })
+});
+impl_read_op!(Shrink, |attrs: &Attrs| {
+    let bias = attrs.get_as("bias").unwrap_or(0.0);
+    let lambd = attrs.get_as("lambd").unwrap_or(0.5);
+    Ok(ops::Shrink { bias, lambd })
 });
 impl_read_op!(Sigmoid);
 impl_read_op!(Sign);
