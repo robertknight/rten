@@ -169,6 +169,7 @@ impl RtenOpRegistry {
         register_op!(Log);
         register_op!(LogSoftmax);
         register_op!(Loop);
+        register_op!(LpNormalization);
         register_op!(LSTM);
         register_op!(MatMul);
         register_op!(MatMulInteger);
@@ -788,6 +789,16 @@ impl_read_op!(Less);
 impl_read_op!(LessOrEqual);
 impl_read_op!(Log);
 impl_read_op!(LogSoftmax, attrs_as_softmax_attrs, axis);
+impl_read_op!(
+    LpNormalization,
+    attrs_as_lp_normalization_attrs,
+    |attrs: sg::LpNormalizationAttrs| {
+        Ok(ops::LpNormalization {
+            axis: attrs.axis() as isize,
+            p: attrs.p(),
+        })
+    }
+);
 
 impl ReadOp for ops::Loop {
     fn op_type() -> sg::OperatorType {

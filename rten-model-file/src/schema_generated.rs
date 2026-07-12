@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 157;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 158;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 158] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 159] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -176,6 +176,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 158] = [
     OperatorType::ReduceLogSumExp,
     OperatorType::CumProd,
     OperatorType::GlobalLpPool,
+    OperatorType::LpNormalization,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -341,9 +342,10 @@ impl OperatorType {
     pub const ReduceLogSumExp: Self = Self(155);
     pub const CumProd: Self = Self(156);
     pub const GlobalLpPool: Self = Self(157);
+    pub const LpNormalization: Self = Self(158);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 157;
+    pub const ENUM_MAX: u8 = 158;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -503,6 +505,7 @@ impl OperatorType {
         Self::ReduceLogSumExp,
         Self::CumProd,
         Self::GlobalLpPool,
+        Self::LpNormalization,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -665,6 +668,7 @@ impl OperatorType {
             Self::ReduceLogSumExp => Some("ReduceLogSumExp"),
             Self::CumProd => Some("CumProd"),
             Self::GlobalLpPool => Some("GlobalLpPool"),
+            Self::LpNormalization => Some("LpNormalization"),
             _ => None,
         }
     }
@@ -1300,13 +1304,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 64;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 65;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 65] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 66] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1372,6 +1376,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 65] = [
     OperatorAttrs::ShrinkAttrs,
     OperatorAttrs::BitShiftAttrs,
     OperatorAttrs::GlobalLpPoolAttrs,
+    OperatorAttrs::LpNormalizationAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1444,9 +1449,10 @@ impl OperatorAttrs {
     pub const ShrinkAttrs: Self = Self(62);
     pub const BitShiftAttrs: Self = Self(63);
     pub const GlobalLpPoolAttrs: Self = Self(64);
+    pub const LpNormalizationAttrs: Self = Self(65);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 64;
+    pub const ENUM_MAX: u8 = 65;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1513,6 +1519,7 @@ impl OperatorAttrs {
         Self::ShrinkAttrs,
         Self::BitShiftAttrs,
         Self::GlobalLpPoolAttrs,
+        Self::LpNormalizationAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1582,6 +1589,7 @@ impl OperatorAttrs {
             Self::ShrinkAttrs => Some("ShrinkAttrs"),
             Self::BitShiftAttrs => Some("BitShiftAttrs"),
             Self::GlobalLpPoolAttrs => Some("GlobalLpPoolAttrs"),
+            Self::LpNormalizationAttrs => Some("LpNormalizationAttrs"),
             _ => None,
         }
     }
@@ -5518,6 +5526,134 @@ impl ::core::fmt::Debug for LayerNormalizationAttrs<'_> {
         let mut ds = f.debug_struct("LayerNormalizationAttrs");
         ds.field("axis", &self.axis());
         ds.field("epsilon", &self.epsilon());
+        ds.finish()
+    }
+}
+pub enum LpNormalizationAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct LpNormalizationAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for LpNormalizationAttrs<'a> {
+    type Inner = LpNormalizationAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> LpNormalizationAttrs<'a> {
+    pub const VT_AXIS: ::flatbuffers::VOffsetT = 4;
+    pub const VT_P: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        LpNormalizationAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args LpNormalizationAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<LpNormalizationAttrs<'bldr>> {
+        let mut builder = LpNormalizationAttrsBuilder::new(_fbb);
+        builder.add_p(args.p);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(LpNormalizationAttrs::VT_AXIS, Some(-1))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn p(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(LpNormalizationAttrs::VT_P, Some(2))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for LpNormalizationAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<u32>("p", Self::VT_P, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct LpNormalizationAttrsArgs {
+    pub axis: i32,
+    pub p: u32,
+}
+impl<'a> Default for LpNormalizationAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        LpNormalizationAttrsArgs { axis: -1, p: 2 }
+    }
+}
+
+pub struct LpNormalizationAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> LpNormalizationAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(LpNormalizationAttrs::VT_AXIS, axis, -1);
+    }
+    #[inline]
+    pub fn add_p(&mut self, p: u32) {
+        self.fbb_.push_slot::<u32>(LpNormalizationAttrs::VT_P, p, 2);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> LpNormalizationAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        LpNormalizationAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<LpNormalizationAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for LpNormalizationAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("LpNormalizationAttrs");
+        ds.field("axis", &self.axis());
+        ds.field("p", &self.p());
         ds.finish()
     }
 }
@@ -12446,6 +12582,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_lp_normalization_attrs(&self) -> Option<LpNormalizationAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::LpNormalizationAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { LpNormalizationAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -12522,6 +12673,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ShrinkAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ShrinkAttrs>>("OperatorAttrs::ShrinkAttrs", pos),
           OperatorAttrs::BitShiftAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<BitShiftAttrs>>("OperatorAttrs::BitShiftAttrs", pos),
           OperatorAttrs::GlobalLpPoolAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<GlobalLpPoolAttrs>>("OperatorAttrs::GlobalLpPoolAttrs", pos),
+          OperatorAttrs::LpNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<LpNormalizationAttrs>>("OperatorAttrs::LpNormalizationAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -13242,6 +13394,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::GlobalLpPoolAttrs => {
                 if let Some(x) = self.attrs_as_global_lp_pool_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::LpNormalizationAttrs => {
+                if let Some(x) = self.attrs_as_lp_normalization_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

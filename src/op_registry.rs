@@ -282,6 +282,7 @@ pub mod op_types {
     declare_op!(Log);
     declare_op!(LogSoftmax);
     declare_op!(Loop);
+    declare_op!(LpNormalization);
     declare_op!(LSTM);
     declare_op!(MatMul);
     declare_op!(MatMulInteger);

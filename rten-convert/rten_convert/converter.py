@@ -621,6 +621,11 @@ def op_node_from_onnx_operator(
             )
             attrs.body = DummyGraphT(body, None)
 
+        case "LpNormalization":
+            attrs = sg.LpNormalizationAttrsT()
+            attrs.axis = attr_reader.get_attr("axis", "int", -1)
+            attrs.p = attr_reader.get_attr("p", "int", 2)
+
         case "LSTM":
             attrs = sg.LSTMAttrsT()
             attrs.direction = attr_reader.get_enum_attr(

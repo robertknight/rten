@@ -199,6 +199,7 @@ impl OnnxOpRegistry {
         register_op!(Log);
         register_op!(LogSoftmax);
         register_op!(Loop);
+        register_op!(LpNormalization);
         register_op!(LSTM);
         register_op!(MatMul);
         register_op!(MatMulInteger);
@@ -1306,6 +1307,11 @@ impl_read_op!(Less);
 impl_read_op!(LessOrEqual);
 impl_read_op!(Log);
 
+impl_read_op!(LpNormalization, |attrs: &Attrs| {
+    let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
+    let p = attrs.get_as_int("p")?.unwrap_or(2);
+    Ok(ops::LpNormalization { axis, p })
+});
 impl_read_op!(LogSoftmax, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
     Ok(ops::LogSoftmax { axis })
