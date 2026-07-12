@@ -137,6 +137,7 @@ impl OnnxOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitwiseAnd);
         register_op!(BitwiseNot);
         register_op!(Cast);
         register_op!(CastLike);
@@ -905,6 +906,7 @@ impl_read_op!(CastLike, |attrs: &Attrs| {
     attrs.check_eq("round_mode", "up")?;
     Ok(ops::CastLike {})
 });
+impl_read_op!(BitwiseAnd);
 impl_read_op!(BitwiseNot);
 impl_read_op!(Ceil);
 impl_read_op!(Celu, |attrs: &Attrs| {
