@@ -177,6 +177,7 @@ enum OperatorType: ubyte {
   SpaceToDepth,
   Compress,
   Bernoulli,
+  HannWindow,
 }
 
 enum RNNDirection: ubyte {
@@ -298,6 +299,7 @@ union OperatorAttrs {
   SpaceToDepthAttrs,
   CompressAttrs,
   BernoulliAttrs,
+  HannWindowAttrs,
 }
 
 table ArgMaxAttrs {
@@ -495,6 +497,10 @@ table GRUAttrs {
   direction:RNNDirection;
   hidden_size:uint;
   linear_before_reset:bool;
+}
+
+table HannWindowAttrs {
+  periodic:bool = true;
 }
 
 table HardSigmoidAttrs {

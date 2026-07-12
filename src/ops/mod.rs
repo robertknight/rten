@@ -86,7 +86,7 @@ pub(crate) use {
         Compress, Gather, GatherElements, GatherND, ReverseSequence, Scatter, ScatterElements,
         ScatterND, ScatterReduction,
     },
-    generate::{ConstantOfShape, EyeLike, OneHot, Range},
+    generate::{ConstantOfShape, EyeLike, HannWindow, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
     layout::{

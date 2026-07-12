@@ -601,6 +601,13 @@ def op_node_from_onnx_operator(
             )
             attrs.elseBranch = DummyGraphT(else_branch, None)
 
+        case "HannWindow":
+            attrs = sg.HannWindowAttrsT()
+            attr_reader.check_attr(
+                "output_datatype", "int", TensorProto.DataType.FLOAT
+            )
+            attrs.periodic = bool(attr_reader.get_attr("periodic", "int", 1))
+
         case "Hardmax":
             attrs = sg.SoftmaxAttrsT()
             attrs.axis = attr_reader.get_attr("axis", "int", -1)

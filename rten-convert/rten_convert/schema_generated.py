@@ -171,6 +171,7 @@ class OperatorType(object):
     SpaceToDepth = 161
     Compress = 162
     Bernoulli = 163
+    HannWindow = 164
 
 
 class RNNDirection(object):
@@ -281,6 +282,7 @@ class OperatorAttrs(object):
     SpaceToDepthAttrs = 67
     CompressAttrs = 68
     BernoulliAttrs = 69
+    HannWindowAttrs = 70
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -424,6 +426,8 @@ def OperatorAttrsCreator(unionType, table):
         return CompressAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.BernoulliAttrs:
         return BernoulliAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.HannWindowAttrs:
+        return HannWindowAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -4098,6 +4102,86 @@ class GRUAttrsT(object):
         GRUAttrsAddLinearBeforeReset(builder, self.linearBeforeReset)
         gruattrs = GRUAttrsEnd(builder)
         return gruattrs
+
+
+class HannWindowAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = HannWindowAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsHannWindowAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def HannWindowAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # HannWindowAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # HannWindowAttrs
+    def Periodic(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return True
+
+def HannWindowAttrsStart(builder):
+    builder.StartObject(1)
+
+def HannWindowAttrsAddPeriodic(builder, periodic):
+    builder.PrependBoolSlot(0, periodic, 1)
+
+def HannWindowAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class HannWindowAttrsT(object):
+
+    # HannWindowAttrsT
+    def __init__(
+        self,
+        periodic = True,
+    ):
+        self.periodic = periodic  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        hannWindowAttrs = HannWindowAttrs()
+        hannWindowAttrs.Init(buf, pos)
+        return cls.InitFromObj(hannWindowAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, hannWindowAttrs):
+        x = HannWindowAttrsT()
+        x._UnPack(hannWindowAttrs)
+        return x
+
+    # HannWindowAttrsT
+    def _UnPack(self, hannWindowAttrs):
+        if hannWindowAttrs is None:
+            return
+        self.periodic = hannWindowAttrs.Periodic()
+
+    # HannWindowAttrsT
+    def Pack(self, builder):
+        HannWindowAttrsStart(builder)
+        HannWindowAttrsAddPeriodic(builder, self.periodic)
+        hannWindowAttrs = HannWindowAttrsEnd(builder)
+        return hannWindowAttrs
 
 
 class HardSigmoidAttrs(object):
@@ -8008,7 +8092,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT', 'SpaceToDepthAttrsT', 'CompressAttrsT', 'BernoulliAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'SeluAttrsT', 'ShrinkAttrsT', 'BitShiftAttrsT', 'GlobalLpPoolAttrsT', 'LpNormalizationAttrsT', 'MeanVarianceNormalizationAttrsT', 'SpaceToDepthAttrsT', 'CompressAttrsT', 'BernoulliAttrsT', 'HannWindowAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

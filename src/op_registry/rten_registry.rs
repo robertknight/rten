@@ -157,6 +157,7 @@ impl RtenOpRegistry {
         register_op!(GreaterOrEqual);
         register_op!(GridSample);
         register_op!(GRU);
+        register_op!(HannWindow);
         register_op!(Hardmax);
         register_op!(HardSigmoid);
         register_op!(HardSwish);
@@ -741,6 +742,15 @@ impl_read_op!(GRU, attrs_as_gruattrs, |attrs: sg::GRUAttrs| {
         linear_before_reset: attrs.linear_before_reset(),
     })
 });
+impl_read_op!(
+    HannWindow,
+    attrs_as_hann_window_attrs,
+    |attrs: sg::HannWindowAttrs| {
+        Ok(ops::HannWindow {
+            periodic: attrs.periodic(),
+        })
+    }
+);
 impl_read_op!(Hardmax, attrs_as_softmax_attrs, axis);
 impl_read_op!(
     HardSigmoid,

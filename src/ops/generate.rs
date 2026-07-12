@@ -222,6 +222,68 @@ impl Operator for Range {
     }
 }
 
+/// Generate a cosine window of length `size`.
+///
+/// `coeffs` contains the coefficients `[a0, a1, a2]` of the generalized
+/// cosine window `w[n] = a0 - a1 * cos(2*pi*n / N) + a2 * cos(4*pi*n / N)`,
+/// where `N` is `size` for periodic windows and `size - 1` for symmetric
+/// windows.
+fn cosine_window(size: usize, periodic: bool, coeffs: [f32; 3]) -> Tensor {
+    let [a0, a1, a2] = coeffs;
+    let n = if periodic {
+        size
+    } else {
+        size.saturating_sub(1)
+    };
+    if n == 0 {
+        // A symmetric window of length 1 is a single 1.0 value, matching
+        // numpy's window functions.
+        return Tensor::full(&[size], 1.);
+    }
+    let n = n as f32;
+    (0..size)
+        .map(|i| {
+            let theta = 2. * std::f32::consts::PI * (i as f32) / n;
+            a0 - a1 * theta.cos() + a2 * (2. * theta).cos()
+        })
+        .collect()
+}
+
+/// Read the scalar `size` input of a window operator.
+fn window_size(size: i32) -> Result<usize, OpError> {
+    size.try_into()
+        .map_err(|_| OpError::InvalidValue("`size` must be non-negative"))
+}
+
+#[derive(Debug)]
+pub struct HannWindow {
+    pub periodic: bool,
+}
+
+impl Operator for HannWindow {
+    fn name(&self) -> &str {
+        "HannWindow"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let size: i32 = ctx.inputs().require_as(0)?;
+        cosine_window(window_size(size)?, self.periodic, [0.5, 0.5, 0.]).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        // The output shape depends on the value of the `size` input.
+        None
+    }
+}
+
 pub fn eye_like<T: Copy + Default + Identities>(
     pool: &BufferPool,
     shape: [usize; 2],
@@ -301,8 +363,46 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::operator::{OpError, OperatorExt};
-    use crate::ops::{ConstantOfShape, EyeLike, OneHot, range};
+    use crate::ops::{ConstantOfShape, EyeLike, HannWindow, OneHot, range};
     use crate::value::{DataType, Scalar, Value};
+
+    #[test]
+    fn test_hann_window() {
+        // Periodic window.
+        let op = HannWindow { periodic: true };
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(4)).unwrap();
+        let expected = Tensor::from([0., 0.5, 1., 0.5]);
+        assert!(
+            result
+                .iter()
+                .zip(expected.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+
+        // Symmetric window.
+        let op = HannWindow { periodic: false };
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(5)).unwrap();
+        let expected = Tensor::from([0., 0.5, 1., 0.5, 0.]);
+        assert!(
+            result
+                .iter()
+                .zip(expected.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+
+        // Edge cases: windows of size 1 and 0.
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(1)).unwrap();
+        assert_eq!(result, Tensor::from([1.]));
+        let result: Tensor<f32> = op.run_simple(&Tensor::from(0)).unwrap();
+        assert_eq!(result.size(0), 0);
+
+        // Negative size.
+        let result: Result<Tensor<f32>, OpError> = op.run_simple(&Tensor::from(-1));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("`size` must be non-negative"))
+        );
+    }
 
     #[test]
     fn test_constant_of_shape() {
