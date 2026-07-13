@@ -472,6 +472,41 @@ pub unsafe trait BitOps<T: Elem>: Copy {
         }
     }
 
+    /// Store `N` vectors into consecutive sub-slices of `xs`, returning the
+    /// initialized portion.
+    ///
+    /// This can be faster than [`store_uninit`](Self::store_uninit) when
+    /// storing several vectors as it only performs a single bounds check.
+    ///
+    /// Panics if `xs.len() < self.len() * N`.
+    #[inline(always)]
+    fn store_many_uninit<const N: usize>(
+        self,
+        vecs: [Self::Simd; N],
+        xs: &mut [MaybeUninit<T>],
+    ) -> &mut [T] {
+        let v_len = self.len();
+        let total = v_len * N;
+
+        // Bounds-check the whole batch up front. The panic message is kept
+        // simple with no arguments. Adding arguments was observed to cause
+        // stack writes, slowing down calls to this function in hot loops.
+        assert!(
+            xs.len() >= total,
+            "slice length too short for SIMD vector array"
+        );
+        let dest_ptr = xs.as_mut_ptr() as *mut T;
+
+        for (i, vec) in vecs.into_iter().enumerate() {
+            // Safety: `xs` holds at least `total = N * v_len` elements, so the
+            // store of `v_len` elements at offset `i * v_len` (i in `0..N`)
+            // stays in bounds.
+            unsafe { self.store_ptr(vec, dest_ptr.add(i * v_len)) };
+        }
+        // Safety: the loop initialized `total` elements of `xs`.
+        unsafe { std::slice::from_raw_parts_mut(dest_ptr, total) }
+    }
+
     /// Store the values in this vector to a memory location, where the
     /// corresponding mask element is set.
     ///
@@ -791,6 +826,20 @@ mod tests {
                         let xs = ops.load_many::<2>(&src);
                         assert_simd_eq!(xs[0], ops.load(&src));
                         assert_simd_eq!(xs[1], ops.load(&src[ops.len()..]));
+                    })
+                }
+
+                #[test]
+                fn test_store_many_uninit() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let src: Vec<_> = (0..ops.len() * 2).map(|x| x as $elem).collect();
+                        let xs = ops.load_many::<2>(&src);
+
+                        let mut dest = Vec::with_capacity(src.len());
+                        let init = ops.store_many_uninit(xs, dest.spare_capacity_mut());
+                        assert_eq!(init, &src[..]);
                     })
                 }
 
