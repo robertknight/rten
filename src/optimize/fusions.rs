@@ -415,7 +415,9 @@ impl PatternFusion for GeluFusion {
 
     fn pattern(&self) -> Pattern {
         let x = Pattern::symbol("x");
-        x.clone() * (Pattern::unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5
+        let sqrt_2 = (2.0f32).sqrt();
+        let x_scaled = Pattern::any_of([x.clone() / sqrt_2, x.clone() * (1. / sqrt_2)].into());
+        x.clone() * (Pattern::unary_op("Erf", x_scaled) + 1.0) * 0.5
     }
 
     fn inputs(&self) -> &[&str] {
