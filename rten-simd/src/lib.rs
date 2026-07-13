@@ -213,6 +213,7 @@
 mod arch;
 mod dispatch;
 mod elem;
+pub mod float16;
 pub mod functional;
 pub mod isa_detection;
 mod iter;
@@ -246,6 +247,7 @@ pub mod isa {
 
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use elem::Elem;
+pub use float16::f16;
 pub use iter::{Iter, SimdIterable};
 pub use ops::Isa;
 pub use simd::{Mask, Simd};

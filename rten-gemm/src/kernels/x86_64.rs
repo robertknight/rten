@@ -1030,7 +1030,7 @@ unsafe fn avx512_vnni_u8i8i32_dot_product(a: I8x64, b: I8x64, mut c: I32x16) -> 
 /// notes in [`is_avx512_supported`].
 fn detect_avx512_vnni() -> bool {
     use core::arch::x86_64::__cpuid_count;
-    let regs = unsafe { __cpuid_count(7, 0) };
+    let regs = __cpuid_count(7, 0);
     regs.ecx & (1 << 11) != 0
 }
 

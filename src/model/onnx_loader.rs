@@ -3,8 +3,8 @@ use std::fs::File;
 use std::path::Path;
 
 use rten_base::byte_cast::{FromByteArray, cast_slice};
-use rten_base::half::f16_to_f32;
 use rten_onnx::onnx;
+use rten_simd::float16::f16_to_f32;
 use rten_tensor::{ArcTensor, Storage, Tensor};
 
 use super::external_data::{DataLoader, DataLocation, DataSlice};
@@ -1054,8 +1054,8 @@ fn add_operator(
 
 #[cfg(test)]
 mod tests {
-    use rten_base::half::{f16_to_f32, f32_to_f16};
     use rten_onnx::onnx;
+    use rten_simd::float16::{f16_to_f32, f32_to_f16};
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 

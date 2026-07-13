@@ -18,8 +18,8 @@ jobs:
       uses: actions/checkout@v4
     - name: Install and use MSRV Rust toolchain
       run: |
-        rustup toolchain install 1.93.0 --component clippy,rustfmt
-        rustup override set 1.93.0
+        rustup toolchain install 1.94.0 --component clippy,rustfmt
+        rustup override set 1.94.0
     - name: Verify Rust version
       run: |
         rustc --version

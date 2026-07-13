@@ -1,6 +1,7 @@
 use std::array;
 use std::mem::transmute;
 
+use crate::f16;
 use crate::ops::{
     BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
     SignedIntOps, ToFloat,
@@ -54,6 +55,7 @@ simd_type!(I8x16, i8, LEN_X32 * 4);
 simd_type!(U8x16, u8, LEN_X32 * 4);
 simd_type!(U16x8, u16, LEN_X32 * 2);
 simd_type!(U32x4, u32, LEN_X32);
+simd_type!(F16x8, f16, LEN_X32 * 2);
 
 // Define mask vector types. `Mn` is a mask for a vector with n-bit lanes.
 simd_type!(M32, i32, LEN_X32);
@@ -89,9 +91,17 @@ unsafe impl Isa for GenericIsa {
     type U8 = U8x16;
     type U16 = U16x8;
     type U32 = U32x4;
+    type F16 = F16x8;
     type Bits = I32x4;
 
-    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
+    fn f32(
+        self,
+    ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
+    + NarrowSaturate<f32, f16, Output = Self::F16> {
+        self
+    }
+
+    fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16> {
         self
     }
 
@@ -517,6 +527,57 @@ macro_rules! impl_narrow {
 impl_narrow!(I32x4, i32, I16x8, i16);
 impl_narrow!(I16x8, i16, U8x16, u8);
 
+unsafe impl BitOps<f16> for GenericIsa {
+    type Simd = F16x8;
+
+    bit_ops_common!(F16x8, f16, 8, M16);
+
+    #[inline]
+    fn and(self, x: F16x8, y: F16x8) -> F16x8 {
+        x.map_with(y, |x, y| f16::from_bits(x.to_bits() & y.to_bits()))
+    }
+
+    #[inline]
+    fn not(self, x: F16x8) -> F16x8 {
+        x.map(|x| f16::from_bits(!x.to_bits()))
+    }
+
+    #[inline]
+    fn or(self, x: F16x8, y: F16x8) -> F16x8 {
+        x.map_with(y, |x, y| f16::from_bits(x.to_bits() | y.to_bits()))
+    }
+
+    #[inline]
+    fn xor(self, x: F16x8, y: F16x8) -> F16x8 {
+        x.map_with(y, |x, y| f16::from_bits(x.to_bits() ^ y.to_bits()))
+    }
+}
+
+impl Extend<f16> for GenericIsa {
+    type Output = F32x4;
+
+    fn extend(self, x: F16x8) -> (F32x4, F32x4) {
+        let vals = x.0.map(|v| v.to_f32());
+        let mid = vals.len() / 2;
+        let low = array::from_fn(|i| vals[i]);
+        let high = array::from_fn(|i| vals[i + mid]);
+        (low.into(), high.into())
+    }
+}
+
+impl NarrowSaturate<f32, f16> for GenericIsa {
+    type Output = F16x8;
+
+    fn narrow_saturate(self, low: F32x4, high: F32x4) -> F16x8 {
+        let mid = low.0.len();
+        let xs = array::from_fn(|i| {
+            let v = if i < mid { low.0[i] } else { high.0[i - mid] };
+            f16::from_f32(v)
+        });
+        F16x8(xs)
+    }
+}
+
 macro_rules! impl_mask {
     ($mask:ident, $len:expr) => {
         impl Mask for $mask {
@@ -582,6 +643,7 @@ macro_rules! impl_simd {
 }
 
 impl_simd!(F32x4, f32, M32, 4);
+impl_simd!(F16x8, f16, M16, 8);
 impl_simd!(I32x4, i32, M32, 4);
 impl_simd!(I16x8, i16, M16, 8);
 impl_simd!(I8x16, i8, M8, 16);

@@ -7,23 +7,25 @@ use std::arch::x86_64::{
     _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi8,
     _mm256_cmpeq_epi16, _mm256_cmpeq_epi32, _mm256_cmpgt_epi8, _mm256_cmpgt_epi16,
     _mm256_cmpgt_epi32, _mm256_cvtepi8_epi16, _mm256_cvtepi16_epi32, _mm256_cvtepi32_ps,
-    _mm256_cvtepu8_epi16, _mm256_cvtps_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_extracti128_si256, _mm256_fmadd_ps, _mm256_fnmadd_ps,
-    _mm256_insertf128_si256, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_maskload_epi32,
-    _mm256_maskload_ps, _mm256_maskstore_epi32, _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps,
-    _mm256_movemask_epi8, _mm256_mul_ps, _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps,
-    _mm256_or_si256, _mm256_packs_epi32, _mm256_packus_epi16, _mm256_permute2x128_si256,
-    _mm256_permute4x64_epi64, _mm256_round_ps, _mm256_set_m128i, _mm256_set1_epi8,
-    _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256,
-    _mm256_slli_epi16, _mm256_slli_epi32, _mm256_srai_epi16, _mm256_srai_epi32, _mm256_srli_epi16,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi8, _mm256_sub_epi16, _mm256_sub_epi32,
-    _mm256_sub_ps, _mm256_unpackhi_epi8, _mm256_unpackhi_epi16, _mm256_unpacklo_epi8,
-    _mm256_unpacklo_epi16, _mm256_xor_ps, _mm256_xor_si256,
+    _mm256_cvtepu8_epi16, _mm256_cvtph_ps, _mm256_cvtps_epi32, _mm256_cvtps_ph,
+    _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps, _mm256_extracti128_si256,
+    _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_insertf128_si256, _mm256_loadu_ps,
+    _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32,
+    _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps, _mm256_movemask_epi8, _mm256_mul_ps,
+    _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps, _mm256_or_si256, _mm256_packs_epi32,
+    _mm256_packus_epi16, _mm256_permute2x128_si256, _mm256_permute4x64_epi64, _mm256_round_ps,
+    _mm256_set_m128i, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_ps,
+    _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32,
+    _mm256_srai_epi16, _mm256_srai_epi32, _mm256_srli_epi16, _mm256_storeu_ps, _mm256_storeu_si256,
+    _mm256_sub_epi8, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_ps, _mm256_unpackhi_epi8,
+    _mm256_unpackhi_epi16, _mm256_unpacklo_epi8, _mm256_unpacklo_epi16, _mm256_xor_ps,
+    _mm256_xor_si256,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
+use crate::f16;
 use crate::ops::{
     BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
     SignedIntOps, ToFloat,
@@ -31,6 +33,7 @@ use crate::ops::{
 use crate::{Isa, Mask, Simd};
 
 simd_type!(F32x8, __m256, f32, M32, Avx2Isa);
+simd_type!(F16x16, __m256i, f16, M16, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, M32, Avx2Isa);
 simd_type!(I16x16, __m256i, i16, M16, Avx2Isa);
 simd_type!(I8x32, __m256i, i8, M8, Avx2Isa);
@@ -45,7 +48,10 @@ pub struct Avx2Isa {
 
 impl Avx2Isa {
     pub fn new() -> Option<Self> {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+        if is_x86_feature_detected!("avx2")
+            && is_x86_feature_detected!("fma")
+            && is_x86_feature_detected!("f16c")
+        {
             Some(Avx2Isa { _private: () })
         } else {
             None
@@ -65,9 +71,17 @@ unsafe impl Isa for Avx2Isa {
     type U8 = U8x32;
     type U16 = U16x16;
     type U32 = U32x8;
+    type F16 = F16x16;
     type Bits = I32x8;
 
-    fn f32(self) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32> {
+    fn f32(
+        self,
+    ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
+    + NarrowSaturate<f32, f16, Output = Self::F16> {
+        self
+    }
+
+    fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16> {
         self
     }
 
@@ -1025,6 +1039,95 @@ impl IntOps<u16> for Avx2Isa {
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: U16x16) -> U16x16 {
         unsafe { _mm256_srli_epi16(x.0, SHIFT) }.into()
+    }
+}
+
+unsafe impl BitOps<f16> for Avx2Isa {
+    simd_ops_common!(F16x16, M16);
+    simd_int_ops_common!(F16x16);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> M16 {
+        let mask: [i16; 16] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        M16(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
+    }
+
+    #[inline]
+    fn splat(self, x: f16) -> F16x16 {
+        unsafe { _mm256_set1_epi16(x.to_bits() as i16) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const f16) -> F16x16 {
+        unsafe { _mm256_loadu_si256(ptr as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: F16x16, y: F16x16, mask: M16) -> F16x16 {
+        unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: F16x16, ptr: *mut f16) {
+        unsafe { _mm256_storeu_si256(ptr as *mut __m256i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const f16, mask: M16) -> F16x16 {
+        // There is no native masked-load instruction for 16-bit lanes, so fall
+        // back to scalar loads.
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        let xs: [f16; 16] = std::array::from_fn(|i| {
+            let mask_bit = mask & (1 << (i * 2 + 1));
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) }
+            } else {
+                f16::default()
+            }
+        });
+        self.load_ptr(xs.as_ptr())
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: F16x16, ptr: *mut f16, mask: M16) {
+        // There is no native masked-store instruction for 16-bit lanes, so fall
+        // back to scalar store.
+        let xs = Simd::to_array(x);
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        for i in 0..16 {
+            let mask_bit = mask & (1 << (i * 2 + 1));
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) = xs[i] }
+            }
+        }
+    }
+}
+
+impl Extend<f16> for Avx2Isa {
+    type Output = F32x8;
+
+    #[inline]
+    fn extend(self, x: F16x16) -> (F32x8, F32x8) {
+        unsafe {
+            let low = _mm256_castsi256_si128(x.0);
+            let high = _mm256_extracti128_si256(x.0, 1);
+            (_mm256_cvtph_ps(low).into(), _mm256_cvtph_ps(high).into())
+        }
+    }
+}
+
+impl NarrowSaturate<f32, f16> for Avx2Isa {
+    type Output = F16x16;
+
+    #[inline]
+    fn narrow_saturate(self, low: F32x8, high: F32x8) -> F16x16 {
+        unsafe {
+            let low_i128 = _mm256_cvtps_ph::<_MM_FROUND_TO_NEAREST_INT>(low.0);
+            let high_i128 = _mm256_cvtps_ph::<_MM_FROUND_TO_NEAREST_INT>(high.0);
+            _mm256_set_m128i(high_i128, low_i128).into()
+        }
     }
 }
 
