@@ -539,6 +539,10 @@ fn test_fuse_gelu() {
         Case {
             build: |x| x.clone() * ((x / (2.0f32).sqrt()).erf() + 1.0) * 0.5,
         },
+        // Erf argument expressed as `x * 1/sqrt(2)` instead of `x / sqrt(2)`
+        Case {
+            build: |x| x.clone() * ((x * 1. / (2.0f32).sqrt()).erf() + 1.0) * 0.5,
+        },
         // Scale-first form: `(x * 0.5) * (1 + erf(x / sqrt(2)))`
         Case {
             build: |x| x.clone() * 0.5 * ((x / (2.0f32).sqrt()).erf() + 1.0),
