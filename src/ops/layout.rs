@@ -347,32 +347,33 @@ fn resolve_shape(
         }
     }
 
-    let input_len = input_shape.iter().product();
-    let (unspecified_dim_size, remainder) = match input_len {
-        0 => (0, 0),
-        _ => {
-            #[allow(clippy::manual_checked_ops)]
-            if specified_dims_size == 0 {
-                // If `specified_dims_size` is zero but `input_len` is non-zero,
-                // this means that the target shape doesn't match the input length.
-                //
-                // Return a non-zero remainder here to cause the appropriate
-                // error to be returned.
-                (0, 1)
-            } else {
-                (
-                    input_len / specified_dims_size,
-                    input_len % specified_dims_size,
-                )
-            }
-        }
+    let input_len: usize = input_shape.iter().product();
+    let length_mismatch = || {
+        Err(OpError::InvalidValue(
+            "Input length does not match target shape",
+        ))
     };
 
-    if remainder != 0 || (unspecified_dim.is_none() && unspecified_dim_size > 1) {
-        return Err(OpError::InvalidValue(
-            "Input length does not match target shape",
-        ));
-    }
+    let unspecified_dim_size = if unspecified_dim.is_some() {
+        if specified_dims_size == 0 {
+            // The ONNX spec makes a target shape containing both a zero and a
+            // `-1` invalid, as the size of the `-1` dim cannot be determined
+            // uniquely when the other dims multiply to zero.
+            return Err(OpError::InvalidValue(
+                "Cannot infer size of -1 dim when other dims are zero",
+            ));
+        } else if !input_len.is_multiple_of(specified_dims_size) {
+            return length_mismatch();
+        } else {
+            input_len / specified_dims_size
+        }
+    } else {
+        if specified_dims_size != input_len {
+            return length_mismatch();
+        }
+        // Unused, as the target shape has no `-1` dim.
+        0
+    };
 
     Ok(shape
         .iter()
@@ -1118,6 +1119,33 @@ mod tests {
                 allow_zero: false,
                 expected: Err(OpError::InvalidValue(
                     "Input length does not match target shape",
+                )),
+            },
+            // Attempted reshape of zero-length input to non-zero length output.
+            Case {
+                input: &[1, 2, 256, 0],
+                shape: &[1, 512, 256],
+                allow_zero: false,
+                expected: Err(OpError::InvalidValue(
+                    "Input length does not match target shape",
+                )),
+            },
+            // Zero dim combined with -1, allow_zero=true
+            Case {
+                input: &[0, 4],
+                shape: &[0, -1],
+                allow_zero: true,
+                expected: Err(OpError::InvalidValue(
+                    "Cannot infer size of -1 dim when other dims are zero",
+                )),
+            },
+            // Zero dim combined with -1, allow_zero=false
+            Case {
+                input: &[0, 4],
+                shape: &[0, -1],
+                allow_zero: false,
+                expected: Err(OpError::InvalidValue(
+                    "Cannot infer size of -1 dim when other dims are zero",
                 )),
             },
         ];
