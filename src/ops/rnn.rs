@@ -1,10 +1,11 @@
 use std::iter::Rev;
 use std::ops::Range;
 
-use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmOptions};
+use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmOptions, GemmUninitOptions};
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor};
+use rten_vecmath::ExtendInit;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
@@ -143,10 +144,14 @@ pub fn gru(
         ));
     }
 
-    let [seq_len, batch, _input_size] = input.shape();
+    let [seq_len, batch, input_size] = input.shape();
     let [_directions, hidden_x3, _input_size] = weights.shape();
     let num_directions = direction.num_directions();
     let hidden_size = hidden_x3 / 3;
+
+    // Contiguous input needed so it can be reshaped into a matrix below.
+    let input = input.to_contiguous_in(pool).auto_return(pool);
+    let input_mat = input.view().reshaped([seq_len * batch, input_size]);
 
     let mut hidden = initial_hidden
         .map(|t| t.to_tensor_in(pool))
@@ -159,7 +164,6 @@ pub fn gru(
     const HIDDEN_GATE: usize = 2;
 
     let n_gates = 3;
-    let mut gates = NdTensor::zeros_in(pool, [batch, n_gates * hidden_size]).auto_return(pool);
     let gate_range = |gate| (gate * hidden_size)..((gate + 1) * hidden_size);
 
     // Scratch space for output of `hidden_state @ hidden_weights` matmul.
@@ -170,13 +174,24 @@ pub fn gru(
     for dir in 0..num_directions {
         let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
+        // Compute `input @ input_weights` for all gates and timesteps in one
+        // GEMM. This does not depend on the hidden state, so it can be done
+        // for the whole sequence at once.
         let input_weights = weights.slice(dir).transposed();
-        let packed_input_weights =
-            prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
-        let input_weights = packed_input_weights
-            .as_ref()
-            .map(|packed| GemmInputB::Packed(packed))
-            .unwrap_or(GemmInputB::Unpacked(input_weights));
+        let proj_len = seq_len * batch * n_gates * hidden_size;
+        let mut input_proj = pool.alloc(proj_len);
+        input_proj.extend_init(|uninit| {
+            gemm.gemm_uninit(
+                &mut uninit[..proj_len],
+                GemmInputA::Unpacked(input_mat.view()),
+                GemmInputB::Unpacked(input_weights),
+                GemmUninitOptions::default(),
+            )
+            .unwrap()
+        });
+        let mut input_proj =
+            NdTensor::from_data([seq_len, batch, n_gates * hidden_size], input_proj)
+                .auto_return(pool);
 
         let hidden_weights = recurrent_weights.slice(dir).transposed();
         let packed_hidden_weights =
@@ -194,7 +209,6 @@ pub fn gru(
             .map(|b| b.slice((dir, (n_gates * hidden_size)..)));
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
-            let in_item = input.slice([seq]);
             let hidden_item = hidden.slice([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
@@ -222,14 +236,8 @@ pub fn gru(
             // combined into two: one for `input @ input_weights`, one for
             // `hidden @ hidden_weights`.
 
-            // Compute `input @ weights + bias` for all gates.
-            gemm.gemm(
-                gates.data_mut().expect("expected contiguous input"),
-                GemmInputA::Unpacked(in_item),
-                input_weights,
-                GemmOptions::default(),
-            )
-            .unwrap();
+            // Add bias to `input @ weights` for all gates.
+            let mut gates = input_proj.slice_mut([seq]);
             if let Some(input_bias) = input_bias {
                 add_in_place(gates.as_dyn_mut(), input_bias.as_dyn());
             }
