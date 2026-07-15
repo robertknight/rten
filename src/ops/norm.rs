@@ -599,12 +599,12 @@ pub fn log_softmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<
     Ok(output)
 }
 
-/// Grain size for parallelizing softmax.
-const SOFTMAX_GRAIN_SIZE: usize = 1024;
+/// Grain size for parallelizing [`normalize_lanes`].
+const NORMALIZE_GRAIN_SIZE: usize = 1024;
 
 /// Apply an operation `op` to all 1D lanes of the tensor along a given axis.
-fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
-    output: &mut Tensor,
+fn normalize_lanes<T: Clone + Send, F: Fn(&mut [T]) + Send + Sync>(
+    output: &mut Tensor<T>,
     axis: isize,
     apply_op: F,
 ) -> Result<(), OpError> {
@@ -617,8 +617,8 @@ fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
     // allows the `apply_op` function to use optimized code that works with
     // contiguous slices.
     //
-    // In the common case where softmax is applied over the last dimension of
-    // an already-contiguous tensor, the data is already laid out in the
+    // In the common case where normalization is applied over the last dimension
+    // of an already-contiguous tensor, the data is already laid out in the
     // ideal order.
     if resolved_axis != output.ndim() - 1 {
         output.move_axis(resolved_axis, output.ndim() - 1);
@@ -631,7 +631,7 @@ fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
         output.size(output.ndim() - 1)
     };
 
-    let grain_size = SOFTMAX_GRAIN_SIZE.max(lane_size);
+    let grain_size = NORMALIZE_GRAIN_SIZE.max(lane_size);
     let n_grains = output.len().div_ceil(grain_size);
 
     let out_data = output.data_mut().unwrap();
@@ -656,7 +656,7 @@ fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
 }
 
 pub fn log_softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
-    softmax_lanes(output, axis, |lane| {
+    normalize_lanes(output, axis, |lane| {
         // This operator computes:
         //
         //   log(exp(xi) / sum(exp(x)))
@@ -753,7 +753,7 @@ pub fn softmax_in_place(
         NanHandling::KeepNans => false,
         NanHandling::FlushToZero => true,
     };
-    softmax_lanes(output, axis, |lane| {
+    normalize_lanes(output, axis, |lane| {
         vecmath::Softmax::new_mut(lane)
             .flush_nans_to_zero(flush_nans)
             .dispatch();
@@ -838,7 +838,7 @@ mod tests {
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
     use rten_testing::TestCases;
 
-    use super::SOFTMAX_GRAIN_SIZE;
+    use super::NORMALIZE_GRAIN_SIZE;
     use super::{
         NanHandling, batch_norm, batch_norm_in_place, instance_normalization, layer_normalization,
         log_softmax, rms_normalization, softmax,
@@ -1252,7 +1252,7 @@ mod tests {
 
         // "Large" output, where output size exceeds the parallelism grain size.
         let mut rng = XorShiftRng::new(1234);
-        let input = Tensor::rand(&[4, SOFTMAX_GRAIN_SIZE / 2], &mut rng);
+        let input = Tensor::rand(&[4, NORMALIZE_GRAIN_SIZE / 2], &mut rng);
         let result = softmax(&pool, input.view(), 1, NanHandling::KeepNans).unwrap();
         check_result(result);
     }
