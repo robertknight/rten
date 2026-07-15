@@ -15,7 +15,6 @@ use crate::operator::{
     OutputTypeList, OutputTypesContext, check_eq,
 };
 use crate::ops::resolve_axis;
-use crate::slice_reductions::slice_max;
 
 /// Specifies how to normalize the mean and variance.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -657,28 +656,7 @@ fn normalize_lanes<T: Clone + Send, F: Fn(&mut [T]) + Send + Sync>(
 
 pub fn log_softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
     normalize_lanes(output, axis, |lane| {
-        // This operator computes:
-        //
-        //   log(exp(xi) / sum(exp(x)))
-        //
-        // Improve numerical stability by first subtracting max value, as we do
-        // for the softmax op:
-        //
-        //   log(exp(xi - xmax) / sum(exp(x - xmax)))
-        //
-        // Then using log identities to simplify:
-        //
-        //   = log(exp(xi - xmax)) - log(sum(exp(x - xmax)))
-        //   = xi - xmax - log(sum(exp(x - xmax)))
-
-        let max_val = slice_max(lane);
-        let log_exp_sum = lane
-            .iter()
-            .fold(0., |exp_sum, x| exp_sum + (x - max_val).exp())
-            .ln();
-        for el in lane.iter_mut() {
-            *el = (*el - max_val) - log_exp_sum
-        }
+        vecmath::LogSoftmax::new_mut(lane).dispatch();
     })
 }
 

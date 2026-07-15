@@ -10,8 +10,6 @@
 //!
 //! - <https://blog.zachbjornson.com/2019/08/11/fast-float-summation.html>
 
-use rten_base::num::MinMax;
-
 /// Fold the contents of a slice under the assumption that the fold operation
 /// is associative.
 ///
@@ -41,11 +39,6 @@ pub fn slice_fold_assoc<T: Copy, F: Fn(T, T) -> T>(xs: &[T], init: T, f: F) -> T
     tail.iter().copied().fold(acc, &f)
 }
 
-/// Return the maximum of a slice of numbers.
-pub fn slice_max<T: Copy + MinMax>(xs: &[T]) -> T {
-    slice_fold_assoc(xs, T::min_val(), |acc, x| acc.max(x))
-}
-
 /// Return the sum of a slice of numbers.
 pub fn slice_sum<T: Copy + Default + std::ops::Add<Output = T>>(xs: &[T]) -> T {
     slice_fold_assoc(xs, T::default(), |acc, x| acc + x)
@@ -56,18 +49,7 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::ApproxEq;
 
-    use super::{slice_max, slice_sum};
-
-    #[test]
-    fn test_slice_max() {
-        let mut rng = XorShiftRng::new(1234);
-        let xs: Vec<_> = std::iter::from_fn(|| Some(rng.next_f32()))
-            .take(256)
-            .collect();
-        let expected = xs.iter().fold(f32::NEG_INFINITY, |x, y| x.max(*y));
-        let actual = slice_max(&xs);
-        assert_eq!(actual, expected);
-    }
+    use super::slice_sum;
 
     #[test]
     fn test_slice_sum() {

@@ -125,7 +125,7 @@ pub use tanh::Tanh;
 // Normalization and reduction functions.
 pub use min_max::{MaxNum, MinMax, MinNum};
 pub use normalize::{Normalize, NormalizeOptions};
-pub use softmax::Softmax;
+pub use softmax::{LogSoftmax, Softmax};
 pub use sum::{Sum, SumAbs, SumSquare, SumSquareSub};
 
 // Conversion functions.
