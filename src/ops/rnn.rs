@@ -1,10 +1,13 @@
 use std::iter::Rev;
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmOptions, GemmUninitOptions};
+use rten_gemm::{BiasVector, GemmExecutor, GemmInputA, GemmInputB, GemmOptions, GemmUninitOptions};
 use rten_shape_inference::ops as shape_ops;
+use rten_simd::SimdUnaryOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor};
+use rten_vecmath as vecmath;
 use rten_vecmath::ExtendInit;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -13,7 +16,7 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
+use crate::ops::binary_elementwise::add_in_place;
 use crate::ops::unary_elementwise::{sigmoid, tanh};
 use crate::value::{DataType, ValueType};
 
@@ -147,166 +150,182 @@ pub fn gru(
     let [seq_len, batch, input_size] = input.shape();
     let [_directions, hidden_x3, _input_size] = weights.shape();
     let num_directions = direction.num_directions();
+
+    if !hidden_x3.is_multiple_of(3) {
+        return Err(OpError::InvalidValue(
+            "weights dim 1 must be 3 * hidden_size",
+        ));
+    }
     let hidden_size = hidden_x3 / 3;
+    let n_gates = 3;
 
     // Contiguous input needed so it can be reshaped into a matrix below.
+    // Contiguous bias needed so per-gate slices can be passed to GEMM.
     let input = input.to_contiguous_in(pool).auto_return(pool);
     let input_mat = input.view().reshaped([seq_len * batch, input_size]);
+    let bias = bias.map(|b| b.to_contiguous());
 
     let mut hidden = initial_hidden
         .map(|t| t.to_tensor_in(pool))
         .unwrap_or_else(|| NdTensor::zeros_in(pool, [num_directions, batch, hidden_size]));
-    let mut hidden_seq = NdTensor::zeros_in(pool, [seq_len, num_directions, batch, hidden_size]);
-
-    // Indices of gates in the concatenated weight and bias tensors.
-    const UPDATE_GATE: usize = 0;
-    const RESET_GATE: usize = 1;
-    const HIDDEN_GATE: usize = 2;
-
-    let n_gates = 3;
-    let gate_range = |gate| (gate * hidden_size)..((gate + 1) * hidden_size);
-
-    // Scratch space for output of `hidden_state @ hidden_weights` matmul.
-    let mut hidden_scratch =
-        NdTensor::zeros_in(pool, [batch, n_gates * hidden_size]).auto_return(pool);
+    let mut hidden_seq = NdTensor::uninit_in(pool, [seq_len, num_directions, batch, hidden_size]);
 
     let gemm = GemmExecutor::new();
-    for dir in 0..num_directions {
-        let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
-        // Compute `input @ input_weights` for all gates and timesteps in one
-        // GEMM. This does not depend on the hidden state, so it can be done
-        // for the whole sequence at once.
-        let input_weights = weights.slice(dir).transposed();
-        let proj_len = seq_len * batch * n_gates * hidden_size;
-        let mut input_proj = pool.alloc(proj_len);
-        input_proj.extend_init(|uninit| {
-            gemm.gemm_uninit(
-                &mut uninit[..proj_len],
-                GemmInputA::Unpacked(input_mat.view()),
-                GemmInputB::Unpacked(input_weights),
-                GemmUninitOptions::default(),
-            )
-            .unwrap()
+    // From the ONNX spec, the intermediate values are computed as:
+    //
+    //   zt = f(Xt*(Wz^T) + Ht-1*(Rz^T) + Wbz + Rbz)
+    //   rt = f(Xt*(Wr^T) + Ht-1*(Rr^T) + Wbr + Rbr)
+    //
+    //   If `linear_before_reset` is true:
+    //     ht = tanh(dot(input, hidden_w) + rt * (dot(hidden, rec_hidden_w) + rec_hidden_bias) + hidden_bias)
+    //   Else:
+    //     ht = tanh(dot(input, hidden_w) + dot((rt * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
+    //
+    //   Ht = (1 - zt) (.) ht + zt (.) (Ht-1)
+    //
+    // Where:
+    //
+    //  - `zt`, `rt` and `ht` are the update, reset and hidden gates
+    //  - `Xt`, `Ht` are the input and hidden states at time `t`
+    //  - `W{z,r,h}` and `R{z,r,h}` are the input and recurrent weights
+    //  - `Wb{z,r,h}` and `Rb{z,r,h}` are the input and recurrent biases
+    //  - `f` and `g` are activations. f=sigmoid, g=tanh
+    //
+    // In the `linear_before_reset=true` case, which is all we currently
+    // support, the matrix multiplications for all gates can be combined into
+    // two: one for `input @ input_weights`, one for `hidden @ hidden_weights`.
+    // The input projection does not depend on the hidden state, so it is
+    // additionally computed for all timesteps at once.
+
+    hidden
+        .axis_iter_mut(0)
+        .zip(hidden_seq.axis_iter_mut(1))
+        .enumerate()
+        .for_each(|(dir, (mut hidden, mut hidden_seq))| {
+            let input_bias = bias
+                .as_ref()
+                .map(|b| b.slice((dir, ..(n_gates * hidden_size))).data().unwrap());
+            let hidden_bias = bias
+                .as_ref()
+                .map(|b| b.slice((dir, (n_gates * hidden_size)..)).data().unwrap());
+
+            // Compute `input @ input_weights + input_bias` for all gates and
+            // timesteps in one GEMM.
+            let input_weights = weights.slice(dir).transposed();
+            let proj_len = seq_len * batch * n_gates * hidden_size;
+            let mut input_proj = pool.alloc(proj_len);
+            input_proj.extend_init(|uninit| {
+                gemm.gemm_uninit(
+                    &mut uninit[..proj_len],
+                    GemmInputA::Unpacked(input_mat.view()),
+                    GemmInputB::Unpacked(input_weights),
+                    GemmUninitOptions {
+                        bias: input_bias.map(BiasVector::Row),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+            });
+            let mut input_proj =
+                NdTensor::from_data([seq_len, batch, n_gates * hidden_size], input_proj)
+                    .auto_return(pool);
+
+            let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
+            let hidden_weights = recurrent_weights.slice(dir).transposed();
+            let packed_hidden_weights =
+                prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
+            let hidden_weights = packed_hidden_weights
+                .as_ref()
+                .map(|packed| GemmInputB::Packed(packed))
+                .unwrap_or(GemmInputB::Unpacked(hidden_weights));
+
+            // Scratch space for output of `hidden_state @ hidden_weights` matmul.
+            let mut hidden_scratch =
+                NdTensor::zeros_in(pool, [batch, n_gates * hidden_size]).auto_return(pool);
+
+            for seq in sequence_for_dir(direction, dir, seq_len) {
+                // Compute `hidden @ hidden_weights + hidden_bias` for all gates.
+                gemm.gemm(
+                    hidden_scratch.data_mut().unwrap(),
+                    GemmInputA::Unpacked(hidden.view()),
+                    hidden_weights,
+                    GemmOptions {
+                        bias: hidden_bias.map(BiasVector::Row),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+
+                let mut gates = input_proj.slice_mut([seq]);
+                gru_step(
+                    hidden_size,
+                    gates.data_mut().unwrap(),
+                    hidden_scratch.data().unwrap(),
+                    hidden.data_mut().unwrap(),
+                    hidden_seq.slice_mut([seq]).data_mut().unwrap(),
+                );
+            }
         });
-        let mut input_proj =
-            NdTensor::from_data([seq_len, batch, n_gates * hidden_size], input_proj)
-                .auto_return(pool);
 
-        let hidden_weights = recurrent_weights.slice(dir).transposed();
-        let packed_hidden_weights =
-            prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
-        let hidden_weights = packed_hidden_weights
-            .as_ref()
-            .map(|packed| GemmInputB::Packed(packed))
-            .unwrap_or(GemmInputB::Unpacked(hidden_weights));
-
-        let input_bias = bias
-            .as_ref()
-            .map(|b| b.slice((dir, ..(n_gates * hidden_size))));
-        let hidden_bias = bias
-            .as_ref()
-            .map(|b| b.slice((dir, (n_gates * hidden_size)..)));
-
-        for seq in sequence_for_dir(direction, dir, seq_len) {
-            let hidden_item = hidden.slice([dir]);
-
-            // From the ONNX spec, the intermediate values are computed as:
-            //
-            //   zt = f(Xt*(Wz^T) + Ht-1*(Rz^T) + Wbz + Rbz)
-            //   rt = f(Xt*(Wr^T) + Ht-1*(Rr^T) + Wbr + Rbr)
-            //
-            //   If `linear_before_reset` is true:
-            //     ht = tanh(dot(input, hidden_w) + rt * (dot(hidden, rec_hidden_w) + rec_hidden_bias) + hidden_bias)
-            //   Else:
-            //     ht = tanh(dot(input, hidden_w) + dot((rt * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
-            //
-            //   Ht = (1 - zt) (.) ht + zt (.) (Ht-1)
-            //
-            // Where:
-            //
-            //  - `zt`, `rt` and `ht` are the update, reset and hidden gates
-            //  - `Xt`, `Ht` are the input and hidden states at time `t`
-            //  - `W{z,r,h}` and `R{z,r,h}` are the input and recurrent weights
-            //  - `Wb{z,r,h}` and `Rb{z,r,h}` are the input and recurrent biases
-            //  - `f` and `g` are activations. f=sigmoid, g=tanh
-            //
-            // In the `linear_before_reset=true` case, which is all we currently
-            // support, the matrix multiplications for all gates can be
-            // combined into two: one for `input @ input_weights`, one for
-            // `hidden @ hidden_weights`.
-
-            // Add bias to `input @ weights` for all gates.
-            let mut gates = input_proj.slice_mut([seq]);
-            if let Some(input_bias) = input_bias {
-                add_in_place(gates.as_dyn_mut(), input_bias.as_dyn());
-            }
-
-            // Compute `hidden @ hidden_weights + hidden_bias` for all gates.
-            gemm.gemm(
-                hidden_scratch.data_mut().unwrap(),
-                GemmInputA::Unpacked(hidden_item),
-                hidden_weights,
-                GemmOptions::default(),
-            )
-            .unwrap();
-            if let Some(hidden_bias) = hidden_bias {
-                add_in_place(hidden_scratch.as_dyn_mut(), hidden_bias.as_dyn());
-            }
-
-            // Combine inputs for reset and update gates and apply activation.
-            let mut update_reset_gates = gates.slice_mut((
-                ..,
-                gate_range(UPDATE_GATE).start..gate_range(RESET_GATE).end,
-            ));
-            let hidden_scratch_reset_update_gates = hidden_scratch.slice((
-                ..,
-                gate_range(UPDATE_GATE).start..gate_range(RESET_GATE).end,
-            ));
-            add_in_place(
-                update_reset_gates.as_dyn_mut(),
-                hidden_scratch_reset_update_gates.as_dyn(),
-            );
-
-            // Copy gates before applying activation because `sigmoid_in_place`
-            // and `tanh_in_place` are slow with non-contiguous tensors, and
-            // `update_reset_gates` will be non-contiguous if the batch size is
-            // > 1. See https://github.com/robertknight/rten/issues/192.
-            //
-            // Note `gate_range` can be still used because the update and reset
-            // gates are in the same positions in the `update_reset_gates` slice
-            // as `gates`.
-            let update_reset_gates = sigmoid(pool, update_reset_gates.as_dyn()).auto_return(pool);
-            let update_reset_gates = update_reset_gates.nd_view::<2>();
-            let update_gate = update_reset_gates.slice((.., gate_range(UPDATE_GATE)));
-            let reset_gate = update_reset_gates.slice((.., gate_range(RESET_GATE)));
-
-            // Combine inputs for hidden gate and apply activation.
-            let mut hidden_gate_recurrent = hidden_scratch.slice_mut((.., gate_range(HIDDEN_GATE)));
-            mul_in_place(hidden_gate_recurrent.as_dyn_mut(), reset_gate.as_dyn());
-
-            let mut hidden_gate = gates.slice_mut((.., gate_range(HIDDEN_GATE)));
-            add_in_place(hidden_gate.as_dyn_mut(), hidden_gate_recurrent.as_dyn());
-
-            // See note above about `sigmoid_in_place`.
-            let hidden_gate = tanh(pool, hidden_gate.as_dyn()).auto_return(pool);
-
-            // Compute next hidden state
-            let mut hidden_item = hidden.slice_mut([dir]);
-
-            for (hidden, update, hidden_gate) in zip3(
-                hidden_item.iter_mut(),
-                update_gate.iter(),
-                hidden_gate.iter(),
-            ) {
-                *hidden = (1. - update) * hidden_gate + update * (*hidden);
-            }
-
-            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
-        }
-    }
+    // Safety: The loop above wrote to every element of `hidden_seq`.
+    let hidden_seq = unsafe { hidden_seq.assume_init() };
 
     Ok([hidden_seq.into_dyn(), hidden.into_dyn()].into())
+}
+
+/// Compute one GRU timestep for a batch of inputs, updating the hidden state
+/// in place and writing a copy of the new hidden state to `out`.
+///
+/// `gates` has shape `[batch, 3 * hidden_size]` and contains the input
+/// projection `Xt @ W^T + Wb` for this timestep, with the update, reset and
+/// hidden gates concatenated along the last dimension. It is also used as
+/// scratch space. `hidden_scratch` has the same shape and contains the
+/// recurrent projection `Ht-1 @ R^T + Rb`. `hidden` and `out` have shape
+/// `[batch, hidden_size]`.
+fn gru_step(
+    hidden_size: usize,
+    gates: &mut [f32],
+    hidden_scratch: &[f32],
+    hidden: &mut [f32],
+    out: &mut [MaybeUninit<f32>],
+) {
+    if hidden_size == 0 {
+        return;
+    }
+
+    for (gates, scratch, hidden, out) in zip4(
+        gates.chunks_exact_mut(3 * hidden_size),
+        hidden_scratch.chunks_exact(3 * hidden_size),
+        hidden.chunks_exact_mut(hidden_size),
+        out.chunks_exact_mut(hidden_size),
+    ) {
+        // zt = sigmoid(Xt*(Wz^T) + Wbz + Ht-1*(Rz^T) + Rbz), rt likewise.
+        let (update_reset, hidden_gate) = gates.split_at_mut(2 * hidden_size);
+        let (scratch_update_reset, scratch_hidden) = scratch.split_at(2 * hidden_size);
+        for (x, s) in update_reset.iter_mut().zip(scratch_update_reset) {
+            *x += s;
+        }
+        vecmath::Sigmoid {}.map_mut(update_reset);
+        let (update, reset) = update_reset.split_at(hidden_size);
+
+        // ht = tanh(Xt*(Wh^T) + Wbh + rt (.) (Ht-1*(Rh^T) + Rbh))
+        for (x, s, r) in zip3(hidden_gate.iter_mut(), scratch_hidden.iter(), reset.iter()) {
+            *x += r * s;
+        }
+        vecmath::Tanh {}.map_mut(hidden_gate);
+
+        // Ht = (1 - zt) (.) ht + zt (.) Ht-1
+        for (hidden, update, hidden_gate, out) in zip4(
+            hidden.iter_mut(),
+            update.iter(),
+            hidden_gate.iter(),
+            out.iter_mut(),
+        ) {
+            *hidden = (1. - update) * hidden_gate + update * (*hidden);
+            out.write(*hidden);
+        }
+    }
 }
 
 /// Gated Recurrent Unit operator.
