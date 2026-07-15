@@ -672,7 +672,6 @@ impl Operator for PRelu {
 
 declare_operator!(Sigmoid);
 impl_operator!(Sigmoid, [FloatTensor]);
-impl_operator_fn!(Sigmoid, sigmoid);
 impl_get_kernel!(Sigmoid, f32, SimdKernel(vecmath::Sigmoid {}));
 
 // Sigmoid Linear Unit (SiLU) function.
@@ -754,7 +753,6 @@ impl_get_kernel!(Tan, f32, |val: f32| val.tan());
 
 declare_operator!(Tanh);
 impl_operator!(Tanh, [FloatTensor]);
-impl_operator_fn!(Tanh, tanh);
 impl_get_kernel!(Tanh, f32, SimdKernel(vecmath::Tanh {}));
 
 #[cfg(feature = "contrib")]

@@ -17,8 +17,6 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::binary_elementwise::add_in_place;
-use crate::ops::unary_elementwise::{sigmoid, tanh};
 use crate::value::{DataType, ValueType};
 
 /// Direction that an RNN operator will traverse the input sequence in.
@@ -431,36 +429,30 @@ pub fn lstm(
     initial_cell: Option<NdTensorView<f32, 3>>,
 ) -> Result<Vec<Tensor>, OpError> {
     // TODO - Add validation of the sizes of individual dimensions in the inputs.
-    let [seq_len, batch, _input_size] = input.shape();
+    let [seq_len, batch, input_size] = input.shape();
     let [_directions, hidden_x4, _input_size] = weights.shape();
 
     let num_directions = direction.num_directions();
-    let hidden_size = hidden_x4 / 4;
 
-    if weights.size(1) % 4 != 0 {
+    if !weights.size(1).is_multiple_of(4) {
         return Err(OpError::InvalidValue(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
+    let hidden_size = hidden_x4 / 4;
+    let n_gates = 4;
 
     if let Some(bias) = bias.as_ref()
-        && bias.size(1) % 8 != 0
+        && !bias.size(1).is_multiple_of(8)
     {
         return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
     }
 
-    // Contiguous input and bias needed to allow reshaping below.
+    // Contiguous input needed so it can be reshaped into a matrix below.
+    // Contiguous bias needed so per-gate slices can be passed to GEMM.
     let input = input.to_contiguous_in(pool).auto_return(pool);
+    let input_mat = input.view().reshaped([seq_len * batch, input_size]);
     let bias = bias.map(|t| t.to_contiguous());
-
-    // Indices of gates in the concatenated weight and bias tensors.
-    const INPUT_GATE: usize = 0;
-    const OUTPUT_GATE: usize = 1;
-    const FORGET_GATE: usize = 2;
-    const CELL_GATE: usize = 3;
-
-    let n_gates = 4;
-    let mut gates = NdTensor::zeros_in(pool, [batch, n_gates * hidden_size]);
 
     let mut cell = initial_cell
         .map(|t| t.to_tensor_in(pool))
@@ -469,128 +461,186 @@ pub fn lstm(
         .map(|t| t.to_tensor_in(pool))
         .unwrap_or_else(|| NdTensor::zeros_in(pool, [num_directions, batch, hidden_size]));
 
-    let mut hidden_seq =
-        NdTensor::<f32, 4>::zeros_in(pool, [seq_len, num_directions, batch, hidden_size]);
+    let mut hidden_seq = NdTensor::uninit_in(pool, [seq_len, num_directions, batch, hidden_size]);
 
     let gemm = GemmExecutor::new();
 
-    let gate_range = |gate| (gate * hidden_size)..((gate + 1) * hidden_size);
+    // From the ONNX spec, the intermediate values are computed as:
+    //
+    // - it = f(Xt*(Wi^T) + Ht-1*(Ri^T) + Pi (.) Ct-1 + Wbi + Rbi)
+    // - ft = f(Xt*(Wf^T) + Ht-1*(Rf^T) + Pf (.) Ct-1 + Wbf + Rbf)
+    // - ct = g(Xt*(Wc^T) + Ht-1*(Rc^T) + Wbc + Rbc)
+    // - Ct = ft (.) Ct-1 + it (.) ct
+    // - ot = f(Xt*(Wo^T) + Ht-1*(Ro^T) + Po (.) Ct + Wbo + Rbo)
+    // - Ht = ot (.) h(Ct)
+    //
+    // Where:
+    //
+    //  - `it`, `ft`, `ct` and `ot` are the input, forget, cell and output gates
+    //  - `Xt`, `Ht` and `Ct` are the input, hidden state and cell state at time `t`
+    //  - `W{i,o,f,c}` and `R{i,o,f,c}` are the input and recurrent gate weights
+    //  - `Wb{i,o,f,c}` and `Rb{i,o,f,c}` are the input and recurrent gate biases
+    //  - `P{i,o,f,c}` are peephole weights. These are not currently
+    //    supported.
+    //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
+    //    are tanh.
+    //
+    // The matrix multiplications for all gates are combined into two: one for
+    // `input @ input_weights`, one for `hidden @ hidden_weights`. The input
+    // projection does not depend on the hidden state, so it is additionally
+    // computed for all timesteps at once.
 
-    for dir in 0..num_directions {
-        let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
+    // Each direction is independent, so process them in parallel.
+    let hidden_dirs: Vec<_> = hidden.axis_iter_mut(0).collect();
+    let cell_dirs: Vec<_> = cell.axis_iter_mut(0).collect();
+    let hidden_seq_dirs: Vec<_> = hidden_seq.axis_iter_mut(1).collect();
 
-        let input_weights = weights.slice(dir).transposed();
-        let packed_input_weights =
-            prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
-        let input_weights = packed_input_weights
-            .as_ref()
-            .map(|packed| GemmInputB::Packed(packed))
-            .unwrap_or(GemmInputB::Unpacked(input_weights));
+    hidden_dirs
+        .into_par_iter()
+        .zip(cell_dirs)
+        .zip(hidden_seq_dirs)
+        .enumerate()
+        .for_each(|(dir, ((mut hidden, mut cell), mut hidden_seq))| {
+            let input_bias = bias
+                .as_ref()
+                .map(|b| b.slice((dir, ..(n_gates * hidden_size))).data().unwrap());
+            let hidden_bias = bias
+                .as_ref()
+                .map(|b| b.slice((dir, (n_gates * hidden_size)..)).data().unwrap());
 
-        let hidden_weights = recurrent_weights.slice(dir).transposed();
-        let packed_hidden_weights =
-            prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
-        let hidden_weights = packed_hidden_weights
-            .as_ref()
-            .map(|packed| GemmInputB::Packed(packed))
-            .unwrap_or(GemmInputB::Unpacked(hidden_weights));
+            // Compute `input @ input_weights + input_bias` for all gates and
+            // timesteps in one GEMM.
+            let input_weights = weights.slice(dir).transposed();
+            let proj_len = seq_len * batch * n_gates * hidden_size;
+            let mut input_proj = pool.alloc(proj_len);
+            input_proj.extend_init(|uninit| {
+                gemm.gemm_uninit(
+                    &mut uninit[..proj_len],
+                    GemmInputA::Unpacked(input_mat.view()),
+                    GemmInputB::Unpacked(input_weights),
+                    GemmUninitOptions {
+                        bias: input_bias.map(BiasVector::Row),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+            });
+            let mut input_proj =
+                NdTensor::from_data([seq_len, batch, n_gates * hidden_size], input_proj)
+                    .auto_return(pool);
 
-        let input_bias = bias
-            .as_ref()
-            .map(|b| b.slice((dir, ..(n_gates * hidden_size))));
-        let hidden_bias = bias
-            .as_ref()
-            .map(|b| b.slice((dir, (n_gates * hidden_size)..)));
+            let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
+            let hidden_weights = recurrent_weights.slice(dir).transposed();
+            let packed_hidden_weights =
+                prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
+            let hidden_weights = packed_hidden_weights
+                .as_ref()
+                .map(|packed| GemmInputB::Packed(packed))
+                .unwrap_or(GemmInputB::Unpacked(hidden_weights));
 
-        for seq in sequence_for_dir(direction, dir, seq_len) {
-            // From the ONNX spec, the intermediate values are computed as:
-            //
-            // - it = f(Xt*(Wi^T) + Ht-1*(Ri^T) + Pi (.) Ct-1 + Wbi + Rbi)
-            // - ft = f(Xt*(Wf^T) + Ht-1*(Rf^T) + Pf (.) Ct-1 + Wbf + Rbf)
-            // - ct = g(Xt*(Wc^T) + Ht-1*(Rc^T) + Wbc + Rbc)
-            // - Ct = ft (.) Ct-1 + it (.) ct
-            // - ot = f(Xt*(Wo^T) + Ht-1*(Ro^T) + Po (.) Ct + Wbo + Rbo)
-            // - Ht = ot (.) h(Ct)
-            //
-            // Where:
-            //
-            //  - `it`, `ft`, `ct` and `ot` are the input, forget, cell and output gates
-            //  - `Xt`, `Ht` and `Ct` are the input, hidden state and cell state at time `t`
-            //  - `W{i,o,f,c}` and `R{i,o,f,c}` are the input and recurrent gate weights
-            //  - `Wb{i,o,f,c}` and `Rb{i,o,f,c}` are the input and recurrent gate biases
-            //  - `P{i,o,f,c}` are peephole weights. These are not currently
-            //    supported.
-            //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
-            //    are tanh.
-            let in_item = input.slice([seq]);
-            let hidden_item = hidden.slice([dir]);
+            // Scratch space for output of `hidden_state @ hidden_weights` matmul.
+            let mut hidden_scratch =
+                NdTensor::zeros_in(pool, [batch, n_gates * hidden_size]).auto_return(pool);
 
-            // Update input, output, forget and cell gates.
-            gemm.gemm(
-                gates.data_mut().expect("expected contiguous input"),
-                GemmInputA::Unpacked(in_item),
-                input_weights,
-                GemmOptions::default(),
-            )
-            .unwrap();
-            if let Some(input_bias) = input_bias {
-                add_in_place(gates.as_dyn_mut(), input_bias.as_dyn());
+            for seq in sequence_for_dir(direction, dir, seq_len) {
+                // Compute `hidden @ hidden_weights + hidden_bias` for all gates.
+                gemm.gemm(
+                    hidden_scratch.data_mut().unwrap(),
+                    GemmInputA::Unpacked(hidden.view()),
+                    hidden_weights,
+                    GemmOptions {
+                        bias: hidden_bias.map(BiasVector::Row),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+
+                let mut gates = input_proj.slice_mut([seq]);
+                lstm_step(
+                    hidden_size,
+                    gates.data_mut().unwrap(),
+                    hidden_scratch.data().unwrap(),
+                    hidden.data_mut().unwrap(),
+                    cell.data_mut().unwrap(),
+                    hidden_seq.slice_mut([seq]).data_mut().unwrap(),
+                );
             }
+        });
 
-            gemm.gemm(
-                gates.data_mut().expect("expected contiguous input"),
-                GemmInputA::Unpacked(hidden_item),
-                hidden_weights,
-                GemmOptions {
-                    beta: 1.,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-            if let Some(hidden_bias) = hidden_bias {
-                add_in_place(gates.as_dyn_mut(), hidden_bias.as_dyn());
-            }
-
-            // Copy gates to work around `tanh_in_place` and `sigmoid_in_place`
-            // being slow for non-contiguous inputs. See notes in GRU op.
-            let iof_gates = gates.slice((
-                ..,
-                gate_range(INPUT_GATE).start..gate_range(FORGET_GATE).end,
-            ));
-            let iof_gates = sigmoid(pool, iof_gates.as_dyn()).auto_return(pool);
-            let iof_gates = iof_gates.nd_view::<2>();
-
-            let input_gate = iof_gates.slice((.., gate_range(INPUT_GATE)));
-            let out_gate = iof_gates.slice((.., gate_range(OUTPUT_GATE)));
-            let forget_gate = iof_gates.slice((.., gate_range(FORGET_GATE)));
-
-            let cell_gate = gates.slice((.., gate_range(CELL_GATE)));
-            let cell_gate = tanh(pool, cell_gate.as_dyn()).auto_return(pool);
-
-            // Update cell and hidden state
-            let mut cell_item = cell.slice_mut([dir]);
-
-            for (cell, forget_gate, input_gate, cell_gate) in zip4(
-                cell_item.iter_mut(),
-                forget_gate.iter(),
-                input_gate.iter(),
-                cell_gate.iter(),
-            ) {
-                *cell = forget_gate * *cell + input_gate * cell_gate;
-            }
-
-            let mut hidden_item = hidden.slice_mut([dir]);
-            for (hidden, out_gate, cell) in
-                zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
-            {
-                *hidden = out_gate * cell.tanh()
-            }
-
-            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
-        }
-    }
+    // Safety: The loop above wrote to every element of `hidden_seq`.
+    let hidden_seq = unsafe { hidden_seq.assume_init() };
 
     Ok([hidden_seq.into_dyn(), hidden.into_dyn(), cell.into_dyn()].into())
+}
+
+/// Compute one LSTM timestep for a batch of inputs, updating the hidden and
+/// cell states in place and writing a copy of the new hidden state to `out`.
+///
+/// `gates` has shape `[batch, 4 * hidden_size]` and contains the input
+/// projection `Xt @ W^T + Wb` for this timestep, with the input, output,
+/// forget and cell gates concatenated along the last dimension. It is also
+/// used as scratch space. `hidden_scratch` has the same shape and contains the
+/// recurrent projection `Ht-1 @ R^T + Rb`. `hidden`, `cell` and `out` have
+/// shape `[batch, hidden_size]`.
+fn lstm_step(
+    hidden_size: usize,
+    gates: &mut [f32],
+    hidden_scratch: &[f32],
+    hidden: &mut [f32],
+    cell: &mut [f32],
+    out: &mut [MaybeUninit<f32>],
+) {
+    if hidden_size == 0 {
+        return;
+    }
+
+    for (gates, scratch, hidden, (cell, out)) in zip4(
+        gates.chunks_exact_mut(4 * hidden_size),
+        hidden_scratch.chunks_exact(4 * hidden_size),
+        hidden.chunks_exact_mut(hidden_size),
+        cell.chunks_exact_mut(hidden_size)
+            .zip(out.chunks_exact_mut(hidden_size)),
+    ) {
+        // it = sigmoid(Xt*(Wi^T) + Wbi + Ht-1*(Ri^T) + Rbi), ot and ft likewise.
+        let (iof_gates, cell_gate) = gates.split_at_mut(3 * hidden_size);
+        let (scratch_iof, scratch_cell) = scratch.split_at(3 * hidden_size);
+        for (x, s) in iof_gates.iter_mut().zip(scratch_iof) {
+            *x += s;
+        }
+        vecmath::Sigmoid {}.map_mut(iof_gates);
+        let (input_gate, of_gates) = iof_gates.split_at(hidden_size);
+        let (out_gate, forget_gate) = of_gates.split_at(hidden_size);
+
+        // ct = tanh(Xt*(Wc^T) + Wbc + Ht-1*(Rc^T) + Rbc)
+        for (x, s) in cell_gate.iter_mut().zip(scratch_cell) {
+            *x += s;
+        }
+        vecmath::Tanh {}.map_mut(cell_gate);
+
+        // Ct = ft (.) Ct-1 + it (.) ct
+        for (cell, forget, input, cell_gate) in zip4(
+            cell.iter_mut(),
+            forget_gate.iter(),
+            input_gate.iter(),
+            cell_gate.iter(),
+        ) {
+            *cell = forget * *cell + input * cell_gate;
+        }
+
+        // Ht = ot (.) tanh(Ct). The cell gate is no longer needed, so reuse it
+        // as scratch space for computing `tanh(Ct)`.
+        cell_gate.copy_from_slice(cell);
+        vecmath::Tanh {}.map_mut(cell_gate);
+        for (hidden, out_gate, tanh_cell, out) in zip4(
+            hidden.iter_mut(),
+            out_gate.iter(),
+            cell_gate.iter(),
+            out.iter_mut(),
+        ) {
+            *hidden = out_gate * tanh_cell;
+            out.write(*hidden);
+        }
+    }
 }
 
 /// Long Short-Term Memory operator.
