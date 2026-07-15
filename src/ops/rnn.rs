@@ -2,6 +2,7 @@ use std::iter::Rev;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rayon::prelude::*;
 use rten_gemm::{BiasVector, GemmExecutor, GemmInputA, GemmInputB, GemmOptions, GemmUninitOptions};
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdUnaryOp;
@@ -198,9 +199,13 @@ pub fn gru(
     // The input projection does not depend on the hidden state, so it is
     // additionally computed for all timesteps at once.
 
-    hidden
-        .axis_iter_mut(0)
-        .zip(hidden_seq.axis_iter_mut(1))
+    // Each direction is independent, so process them in parallel.
+    let hidden_dirs: Vec<_> = hidden.axis_iter_mut(0).collect();
+    let hidden_seq_dirs: Vec<_> = hidden_seq.axis_iter_mut(1).collect();
+
+    hidden_dirs
+        .into_par_iter()
+        .zip(hidden_seq_dirs)
         .enumerate()
         .for_each(|(dir, (mut hidden, mut hidden_seq))| {
             let input_bias = bias
