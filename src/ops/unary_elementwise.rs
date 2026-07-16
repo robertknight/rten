@@ -172,17 +172,9 @@ macro_rules! impl_operator {
     };
 }
 
-/// Define a function that runs a unary operator.
+/// Define a test-only convenience function that runs a unary operator.
 macro_rules! impl_operator_fn {
     ($op_name:ident, $func_name:ident) => {
-        pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
-            let op = $op_name {};
-            let kernel = op.get_kernel();
-            unary_op(pool, input, &kernel)
-        }
-    };
-
-    ($op_name:ident, $func_name:ident, cfg_test) => {
         #[cfg(test)]
         pub fn $func_name(pool: &BufferPool, input: TensorView) -> Tensor {
             let op = $op_name {};
@@ -243,7 +235,7 @@ impl_get_kernel!(Atanh, f32, |val: f32| val.atanh());
 
 declare_operator!(Ceil);
 impl_operator!(Ceil, [FloatTensor]);
-impl_operator_fn!(Ceil, ceil, cfg_test);
+impl_operator_fn!(Ceil, ceil);
 impl_get_kernel!(Ceil, f32, |val: f32| val.ceil());
 
 /// Numeric value with a finite minimum and maximum and operations to clamp
@@ -383,7 +375,7 @@ impl GetKernel<f32> for Elu {
 
 declare_operator!(Erf);
 impl_operator!(Erf, [FloatTensor]);
-impl_operator_fn!(Erf, erf, cfg_test);
+impl_operator_fn!(Erf, erf);
 impl_get_kernel!(Erf, f32, SimdKernel(vecmath::Erf {}));
 
 declare_operator!(Exp);
@@ -392,7 +384,7 @@ impl_get_kernel!(Exp, f32, SimdKernel(vecmath::Exp {}));
 
 declare_operator!(Floor);
 impl_operator!(Floor, [FloatTensor]);
-impl_operator_fn!(Floor, floor, cfg_test);
+impl_operator_fn!(Floor, floor);
 impl_get_kernel!(Floor, f32, |val: f32| val.floor());
 
 #[derive(Debug)]
@@ -468,7 +460,7 @@ impl GetKernel<f32> for HardSwish {
     }
 }
 
-impl_operator_fn!(HardSwish, hard_swish, cfg_test);
+impl_operator_fn!(HardSwish, hard_swish);
 
 #[derive(Debug)]
 pub struct IsInf {}
@@ -619,7 +611,7 @@ impl_get_kernel!(Relu, f32, |val: f32| val.max(0.));
 pub struct Round {}
 impl_operator!(Round, [FloatTensor]);
 impl_get_kernel!(Round, f32, |val: f32| val.round_ties_even());
-impl_operator_fn!(Round, round, cfg_test);
+impl_operator_fn!(Round, round);
 
 fn prelu<T: Copy + Default + PartialOrd + std::ops::Mul<Output = T>>(
     pool: &BufferPool,

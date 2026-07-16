@@ -98,6 +98,41 @@ fn zip4<T1, T2, T3, T4>(
     zip3(a, b, c.zip(d)).map(|(a, b, (c, d))| (a, b, c, d))
 }
 
+/// Compute the input projection `input @ input_weights + input_bias` for every
+/// gate and timestep in a single GEMM.
+///
+/// This is shared by the GRU and LSTM operators. The input projection does not
+/// depend on the hidden state, so unlike the recurrent projection it can be
+/// computed for the whole sequence up-front.
+///
+/// `input_mat` has shape `[seq_len * batch, input_size]` and `input_weights`
+/// has shape `[input_size, n_gates * hidden_size]`. The result has shape
+/// `[seq_len, batch, n_gates * hidden_size]`.
+fn input_projection(
+    pool: &BufferPool,
+    gemm: &GemmExecutor,
+    input_mat: NdTensorView<f32, 2>,
+    input_weights: NdTensorView<f32, 2>,
+    input_bias: Option<&[f32]>,
+    seq_len: usize,
+    batch: usize,
+) -> NdTensor<f32, 3> {
+    let mut output = NdTensor::uninit_in(pool, [seq_len, batch, input_weights.size(1)]);
+    gemm.gemm_uninit(
+        output.data_mut().unwrap(),
+        GemmInputA::Unpacked(input_mat),
+        GemmInputB::Unpacked(input_weights),
+        GemmUninitOptions {
+            bias: input_bias.map(BiasVector::Row),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Safety: `gemm_uninit` initialized every element of `output`.
+    unsafe { output.assume_init() }
+}
+
 /// Sequence length threshold for prepacking weights.
 ///
 /// For sufficiently long input sequences, prepacking weights can speed up
@@ -198,12 +233,10 @@ pub fn gru(
     // additionally computed for all timesteps at once.
 
     // Each direction is independent, so process them in parallel.
-    let hidden_dirs: Vec<_> = hidden.axis_iter_mut(0).collect();
-    let hidden_seq_dirs: Vec<_> = hidden_seq.axis_iter_mut(1).collect();
-
-    hidden_dirs
+    hidden
+        .axis_iter_mut(0)
         .into_par_iter()
-        .zip(hidden_seq_dirs)
+        .zip(hidden_seq.axis_iter_mut(1))
         .enumerate()
         .for_each(|(dir, (mut hidden, mut hidden_seq))| {
             let input_bias = bias
@@ -213,26 +246,16 @@ pub fn gru(
                 .as_ref()
                 .map(|b| b.slice((dir, (n_gates * hidden_size)..)).data().unwrap());
 
-            // Compute `input @ input_weights + input_bias` for all gates and
-            // timesteps in one GEMM.
-            let input_weights = weights.slice(dir).transposed();
-            let proj_len = seq_len * batch * n_gates * hidden_size;
-            let mut input_proj = pool.alloc(proj_len);
-            input_proj.extend_init(|uninit| {
-                gemm.gemm_uninit(
-                    &mut uninit[..proj_len],
-                    GemmInputA::Unpacked(input_mat.view()),
-                    GemmInputB::Unpacked(input_weights),
-                    GemmUninitOptions {
-                        bias: input_bias.map(BiasVector::Row),
-                        ..Default::default()
-                    },
-                )
-                .unwrap()
-            });
-            let mut input_proj =
-                NdTensor::from_data([seq_len, batch, n_gates * hidden_size], input_proj)
-                    .auto_return(pool);
+            let mut input_proj = input_projection(
+                pool,
+                &gemm,
+                input_mat.view(),
+                weights.slice(dir).transposed(),
+                input_bias,
+                seq_len,
+                batch,
+            )
+            .auto_return(pool);
 
             let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
             let hidden_weights = recurrent_weights.slice(dir).transposed();
@@ -293,6 +316,7 @@ fn gru_step(
     hidden: &mut [f32],
     out: &mut [MaybeUninit<f32>],
 ) {
+    // `chunks_exact` panics on a zero chunk size.
     if hidden_size == 0 {
         return;
     }
