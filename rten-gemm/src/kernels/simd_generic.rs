@@ -809,9 +809,6 @@ pub fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         b.cols()
     );
 
-    // Inner loop loads 4x u8 values at a time as an i32.
-    assert_eq!(a.as_ptr() as usize % align_of::<i32>(), 0);
-
     if b.row_stride() == 1 {
         // Safety: Input and output dimensions are compatible.
         unsafe {
@@ -859,7 +856,7 @@ pub fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let mut k = 0;
         while k + 4 <= depth {
             // Broadcast 4 values from A.
-            let a_block = unsafe { *(a_ptr.add(k) as *const i32) };
+            let a_block = unsafe { (a_ptr.add(k) as *const i32).read_unaligned() };
             let a = ops.splat(a_block).reinterpret_cast::<I::I8>();
 
             // Load 4 rows of int8 elements from B and interleave to give 4
