@@ -450,40 +450,38 @@ fn layer_normalization_impl(
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
     let normalized_slice_shape = &input.shape()[resolved_axis..];
 
-    if !scale.can_broadcast_to(input.shape()) {
-        return Err(OpError::IncompatibleInputShapes(
-            "`scale` cannot be broadcast to input shape",
-        ));
-    }
-    if scale.shape() != normalized_slice_shape {
-        return Err(OpError::UnsupportedValue(
-            "`scale` shape does not match normalized axes of input",
-        ));
-    }
+    let scale_elements;
+    let (scale_scalar, scale_data) = if let Some(value) = scale.item() {
+        (*value, None)
+    } else {
+        scale_elements = scale
+            .try_broadcast(normalized_slice_shape)
+            .map_err(|_| {
+                OpError::InvalidValue("`scale` is not broadcastable to normalized axes of input")
+            })?
+            .to_contiguous_in(pool);
+        (1.0, Some(scale_elements.data()))
+    };
 
-    if let Some(bias) = bias.as_ref() {
-        if !bias.can_broadcast_to(input.shape()) {
-            return Err(OpError::IncompatibleInputShapes(
-                "`bias` cannot be broadcast to input shape",
-            ));
+    let bias_elements;
+    let (bias_scalar, bias_data) = match bias {
+        None => (0.0, None),
+        Some(bias) if bias.item().is_some() => (*bias.item().unwrap(), None),
+        Some(bias) => {
+            bias_elements = bias
+                .try_broadcast(normalized_slice_shape)
+                .map_err(|_| {
+                    OpError::InvalidValue("`bias` is not broadcastable to normalized axes of input")
+                })?
+                .to_contiguous_in(pool);
+            (0.0, Some(bias_elements.data()))
         }
-        if bias.shape() != normalized_slice_shape {
-            return Err(OpError::UnsupportedValue(
-                "`bias` shape does not match normalized axes of input",
-            ));
-        }
-    }
+    };
 
     let input = input.to_contiguous_in(pool);
 
     let mut output = pool.alloc(input.len());
-    let chunk_size = input.shape()[resolved_axis..].iter().product();
-
-    let bias = bias.map(|b| b.to_contiguous_in(pool));
-    let bias_data = bias.as_ref().map(|b| b.data());
-
-    let scale = scale.to_contiguous_in(pool);
-    let scale_data = scale.data();
+    let chunk_size = normalized_slice_shape.iter().product();
 
     let n_init = AtomicUsize::new(0);
     let out_uninit = &mut output.spare_capacity_mut()[..input.len()];
@@ -497,9 +495,10 @@ fn layer_normalization_impl(
                 NormalizeOptions {
                     mean_normalize,
                     epsilon,
-                    element_scale: Some(scale_data),
+                    scale: scale_scalar,
+                    bias: bias_scalar,
+                    element_scale: scale_data,
                     element_bias: bias_data,
-                    ..Default::default()
                 },
             );
             n_init.fetch_add(normalized.len(), Ordering::SeqCst);
@@ -1033,8 +1032,8 @@ mod tests {
                 scale: Tensor::full(&[2, 3], 1.0),
                 bias: None,
                 axis: -1,
-                expected: Err(OpError::UnsupportedValue(
-                    "`scale` shape does not match normalized axes of input",
+                expected: Err(OpError::InvalidValue(
+                    "`scale` is not broadcastable to normalized axes of input",
                 )),
             },
             // Unsupported bias shape
@@ -1043,9 +1042,26 @@ mod tests {
                 scale: Tensor::from([1., 1., 1.]),
                 bias: Some(Tensor::full(&[2, 3], 1.0)),
                 axis: -1,
-                expected: Err(OpError::UnsupportedValue(
-                    "`bias` shape does not match normalized axes of input",
+                expected: Err(OpError::InvalidValue(
+                    "`bias` is not broadcastable to normalized axes of input",
                 )),
+            },
+            // Scalar (broadcast) scale and bias. Per the ONNX spec `scale` and
+            // `bias` need only be broadcastable to the input.
+            Case {
+                input: Tensor::from([[0., 1., 2., 3.]]),
+                scale: Tensor::from_scalar(2.0),
+                bias: Some(Tensor::from_scalar(0.5)),
+                axis: -1,
+                expected: Ok(Tensor::from([[-2.1833, -0.3944, 1.3944, 3.1833]])),
+            },
+            // Scalar (broadcast) scale, no bias.
+            Case {
+                input: Tensor::from([[0., 1., 2., 3.]]),
+                scale: Tensor::from_scalar(2.0),
+                bias: None,
+                axis: -1,
+                expected: Ok(Tensor::from([[-2.6833, -0.8944, 0.8944, 2.6833]])),
             },
         ];
 
