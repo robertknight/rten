@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::infer_shapes::InferError;
 use crate::optimize::OptimizeError;
 
 /// Errors that occur when loading a model.
@@ -119,6 +120,9 @@ pub(crate) enum LoadErrorImpl {
     /// An error occurred while optimizing the graph.
     OptimizeError(Box<OptimizeError>),
 
+    /// An error occurred during shape inference.
+    InferShapesError(Box<InferError>),
+
     /// The file type of the model could not be determined.
     UnknownFileType,
 
@@ -143,10 +147,8 @@ impl LoadErrorImpl {
             Self::ParseFailed(_) => Kind::ParseError,
             Self::OperatorInvalid(_) => Kind::OperatorInvalid,
             Self::GraphError(_) => Kind::GraphError,
-            Self::OptimizeError(err) => match **err {
-                OptimizeError::RunError(_) => Kind::OptimizeError,
-                OptimizeError::InferShapesError(_) => Kind::ShapeInferenceFailed,
-            },
+            Self::InferShapesError(_) => Kind::ShapeInferenceFailed,
+            Self::OptimizeError(_) => Kind::OptimizeError,
             Self::UnknownFileType => Kind::UnknownFileType,
             #[cfg(feature = "onnx_format")]
             Self::ExternalDataError(_) => Kind::ExternalDataError,
@@ -162,6 +164,7 @@ impl LoadErrorImpl {
             Self::ParseFailed(err) => Some(err.as_ref()),
             Self::OperatorInvalid(err) => Some(err.as_ref()),
             Self::GraphError(err) => Some(err.as_ref()),
+            Self::InferShapesError(err) => Some(err),
             Self::OptimizeError(err) => Some(err),
             Self::UnknownFileType => None,
             #[cfg(feature = "onnx_format")]
@@ -180,10 +183,8 @@ impl Display for LoadErrorImpl {
             Self::ParseFailed(e) => write!(f, "parse error: {e}"),
             Self::OperatorInvalid(e) => write!(f, "operator error: {e}"),
             Self::GraphError(e) => write!(f, "graph error: {e}"),
-            Self::OptimizeError(err) => match &**err {
-                OptimizeError::InferShapesError(e) => write!(f, "shape inference failed: {e}"),
-                e => write!(f, "graph optimization error: {e}"),
-            },
+            Self::InferShapesError(e) => write!(f, "shape inference failed: {e}"),
+            Self::OptimizeError(e) => write!(f, "optimization error: {e}"),
             Self::UnknownFileType => write!(f, "unknown model file type"),
             #[cfg(feature = "onnx_format")]
             Self::ExternalDataError(e) => write!(f, "external data error: {e}"),

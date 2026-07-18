@@ -9,14 +9,14 @@ use rten_testing::TestCases;
 use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
 use crate::Dimension;
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
-use crate::graph::builder::{Expr, OutputMeta, dims};
+use crate::graph::builder::{Expr, OutputMeta};
 use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
-use crate::infer_shapes::InferShapeOptions;
+use crate::infer_shapes::{apply_shapes, infer_shapes};
 use crate::ops::{
     Add, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf, Expand, FusedMatMul,
-    Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul,
+    Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul,
     MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape,
     Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
@@ -27,19 +27,11 @@ fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
     optimizer.optimize(graph, None, OptimizeOptions::default())
 }
 
-fn optimize_graph_infer_shapes(graph: Graph) -> Result<Graph, OptimizeError> {
-    let optimizer = GraphOptimizer::new();
-    optimizer.optimize(
-        graph,
-        None,
-        OptimizeOptions {
-            infer_shapes: Some(InferShapeOptions {
-                strict: false,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    )
+/// Apply shape inference to a graph, then optimize it.
+fn optimize_graph_infer_shapes(mut graph: Graph) -> Result<Graph, OptimizeError> {
+    let shapes = infer_shapes(&graph, Default::default()).unwrap();
+    apply_shapes(&mut graph, shapes);
+    optimize_graph(graph)
 }
 
 fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
@@ -1638,162 +1630,4 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
     assert_eq!(qkv_matmul.repeats, n_repeats);
     assert_eq!(qkv_matmul.alpha, Some(1.0 / scale));
     assert_eq!(qkv_matmul.transpose_rhs, true);
-}
-
-#[test]
-fn test_infer_shapes() {
-    // Build a graph that has input shape and type metadata, but no output
-    // metadata.
-    let graph = {
-        let x = Expr::value_with_info(
-            "data",
-            ValueType::Tensor(DataType::Float),
-            &dims!("batch", 64),
-        );
-        let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
-        let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
-        out.build_graph(&["data"])
-    };
-
-    // Run optimization with shape inference enabled.
-    let optimizer = GraphOptimizer::new();
-    let graph = optimizer
-        .optimize(
-            graph,
-            None,
-            OptimizeOptions {
-                infer_shapes: Some(InferShapeOptions::default()),
-            },
-        )
-        .unwrap();
-
-    // Verify that values were updated with inferred shapes and types.
-    let output = graph.get_node(graph.output_ids()[0]).unwrap();
-    assert_eq!(
-        output.shape().as_deref(),
-        Some(dims!("batch", 12).as_slice())
-    );
-    assert_eq!(output.dtype(), Some(ValueType::Tensor(DataType::Float)));
-}
-
-#[test]
-fn test_shape_inference_replaces_values_with_constants() {
-    let graph = {
-        let x = Expr::value_with_info(
-            "data",
-            ValueType::Tensor(DataType::Float),
-            &dims!("batch", 64),
-        );
-
-        // Extract second dimension of input via `Gather<axis=0>(Shape(X), indices=[1])`.
-        let indices = Expr::constant(1);
-        let out = x
-            .shape()
-            .apply(Gather { axis: 0 }, &[indices], &[OutputMeta::NoMeta]);
-        out.build_graph(&["data"])
-    };
-
-    let optimizer = GraphOptimizer::new();
-    let graph = optimizer
-        .optimize(
-            graph,
-            None,
-            OptimizeOptions {
-                infer_shapes: Some(InferShapeOptions::default()),
-            },
-        )
-        .unwrap();
-
-    // The output should be replaced with a constant as it doesn't depend on
-    // model inputs.
-    let output = graph.get_node(graph.output_ids()[0]).unwrap();
-    assert_eq!(output.as_constant().and_then(|c| c.as_scalar()), Some(64));
-}
-
-#[test]
-fn test_shape_inference_constants_preserve_value_type() {
-    let graph = {
-        let x = Expr::value_with_info(
-            "data",
-            ValueType::Tensor(DataType::Float),
-            &dims!("batch", 4),
-        );
-        let bias_src = Expr::constant(NdTensor::<f32, _>::full([4], 1.));
-        let bias = bias_src.unary(Identity {});
-        let out = x.binary(Add {}, bias);
-        out.build_graph(&["data"])
-    };
-
-    let optimizer = GraphOptimizer::new();
-    let graph = optimizer
-        .optimize(
-            graph,
-            None,
-            OptimizeOptions {
-                infer_shapes: Some(InferShapeOptions::default()),
-            },
-        )
-        .unwrap();
-
-    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-    let bias = op
-        .input_ids()
-        .iter()
-        .flatten()
-        .find_map(|id| graph.get_node(*id).and_then(|node| node.as_constant()))
-        .expect("expected a constant operand");
-
-    // f32 element type should be preserved
-    assert_eq!(bias.as_vector(), Some([1., 1., 1., 1.].as_slice()));
-}
-
-#[test]
-fn test_shape_inference_constants_shared_by_values_with_different_types() {
-    // Create a graph with a `Shape` node whose output has the same value
-    // `[2, 3]` as a float tensor. Shape inference will produce a single
-    // constant for these, but since the value nodes have different types,
-    // one constant node per type must be created in the graph.
-    let graph = {
-        let x = Expr::value_with_info("data", ValueType::Tensor(DataType::Float), &dims!(2, 3));
-        let shape = x.unary(Shape {
-            start: None,
-            end: None,
-        });
-
-        let y = Expr::value_with_info(
-            "scaled",
-            ValueType::Tensor(DataType::Float),
-            &dims!("batch", 2),
-        );
-        let scale = Expr::constant(NdTensor::from([2., 3.])).unary(Identity {});
-        let scaled = y.binary(Add {}, scale);
-
-        Expr::make_graph([x, y], [shape, scaled])
-    };
-
-    let optimizer = GraphOptimizer::new();
-    let graph = optimizer
-        .optimize(
-            graph,
-            None,
-            OptimizeOptions {
-                infer_shapes: Some(InferShapeOptions::default()),
-            },
-        )
-        .unwrap();
-
-    let shape_out = graph.get_node(graph.output_ids()[0]).unwrap();
-    assert_eq!(
-        shape_out.as_constant().and_then(|c| c.as_vector()),
-        Some([2i32, 3].as_slice())
-    );
-
-    let (_, op) = graph.get_source_node(graph.output_ids()[1]).unwrap();
-    let scale = op
-        .input_ids()
-        .iter()
-        .flatten()
-        .find_map(|id| graph.get_node(*id).and_then(|node| node.as_constant()))
-        .expect("expected a constant operand");
-    assert_eq!(scale.as_vector(), Some([2f32, 3.].as_slice()));
 }
