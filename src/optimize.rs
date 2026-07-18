@@ -3,7 +3,6 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-use rten_tensor::Tensor;
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
@@ -13,7 +12,6 @@ use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
     PlanOptions, RunError,
 };
-use crate::infer_shapes::{InferError, InferShapeOptions, Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
 
@@ -38,15 +36,12 @@ pub enum OptimizeError {
     /// An error occurred while evaluating parts of the graph (eg. as part
     /// of constant propagation).
     RunError(RunError),
-    /// Shape inference failed.
-    InferShapesError(InferError),
 }
 
 impl Display for OptimizeError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::RunError(err) => write!(f, "partial evaluation failed: {}", err),
-            Self::InferShapesError(err) => write!(f, "shape inference failed: {}", err),
         }
     }
 }
@@ -438,10 +433,7 @@ fn find_operator_output_used_outside_subgraph(
 
 /// Configuration for [`GraphOptimizer::optimize`].
 #[derive(Clone, Default)]
-pub struct OptimizeOptions {
-    /// If set, run shape and type inference prior to optimization passes.
-    pub infer_shapes: Option<InferShapeOptions>,
-}
+pub struct OptimizeOptions {}
 
 /// Applies optimizations to a [`Graph`] to enable faster inference.
 pub struct GraphOptimizer {}
@@ -463,7 +455,7 @@ impl GraphOptimizer {
         &self,
         graph: Graph,
         capture_env: Option<&CaptureEnv>,
-        opts: OptimizeOptions,
+        _opts: OptimizeOptions,
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
@@ -476,41 +468,6 @@ impl GraphOptimizer {
         };
         if let Some(level) = level {
             diag.set_level(level);
-        }
-
-        // Perform shape inference to update type and shape metadata for nodes.
-        //
-        // This can unlock fusions which have restrictions on the shapes and
-        // types of inputs.
-        if let Some(infer_opts) = opts.infer_shapes {
-            let infer_result = infer_shapes(&graph_mut.graph, infer_opts)
-                .map_err(OptimizeError::InferShapesError)?;
-            let const_ids: Vec<NodeId> = infer_result
-                .constants
-                .into_iter()
-                .map(|constant| {
-                    let tensor = match constant {
-                        rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
-                        rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
-                    };
-                    graph_mut.add_constant(None, tensor.into_arc())
-                })
-                .collect();
-
-            for (value_id, shape) in infer_result.shapes {
-                match shape {
-                    Shape::Constant { index } => {
-                        let const_id = const_ids[index];
-                        graph_mut.replace_value(value_id, const_id);
-                    }
-                    Shape::Shape(shape) => {
-                        graph_mut.graph.update_value_shape(value_id, shape);
-                    }
-                }
-            }
-            for (value_id, value_type) in infer_result.types {
-                graph_mut.graph.update_value_type(value_id, value_type);
-            }
         }
 
         // "Early" fusions. These are fusions which can benefit constant

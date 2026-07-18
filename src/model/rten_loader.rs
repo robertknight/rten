@@ -182,6 +182,7 @@ fn load_graph(
     }
 
     if let OptimizeMode::On(opts) = optimize {
+        // TODO - Add shape inference here.
         let optimizer = GraphOptimizer::new();
         optimizer
             .optimize(graph, capture_env, opts)
