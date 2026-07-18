@@ -126,6 +126,8 @@ impl GraphMutator {
 
         let mut ops_pending_removal = FxHashSet::default();
 
+        let captured_values = self.graph.subgraph_capture_value_ids();
+
         // Get all operators, in the order they will be run.
         let Ok(mut operators) = self.graph.execution_plan(
             self.graph.input_ids(),
@@ -210,6 +212,28 @@ impl GraphMutator {
                                 "skipping {} fusion because output is reused by {}",
                                 fusion.name(),
                                 consumer_name
+                            ),
+                        );
+                    }
+                    return None;
+                }
+
+                // Skip fusion if it would remove a value captured by a subgraph.
+                //
+                // Ideally we would replace references to the value in the
+                // subgraph instead of skipping the fusion.
+                // See https://github.com/robertknight/rten/issues/1359.
+                if let Some(captured) =
+                    find_operator_output_captured_by_subgraph(&self.graph, &captured_values, &unfused_ops, &fusion)
+                {
+                    if diag.enabled(DiagnosticLevel::Warn) {
+                        diag.warn(
+                            &self.graph,
+                            op_node_id,
+                            std::format_args!(
+                                "skipping {} fusion because output \"{}\" is captured by a subgraph",
+                                fusion.name(),
+                                self.graph.node_name(captured)
                             ),
                         );
                     }
@@ -335,6 +359,36 @@ struct ConsumerInfo {
     #[expect(unused)]
     output: NodeId,
     consumer: ConsumerKind,
+}
+
+/// Check for an operator output ID that would be removed by a fusion and is
+/// captured by a subgraph.
+fn find_operator_output_captured_by_subgraph(
+    graph: &Graph,
+    captured_values: &FxHashSet<NodeId>,
+    unfused_ops: &[NodeId],
+    fusion: &Fusion,
+) -> Option<NodeId> {
+    if captured_values.is_empty() {
+        return None;
+    }
+
+    let preserved: &[Option<NodeId>] = match fusion {
+        Fusion::Op(op) => &op.output_ids,
+        Fusion::Identity { .. } | Fusion::Constant { .. } => &[],
+    };
+
+    for &op_id in unfused_ops {
+        let Some(op) = graph.get_node(op_id).and_then(|n| n.as_operator()) else {
+            continue;
+        };
+        for &output in op.output_ids().iter().flatten() {
+            if captured_values.contains(&output) && !preserved.contains(&Some(output)) {
+                return Some(output);
+            }
+        }
+    }
+    None
 }
 
 /// Find an operator output in a subgraph which is used outside the subgraph,

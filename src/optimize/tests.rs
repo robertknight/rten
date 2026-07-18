@@ -16,9 +16,9 @@ use crate::graph::{
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, Cast, ComputeShape, Conv, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
-    GroupedQueryAttentionMatMul, Identity, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
-    Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice,
-    Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
+    Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid,
+    Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -885,6 +885,54 @@ fn test_eliminate_noop_cast() {
         graph.get_consuming_op(input_id).unwrap().operator().name(),
         "Erf"
     );
+}
+
+#[test]
+fn test_no_eliminate_value_captured_by_subgraph() {
+    let mut graph = Graph::new();
+    let input = graph.add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)));
+    let cond = graph.add_value(Some("cond"), None, Some(ValueType::Tensor(DataType::Int32)));
+    graph.set_input_ids(&[input, cond]);
+
+    // No-op cast
+    let (_cast_op, _cast_out) = graph.add_simple_op(
+        "cast",
+        Cast {
+            to: DataType::Float,
+        },
+        &[input],
+    );
+
+    // Build then/else branches which each capture "cast_out" and return it.
+    let make_branch = || {
+        let mut sg = Graph::new();
+        let cap = sg.add_value(Some("cast_out"), None, None);
+        sg.set_captures(&[cap]);
+        sg.set_output_ids(&[cap]);
+        sg
+    };
+
+    let if_out = graph.add_value(Some("if_out"), None, None);
+    graph.add_op(
+        Some("If"),
+        Arc::new(If {
+            then_branch: make_branch(),
+            else_branch: make_branch(),
+        }),
+        &[Some(cond)],
+        &[Some(if_out)],
+    );
+    graph.set_output_ids(&[if_out]);
+
+    let graph = optimize_graph(graph).unwrap();
+
+    let cast_out = graph
+        .get_node_id("cast_out")
+        .expect("captured value should still exist");
+    let (_, op) = graph
+        .get_source_node(cast_out)
+        .expect("captured value should still have a producer");
+    assert_eq!(op.operator().name(), "Cast");
 }
 
 #[test]
