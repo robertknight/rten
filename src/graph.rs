@@ -300,6 +300,22 @@ impl Graph {
         &self.captures
     }
 
+    /// Return the IDs of value nodes in this graph that are captured by name
+    /// by a nested subgraph (eg. the body of an `If` or `Loop` operator).
+    pub(crate) fn subgraph_capture_value_ids(&self) -> FxHashSet<NodeId> {
+        let mut ids = FxHashSet::default();
+        for node in self.nodes.values() {
+            if let Node::Operator(op) = node {
+                for name in op.capture_names() {
+                    if let Some(id) = self.get_node_id(name) {
+                        ids.insert(id);
+                    }
+                }
+            }
+        }
+        ids
+    }
+
     /// Remove nodes from the graph.
     ///
     /// This method accepts a list of node IDs as it is more efficient to
