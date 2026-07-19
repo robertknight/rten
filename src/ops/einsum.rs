@@ -196,16 +196,17 @@ fn einsum_step(
     let (rhs_term, y) = take_diagonals(&rhs.term, y)?;
     let reduced_dims = step.reduced_dims();
 
-    if reduced_dims.len() == 1 {
-        einsum_matmul(
-            pool,
-            &x,
-            &y,
-            &lhs_term,
-            &rhs_term,
-            &step.output,
-            reduced_dims[0],
-        )
+    // A single reduced dimension which is shared by both inputs maps directly
+    // onto the `K` dimension of a matmul. If the reduced dimension appears in
+    // only one input, fall through to the general case, which broadcasts it
+    // into the other input first.
+    let matmul_k = match reduced_dims[..] {
+        [dim] if lhs_term.contains(dim) && rhs_term.contains(dim) => Some(dim),
+        _ => None,
+    };
+
+    if let Some(matmul_k) = matmul_k {
+        einsum_matmul(pool, &x, &y, &lhs_term, &rhs_term, &step.output, matmul_k)
     } else {
         // Re-arrange input views as `[output_dims][reduced_dims]`. This makes
         // the reduced dimensions adjacent.
@@ -335,7 +336,8 @@ fn permute_and_insert_axes<'a, T>(
 /// Reduce inputs of an Einsum equation with two terms using matrix
 /// multiplication.
 ///
-/// The equation must have a single reduced dimension.
+/// The equation must have a single reduced dimension, which must appear in
+/// both terms.
 fn einsum_matmul(
     pool: &BufferPool,
     x: &TensorView,
@@ -633,6 +635,18 @@ mod tests {
             .clone()
             .into_shape([1, mat_a.size(0), mat_b.size(1)]);
 
+        // Inputs and expected output for an equation where the reduced
+        // dimension appears in only one of the two terms.
+        let mat_c = matmul_ab.clone();
+        let sum_ij_ik = mul(
+            &pool,
+            reduce_sum(&pool, mat_a.view(), Some(&[1]), true /* keep_dims */)
+                .unwrap()
+                .view(),
+            mat_c.view(),
+        )
+        .unwrap();
+
         // Inputs for an equation where both terms have multiple dimensions
         // which do not appear in the other term.
         let abf = Tensor::arange(1., (2 * 3 * 4 + 1) as f32, None).into_shape([2, 3, 4].as_slice());
@@ -776,6 +790,12 @@ mod tests {
                 equation: "abf,fcd->abcd",
                 inputs: vec![abf.view(), fcd.view()],
                 expected: Ok(abcd),
+            },
+            // Reduced dimension which appears in only one of the two terms.
+            Case {
+                equation: "ij,ik->ik",
+                inputs: vec![mat_a.view(), mat_c.view()],
+                expected: Ok(sum_ij_ik),
             },
             // Incorrect input count
             Case {
