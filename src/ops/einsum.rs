@@ -422,15 +422,18 @@ fn einsum_matmul(
     // The last candidate is chosen in each case because it requires the least
     // re-ordering of the input: `M` and `N` need to be the second-to-last and
     // last dimensions of the LHS and RHS respectively.
+    //
+    // Since the reduced dimension appears in both terms, it is excluded as a
+    // candidate by the `contains` tests.
     let matmul_n = term2
         .chars()
         .rev()
-        .find(|c| *c != matmul_k && !term1.contains(*c))
+        .find(|c| !term1.contains(*c))
         .unwrap_or('N');
     let matmul_m = term1
         .chars()
         .rev()
-        .find(|c| *c != matmul_k && !term2.contains(*c))
+        .find(|c| !term2.contains(*c))
         .unwrap_or('M');
 
     // Every remaining dimension becomes a matmul batch dimension. A dimension
