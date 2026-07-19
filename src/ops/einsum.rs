@@ -509,6 +509,45 @@ struct EinsumStep {
     output: String,
 }
 
+/// Iterate over the unique labels of a term, in order of first occurrence.
+fn unique_dims(term: &str) -> impl Iterator<Item = char> + '_ {
+    term.chars()
+        .enumerate()
+        .filter_map(|(i, dim)| (!term.chars().take(i).any(|c| c == dim)).then_some(dim))
+}
+
+/// Decrement the count of terms which have yet to use each label in `term`.
+fn subtract_term_dims(reduced_dims: &mut HashMap<char, usize>, term: &str) {
+    for dim in unique_dims(term) {
+        if let Some(count) = reduced_dims.get_mut(&dim) {
+            *count -= 1;
+        }
+    }
+}
+
+/// Return the output term for an intermediate step in a multi-step einsum
+/// path.
+///
+/// This contains the unique labels of the step's input terms which either
+/// appear in the final output or are reduced dimensions used by subsequent
+/// steps.
+fn step_output(
+    term_a: &str,
+    term_b: &str,
+    final_output: &str,
+    reduced_dims: &HashMap<char, usize>,
+) -> String {
+    let mut output = String::new();
+    for dim in term_a.chars().chain(term_b.chars()) {
+        if !output.contains(dim)
+            && (final_output.contains(dim) || reduced_dims.get(&dim).copied().unwrap_or(0) > 0)
+        {
+            output.push(dim);
+        }
+    }
+    output
+}
+
 /// Convert an Einsum expression with many inputs into a sequence of steps which
 /// each processes one or two inputs.
 ///
@@ -557,27 +596,10 @@ fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
                 .collect();
 
             // Add step for first two terms.
-            for dim in term_a.chars() {
-                if let Some(count) = reduced_dims.get_mut(&dim) {
-                    *count -= 1;
-                }
-            }
-            for dim in term_b.chars() {
-                if let Some(count) = reduced_dims.get_mut(&dim) {
-                    *count -= 1;
-                }
-            }
+            subtract_term_dims(&mut reduced_dims, term_a);
+            subtract_term_dims(&mut reduced_dims, term_b);
 
-            // The output for each step consists of the unique input dim labels
-            // which either appear in the final output, or are reduced
-            // dimensions that appear in subsequent steps.
-            let mut next_output: String = term_a
-                .chars()
-                .chain(term_b.chars().filter(|c| !term_a.contains(*c)))
-                .filter(|dim| {
-                    expr.output.contains(*dim) || reduced_dims.get(dim).copied().unwrap_or(0) > 0
-                })
-                .collect();
+            let mut next_output = step_output(term_a, term_b, &expr.output, &reduced_dims);
 
             steps.push(EinsumStep {
                 lhs: input_term(term_a, 0),
@@ -587,22 +609,12 @@ fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
 
             // Add a step for each remaining term.
             for (term_idx, term) in rest.iter().enumerate() {
-                for dim in term.chars() {
-                    if let Some(count) = reduced_dims.get_mut(&dim) {
-                        *count -= 1;
-                    }
-                }
+                subtract_term_dims(&mut reduced_dims, term);
                 let prev_output = next_output;
                 if term_idx == rest.len() - 1 {
                     next_output = output.clone();
                 } else {
-                    next_output = prev_output
-                        .chars()
-                        .chain(term.chars().filter(|c| !prev_output.contains(*c)))
-                        .filter(|dim| {
-                            output.contains(*dim) || reduced_dims.get(dim).copied().unwrap_or(0) > 0
-                        })
-                        .collect();
+                    next_output = step_output(&prev_output, term, &output, &reduced_dims);
                 }
                 steps.push(EinsumStep {
                     lhs: EinsumTerm {
@@ -1237,6 +1249,68 @@ mod tests {
                         lhs: new_term("abcd", None),
                         rhs: Some(new_term("ef", Some(2))),
                         output: "abcdef".to_string(),
+                    },
+                ]
+                .into(),
+            },
+            // 3+ input terms where a term contains repeated labels.
+            //
+            // The repeated label must be counted once when determining whether
+            // later steps still need it, and appear only once in a step's
+            // output term.
+            Case {
+                equation: "ii,j,i->",
+                broadcast_ndim: 0,
+                path: [
+                    EinsumStep {
+                        lhs: new_term("ii", Some(0)),
+                        rhs: Some(new_term("j", Some(1))),
+                        // `i` is retained because the final term needs it.
+                        output: "i".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("i", None),
+                        rhs: Some(new_term("i", Some(2))),
+                        output: "".to_string(),
+                    },
+                ]
+                .into(),
+            },
+            // As above, but with the terms reordered so that the other use of
+            // the repeated label is consumed by the first step of the path
+            // rather than a later one.
+            Case {
+                equation: "ii,i,j->",
+                broadcast_ndim: 0,
+                path: [
+                    EinsumStep {
+                        lhs: new_term("ii", Some(0)),
+                        rhs: Some(new_term("i", Some(1))),
+                        // `i` is dropped because no later term uses it.
+                        output: "".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("", None),
+                        rhs: Some(new_term("j", Some(2))),
+                        output: "".to_string(),
+                    },
+                ]
+                .into(),
+            },
+            // 3+ input terms with repeated labels which are kept in the output.
+            Case {
+                equation: "ii,i,i->i",
+                broadcast_ndim: 0,
+                path: [
+                    EinsumStep {
+                        lhs: new_term("ii", Some(0)),
+                        rhs: Some(new_term("i", Some(1))),
+                        output: "i".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("i", None),
+                        rhs: Some(new_term("i", Some(2))),
+                        output: "i".to_string(),
                     },
                 ]
                 .into(),
