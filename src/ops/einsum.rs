@@ -248,8 +248,11 @@ fn einsum_step(
         };
 
         // Reshape the adjacent reduced dimensions into a single dimension.
+        // The expanded shapes must be used here since either input may have
+        // been expanded along reduced dimensions it lacked or had a 1-sized
+        // dimension for.
         let reduced_dims_start_index = xp.ndim() - reduced_dims.len();
-        let reduced_size: usize = xp.shape()[reduced_dims_start_index..].iter().product();
+        let reduced_size: usize = tmp_x_shape[reduced_dims_start_index..].iter().product();
 
         tmp_x_shape.truncate(reduced_dims_start_index);
         tmp_x_shape.push(reduced_size);
@@ -662,6 +665,19 @@ mod tests {
         .unwrap()
         .into_shape([2, 3, 5, 6].as_slice());
 
+        // Expected output for an equation where one reduced dimension appears
+        // in both terms and another appears in only the second term.
+        let abf_summed_b =
+            reduce_sum(&pool, abf.view(), Some(&[1]), false /* keep_dims */).unwrap();
+        let af_prod = mul(&pool, mat_c.view(), abf_summed_b.view()).unwrap();
+        let sum_af_abf = reduce_sum(
+            &pool,
+            af_prod.view(),
+            Some(&[1]),
+            false, /* keep_dims */
+        )
+        .unwrap();
+
         let cases = [
             // Identity
             Case {
@@ -811,7 +827,21 @@ mod tests {
             Case {
                 equation: "ij,ik->ik",
                 inputs: vec![mat_a.view(), mat_c.view()],
+                expected: Ok(sum_ij_ik.clone()),
+            },
+            // As above, but where the term containing the reduced dimension
+            // is on the right instead of the left.
+            Case {
+                equation: "ik,ij->ik",
+                inputs: vec![mat_c.view(), mat_a.view()],
                 expected: Ok(sum_ij_ik),
+            },
+            // One reduced dimension which appears in both terms plus one which
+            // appears only in the right term.
+            Case {
+                equation: "af,abf->a",
+                inputs: vec![mat_c.view(), abf.view()],
+                expected: Ok(sum_af_abf),
             },
             // Incorrect input count
             Case {
