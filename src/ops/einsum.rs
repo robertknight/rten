@@ -234,14 +234,14 @@ fn einsum_step(
             tmp_y_shape[i] = tmp_y_shape[i].max(tmp_x_shape[i]);
         }
         let x = if tmp_x_shape == xp.shape() {
-            x.to_contiguous_in(pool)
+            xp.to_contiguous_in(pool)
         } else {
-            Contiguous::new(expand_to(pool, x.view(), &tmp_x_shape).into_cow()).unwrap()
+            Contiguous::new(expand_to(pool, xp.view(), &tmp_x_shape).into_cow()).unwrap()
         };
         let y = if tmp_y_shape == yp.shape() {
-            y.to_contiguous_in(pool)
+            yp.to_contiguous_in(pool)
         } else {
-            Contiguous::new(expand_to(pool, y.view(), &tmp_y_shape).into_cow()).unwrap()
+            Contiguous::new(expand_to(pool, yp.view(), &tmp_y_shape).into_cow()).unwrap()
         };
 
         // Reshape the adjacent reduced dimensions into a single dimension.
@@ -818,6 +818,14 @@ mod tests {
                 equation: "bhwc,bhwc->",
                 inputs: vec![bhwc.as_dyn(), bhwc.as_dyn()],
                 expected: Ok(Tensor::from(bhwc.iter().map(|x| x * x).sum::<f32>())),
+            },
+            // Reduction over multiple dimensions where the inputs' dimensions
+            // are in a different order. The (non-square) inputs must be
+            // permuted to a common order before being reduced.
+            Case {
+                equation: "ij,ji->",
+                inputs: vec![mat_a.view(), mat_a.transposed()],
+                expected: Ok(Tensor::from(mat_a.iter().map(|x| x * x).sum::<f32>())),
             },
             // Reduction over multiple dimensions where the reduced dimensions
             // are not present in all tensors.
