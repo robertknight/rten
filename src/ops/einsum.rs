@@ -555,12 +555,17 @@ fn step_output(
 /// terms stand for. The ellipses are replaced with digit labels in the path.
 fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
     let output = expand_ellipsis(&expr.output, broadcast_ndim as usize);
+    let in_terms: Vec<String> = expr
+        .inputs
+        .iter()
+        .map(|term| expand_ellipsis(term, broadcast_ndim as usize))
+        .collect();
     let input_term = |term: &str, index: u32| EinsumTerm {
-        term: expand_ellipsis(term, broadcast_ndim as usize),
+        term: term.to_string(),
         input: EinsumInput::Index(index),
     };
 
-    match &expr.inputs[..] {
+    match &in_terms[..] {
         // This case shouldn't happen since Einsum equations must have at least
         // one input term.
         [] => Vec::new(),
@@ -584,22 +589,20 @@ fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
             let mut steps = Vec::with_capacity(all_terms.len() - 1);
 
             // Count how many terms use each reduced dimension.
-            let mut reduced_dims: HashMap<char, usize> = expr
-                .reduced_dims()
-                .into_iter()
-                .map(|dim| {
-                    (
-                        dim,
-                        all_terms.iter().filter(|term| term.contains(dim)).count(),
-                    )
-                })
-                .collect();
+            let mut reduced_dims: HashMap<char, usize> = HashMap::new();
+            for term in all_terms {
+                for dim in unique_dims(term) {
+                    if !output.contains(dim) {
+                        *reduced_dims.entry(dim).or_insert(0) += 1;
+                    }
+                }
+            }
 
             // Add step for first two terms.
             subtract_term_dims(&mut reduced_dims, term_a);
             subtract_term_dims(&mut reduced_dims, term_b);
 
-            let mut next_output = step_output(term_a, term_b, &expr.output, &reduced_dims);
+            let mut next_output = step_output(term_a, term_b, &output, &reduced_dims);
 
             steps.push(EinsumStep {
                 lhs: input_term(term_a, 0),
@@ -1165,6 +1168,22 @@ mod tests {
                     "Number of broadcast dims does not match across inputs",
                 )),
             },
+            // Three or more inputs with ellipses.
+            Case {
+                equation: "...,...,...->...",
+                inputs: vec![mat_a.view(), mat_a.view(), mat_a.view()],
+                expected: Ok(mat_a.map(|x| x * x * x)),
+            },
+            // Three or more inputs where the ellipsis dims are kept and the
+            // letter dims are reduced.
+            //
+            // The result is the elementwise product of the column sums of the
+            // three inputs.
+            Case {
+                equation: "a...,b...,c...->...",
+                inputs: vec![mat_a.view(), mat_a.view(), mat_a.view()],
+                expected: Ok(Tensor::from([125., 343., 729.])),
+            },
         ];
 
         cases.test_each(|case| {
@@ -1278,6 +1297,25 @@ mod tests {
                     rhs: None,
                     output: "j012i".to_string(),
                 }]
+                .into(),
+            },
+            // 3+ input terms with ellipses. The intermediate step outputs
+            // must use the expanded (digit) form of the ellipsis dims.
+            Case {
+                equation: "a...,b...,c...->...",
+                broadcast_ndim: 1,
+                path: [
+                    EinsumStep {
+                        lhs: new_term("a0", Some(0)),
+                        rhs: Some(new_term("b0", Some(1))),
+                        output: "0".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("0", None),
+                        rhs: Some(new_term("c0", Some(2))),
+                        output: "0".to_string(),
+                    },
+                ]
                 .into(),
             },
         ];
