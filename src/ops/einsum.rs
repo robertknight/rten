@@ -184,7 +184,9 @@ fn einsum_step(
             return Ok(xp.to_tensor_in(pool));
         }
 
-        let reduced_dim_indices: Vec<i32> = (0..reduced_dims.len()).map(|i| i as i32 - 1).collect();
+        let reduced_dim_indices: Vec<i32> = (xp.ndim() - reduced_dims.len()..xp.ndim())
+            .map(|i| i as i32)
+            .collect();
         return reduce_sum(
             pool,
             xp,
@@ -702,6 +704,20 @@ mod tests {
                     false, /* keep_dims */
                 )
                 .unwrap()),
+            },
+            // Reduction of a single input over multiple dimensions, keeping
+            // one output dimension.
+            Case {
+                equation: "abf->a",
+                inputs: vec![abf.view()],
+                expected: reduce_sum(&pool, abf.view(), Some(&[1, 2]), false /* keep_dims */),
+            },
+            // As above, but where the kept dimension is not the first, so the
+            // input must be permuted before reducing.
+            Case {
+                equation: "abf->f",
+                inputs: vec![abf.view()],
+                expected: reduce_sum(&pool, abf.view(), Some(&[0, 1]), false /* keep_dims */),
             },
             // Outer product of two vectors
             Case {
