@@ -437,12 +437,7 @@ fn reduce<T: Copy>(
         match (reduced_inner_dims, input.data()) {
             (Some(ndims), Some(input_data)) => {
                 // Fast path for reducing over contiguous chunks of the input.
-                let slice_len = if ndims == input.ndim() {
-                    input.len()
-                } else {
-                    input.stride(input.ndim() - 1 - ndims)
-                };
-
+                let slice_len: usize = input.shape()[input.ndim() - ndims..].iter().product();
                 reduced_data.extend(
                     input_data
                         .chunks(slice_len)
@@ -1896,6 +1891,25 @@ mod tests {
             false, /* keep_dims */
         ));
         assert_eq!(result, input.iter().sum::<f32>());
+    }
+
+    #[test]
+    fn test_reduce_permuted_contiguous_tensor() {
+        let pool = BufferPool::new();
+
+        let input = Tensor::from([[1.], [2.], [3.], [4.]]);
+        assert_eq!(input.strides(), &[1, 1]);
+
+        // Create a view which is permuted, so it has non-standard strides, yet
+        // is still contiguous. This is possible because the inner dim has size
+        // 1.
+        let permuted = input.permuted(&[1, 0]);
+        assert!(permuted.is_contiguous());
+        assert_eq!(permuted.stride(0), 1);
+        assert_eq!(permuted.size(1), 4);
+
+        let result = reduce_sum(&pool, permuted, Some(&[1]), false /* keep_dims */).unwrap();
+        assert_eq!(result, Tensor::from([10.]));
     }
 
     #[test]
