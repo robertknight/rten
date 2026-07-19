@@ -283,6 +283,17 @@ fn einsum_step(
     }
 }
 
+/// Return true if `c` denotes a 1-sized dimension which was inserted into a
+/// term to give an input the shape required by a matmul, rather than a
+/// dimension from the equation.
+///
+/// Dimensions from the equation are lower-case letters or digits (standing in
+/// for ellipsis dimensions), so upper-case letters are used for inserted
+/// dimensions.
+fn is_inserted_dim(c: char) -> bool {
+    c.is_ascii_uppercase()
+}
+
 fn is_valid_permute_insert_spec(src: &str, dest: &str) -> bool {
     if src.len() > dest.len() {
         return false;
@@ -393,11 +404,12 @@ fn einsum_matmul(
     y_order.push(matmul_k);
     y_order.push(matmul_n);
 
+    // Inserted 1-sized dimensions are excluded from the output.
     let mut out_order: String = batch_dims;
-    if matmul_m.is_ascii_lowercase() {
+    if !is_inserted_dim(matmul_m) {
         out_order.push(matmul_m);
     }
-    if matmul_n.is_ascii_lowercase() {
+    if !is_inserted_dim(matmul_n) {
         out_order.push(matmul_n);
     }
 
@@ -405,10 +417,10 @@ fn einsum_matmul(
     let yp = permute_and_insert_axes(y, term2, &y_order);
     let mut out = matmul(pool, xp, yp, None)?;
 
-    if !matmul_m.is_ascii_lowercase() {
+    if is_inserted_dim(matmul_m) {
         out.remove_axis(out.ndim() - 2);
     }
-    if !matmul_n.is_ascii_lowercase() {
+    if is_inserted_dim(matmul_n) {
         out.remove_axis(out.ndim() - 1);
     }
 
@@ -1033,6 +1045,34 @@ mod tests {
                 equation: "...i->...",
                 inputs: vec![mat_a.view()],
                 expected: reduce_sum(&pool, mat_a.view(), Some(&[-1]), false /* keep_dims */),
+            },
+            // Matmul where the RHS's non-shared dimensions come from an
+            // ellipsis, and the LHS has no non-shared dimensions.
+            Case {
+                equation: "f,fc...->c...",
+                inputs: vec![mat_b.slice(0), fcd.view()],
+                expected: Ok(matmul(
+                    &pool,
+                    mat_b.slice((..1, ..)),
+                    fcd.reshaped([4, 30].as_slice()).view(),
+                    None,
+                )
+                .unwrap()
+                .into_shape([5, 6].as_slice())),
+            },
+            // Matmul where the RHS's only non-shared dimensions come from an
+            // ellipsis.
+            Case {
+                equation: "af,f...->a...",
+                inputs: vec![mat_c.view(), fcd.view()],
+                expected: Ok(matmul(
+                    &pool,
+                    mat_c.view(),
+                    fcd.reshaped([4, 30].as_slice()).view(),
+                    None,
+                )
+                .unwrap()
+                .into_shape([2, 5, 6].as_slice())),
             },
             // Mismatch of dimension count for ellipsis
             Case {
