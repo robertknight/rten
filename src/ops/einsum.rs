@@ -348,34 +348,45 @@ fn einsum_matmul(
     let matmul_k = reduced_dim;
 
     // Find terms that can be used as the `N` and `M` dimensions of a matmul.
+    // These must be dimensions which appear in only one of the two inputs.
     //
     // If there aren't suitable dimensions, we'll insert them. Upper-case
     // letters are used to denote inserted dimensions since these cannot
-    // conflict with dimensions in the einsum equation.
-    let matmul_n = term2.chars().find(|c| !term1.contains(*c)).unwrap_or('N');
+    // conflict with dimensions in the equation.
+    //
+    // The last candidate is chosen in each case because it requires the least
+    // re-ordering of the input: `M` and `N` need to be the second-to-last and
+    // last dimensions of the LHS and RHS respectively.
+    let matmul_n = term2
+        .chars()
+        .rev()
+        .find(|c| *c != matmul_k && !term1.contains(*c))
+        .unwrap_or('N');
     let matmul_m = term1
         .chars()
         .rev()
-        .find(|c| !term2.contains(*c))
+        .find(|c| *c != matmul_k && !term2.contains(*c))
         .unwrap_or('M');
 
-    // Find the terms that will be used as the batch dimensions of a matmul.
-    let batch_dims = term1
-        .chars()
-        .filter(|c| *c != matmul_k && *c != matmul_n && *c != matmul_m);
+    // Every remaining dimension becomes a matmul batch dimension. A dimension
+    // which appears in only one input is handled by inserting a 1-sized
+    // dimension into the other input, so it is broadcast by the matmul.
+    let mut batch_dims = String::new();
+    for c in term1.chars().chain(term2.chars()) {
+        if c != matmul_k && c != matmul_m && c != matmul_n && !batch_dims.contains(c) {
+            batch_dims.push(c);
+        }
+    }
 
-    let mut x_order: String = batch_dims.clone().collect();
+    let mut x_order: String = batch_dims.clone();
     x_order.push(matmul_m);
     x_order.push(matmul_k);
 
-    let mut y_order: String = batch_dims
-        .clone()
-        .filter(|bc| term2.contains(*bc))
-        .collect();
+    let mut y_order: String = batch_dims.clone();
     y_order.push(matmul_k);
     y_order.push(matmul_n);
 
-    let mut out_order: String = batch_dims.collect();
+    let mut out_order: String = batch_dims;
     if matmul_m.is_ascii_lowercase() {
         out_order.push(matmul_m);
     }
@@ -616,6 +627,25 @@ mod tests {
         // 3D tensor with each dimension having a different size.
         let ijk = Tensor::zeros(&[10, 5, 8]);
 
+        // Expected output for matmul equations where the RHS has several
+        // dimensions which do not appear in the LHS.
+        let hmk = matmul_ab
+            .clone()
+            .into_shape([1, mat_a.size(0), mat_b.size(1)]);
+
+        // Inputs for an equation where both terms have multiple dimensions
+        // which do not appear in the other term.
+        let abf = Tensor::arange(1., (2 * 3 * 4 + 1) as f32, None).into_shape([2, 3, 4].as_slice());
+        let fcd = Tensor::arange(1., (4 * 5 * 6 + 1) as f32, None).into_shape([4, 5, 6].as_slice());
+        let abcd = matmul(
+            &pool,
+            abf.reshaped([2 * 3, 4].as_slice()).view(),
+            fcd.reshaped([4, 5 * 6].as_slice()).view(),
+            None,
+        )
+        .unwrap()
+        .into_shape([2, 3, 5, 6].as_slice());
+
         let cases = [
             // Identity
             Case {
@@ -717,6 +747,35 @@ mod tests {
                 equation: "bhwc,hkc->bhwk",
                 inputs: vec![bhwc.as_dyn(), hck.permuted([0, 2, 1]).as_dyn()],
                 expected: Ok(bhwk.into_dyn()),
+            },
+            // Matmul where the RHS has multiple dimensions that don't appear
+            // in the LHS.
+            //
+            // See https://github.com/robertknight/rten/issues/1361
+            Case {
+                equation: "mc,hck->hmk",
+                inputs: vec![mat_a.view(), hck.as_dyn()],
+                expected: Ok(hmk.clone().into_dyn()),
+            },
+            // As above, but with the output dimensions re-ordered.
+            Case {
+                equation: "mc,hck->khm",
+                inputs: vec![mat_a.view(), hck.as_dyn()],
+                expected: Ok(hmk.permuted([2, 0, 1]).to_tensor().into_dyn()),
+            },
+            // As above, but where the LHS has no dimensions that are not
+            // shared with the RHS, so an `M` dimension must be inserted.
+            Case {
+                equation: "c,hck->hk",
+                inputs: vec![mat_a.slice(0), hck.as_dyn()],
+                expected: Ok(matmul(&pool, mat_a.slice((..1, ..)), mat_b.view(), None).unwrap()),
+            },
+            // Matmul where both inputs have multiple dimensions that are not
+            // shared with the other input.
+            Case {
+                equation: "abf,fcd->abcd",
+                inputs: vec![abf.view(), fcd.view()],
+                expected: Ok(abcd),
             },
             // Incorrect input count
             Case {
