@@ -978,6 +978,20 @@ impl<L: Layout + Clone> InnerIterBase<L> {
         let parent_strides: SmallVec<[usize; 5]> = parent_strides.iter().collect();
         let (outer_strides, inner_strides) = parent_strides.as_ref().split_at(outer_dims);
 
+        let inner_layout = make_inner_layout(inner_shape, inner_strides);
+        let inner_data_len = inner_layout.min_data_len();
+
+        // If the inner views are empty, the tensor must have zero-length
+        // storage. Zero the outer strides so that `outer_offsets` always yields
+        // zero - the only valid storage offset.
+        let zero_strides: SmallVec<[usize; 5]>;
+        let outer_strides = if inner_data_len == 0 {
+            zero_strides = SmallVec::from_elem(0, outer_dims);
+            zero_strides.as_ref()
+        } else {
+            outer_strides
+        };
+
         let outer_layout = DynLayout::from_shape_and_strides(
             outer_shape,
             outer_strides,
@@ -985,11 +999,9 @@ impl<L: Layout + Clone> InnerIterBase<L> {
         )
         .unwrap();
 
-        let inner_layout = make_inner_layout(inner_shape, inner_strides);
-
         InnerIterBase {
             outer_offsets: Offsets::new(&outer_layout),
-            inner_data_len: inner_layout.min_data_len(),
+            inner_data_len,
             inner_layout,
         }
     }
@@ -1732,6 +1744,23 @@ mod tests {
             || tensor.inner_iter::<2>(),
             &[tensor.slice(0), tensor.slice(1)],
         );
+    }
+
+    #[test]
+    fn test_inner_iter_empty() {
+        // Create a tensor view where the inner dimension has zero size and the
+        // outer dimension has non-zero size and non-zero strides.
+        let tensor = NdTensor::<i32, 2>::zeros([0, 3]);
+        assert_eq!(tensor.strides(), [3, 1]);
+        let view = tensor.permuted([1, 0]);
+        assert_eq!(view.strides(), [1, 3]);
+
+        let mut count = 0;
+        for lane in view.inner_iter::<1>() {
+            assert_eq!(lane.shape(), [0]);
+            count += 1;
+        }
+        assert_eq!(count, 3);
     }
 
     #[test]
