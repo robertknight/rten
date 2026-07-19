@@ -643,6 +643,7 @@ mod tests {
         }
 
         let pool = BufferPool::new();
+        let scalar = Tensor::from(2.5);
         let vec_a = Tensor::arange(1., 10., None);
         let vec_b = Tensor::arange(1., 5., None);
 
@@ -959,13 +960,26 @@ mod tests {
                         .sum::<f32>(),
                 )),
             },
-            // Empty equation
+            // Empty equation with no inputs. The equation implies a single
+            // scalar input.
             Case {
                 equation: "",
                 inputs: vec![],
                 expected: Err(OpError::InvalidValue(
-                    "Einsum equation must have at least one term",
+                    "Number of terms in Einsum equation does not match input tensor count",
                 )),
+            },
+            // Empty equation with a scalar input.
+            Case {
+                equation: "",
+                inputs: vec![scalar.view()],
+                expected: Ok(scalar.clone()),
+            },
+            // As above, in explicit form.
+            Case {
+                equation: "->",
+                inputs: vec![scalar.view()],
+                expected: Ok(scalar.clone()),
             },
             // Invalid input terms
             Case {
