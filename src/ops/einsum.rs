@@ -5,7 +5,7 @@ use rten_shape_inference::einsum_parser::{EinsumExpr, ValidateError, expand_elli
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::layout::{MutLayout, OverlapPolicy};
 use rten_tensor::prelude::*;
-use rten_tensor::{Contiguous, DynLayout, Tensor, TensorView};
+use rten_tensor::{Contiguous, CowTensor, DynLayout, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -161,6 +161,46 @@ fn take_diagonals<'a>(term: &str, x: &TensorView<'a>) -> Result<(String, TensorV
     Ok((unique_dims, out_view))
 }
 
+/// Sum out the dimensions of `term` which appear in neither `other_term` nor
+/// `output`.
+///
+/// Returns `term` with the summed-over dimensions removed and the tensor.
+fn sum_lone_dims<'a>(
+    pool: &BufferPool,
+    view: TensorView<'a>,
+    term: String,
+    other_term: &str,
+    output: &str,
+) -> Result<(String, CowTensor<'a, f32>), OpError> {
+    let mut lone_axes = Vec::new();
+    let mut new_term = String::with_capacity(term.len());
+    for (i, c) in term.chars().enumerate() {
+        if other_term.contains(c) || output.contains(c) {
+            new_term.push(c);
+        } else {
+            lone_axes.push(i as i32);
+        }
+    }
+    if lone_axes.is_empty() {
+        Ok((new_term, view.as_cow()))
+    } else {
+        let summed = reduce_sum(pool, view, Some(&lone_axes), false /* keep_dims */)?;
+        Ok((new_term, summed.into_cow()))
+    }
+}
+
+/// Return the unique labels in `lhs_term` and `rhs_term` which do not appear
+/// in `output`. These are the dimensions summed over when evaluating a step.
+fn reduced_dims(lhs_term: &str, rhs_term: &str, output: &str) -> Vec<char> {
+    let mut dims = Vec::new();
+    for c in lhs_term.chars().chain(rhs_term.chars()) {
+        if !output.contains(c) && !dims.contains(&c) {
+            dims.push(c);
+        }
+    }
+    dims
+}
+
 /// Evaluate a single step in an einsum path.
 fn einsum_step(
     pool: &BufferPool,
@@ -172,7 +212,7 @@ fn einsum_step(
 
     let (Some(y), Some(rhs)) = (y, &step.rhs) else {
         // Re-arrange input views as `[output_dims][reduced_dims]`.
-        let reduced_dims = step.reduced_dims();
+        let reduced_dims = reduced_dims(&lhs_term, "", &step.output);
         let common_order: String = step
             .output
             .chars()
@@ -196,19 +236,26 @@ fn einsum_step(
     };
 
     let (rhs_term, y) = take_diagonals(&rhs.term, y)?;
-    let reduced_dims = step.reduced_dims();
 
-    // A single reduced dimension which is shared by both inputs maps directly
-    // onto the `K` dimension of a matmul. If the reduced dimension appears in
-    // only one input, fall through to the general case, which broadcasts it
-    // into the other input first.
-    let matmul_k = match reduced_dims[..] {
-        [dim] if lhs_term.contains(dim) && rhs_term.contains(dim) => Some(dim),
-        _ => None,
-    };
+    // Sum out reduced dimensions which appear in only one term, so that all
+    // remaining reduced dimensions appear in both terms.
+    let (lhs_term, x) = sum_lone_dims(pool, x, lhs_term, &rhs_term, &step.output)?;
+    let (rhs_term, y) = sum_lone_dims(pool, y, rhs_term, &lhs_term, &step.output)?;
 
-    if let Some(matmul_k) = matmul_k {
-        einsum_matmul(pool, &x, &y, &lhs_term, &rhs_term, &step.output, matmul_k)
+    let reduced_dims = reduced_dims(&lhs_term, &rhs_term, &step.output);
+
+    // A single reduced dimension maps directly onto the `K` dimension of a
+    // matmul.
+    if let [matmul_k] = reduced_dims[..] {
+        einsum_matmul(
+            pool,
+            &x.view(),
+            &y.view(),
+            &lhs_term,
+            &rhs_term,
+            &step.output,
+            matmul_k,
+        )
     } else {
         // Re-arrange input views as `[output_dims][reduced_dims]`. This makes
         // the reduced dimensions adjacent.
@@ -217,8 +264,8 @@ fn einsum_step(
             .chars()
             .chain(reduced_dims.iter().copied())
             .collect();
-        let xp = permute_and_insert_axes(&x, &lhs_term, &common_order);
-        let yp = permute_and_insert_axes(&y, &rhs_term, &common_order);
+        let xp = permute_and_insert_axes(&x.view(), &lhs_term, &common_order);
+        let yp = permute_and_insert_axes(&y.view(), &rhs_term, &common_order);
 
         // If there are no reduced dimensions, fall back to a simple multiply
         // with broadcasting.
@@ -248,9 +295,9 @@ fn einsum_step(
         };
 
         // Reshape the adjacent reduced dimensions into a single dimension.
-        // The expanded shapes must be used here since either input may have
-        // been expanded along reduced dimensions it lacked or had a 1-sized
-        // dimension for.
+        // The expanded shapes must be used here since a 1-sized reduced
+        // dimension in either input may have been expanded to match the other
+        // input.
         let reduced_dims_start_index = xp.ndim() - reduced_dims.len();
         let reduced_size: usize = tmp_x_shape[reduced_dims_start_index..].iter().product();
 
@@ -457,27 +504,6 @@ struct EinsumStep {
     lhs: EinsumTerm,
     rhs: Option<EinsumTerm>,
     output: String,
-}
-
-impl EinsumStep {
-    /// Return a list of chars which appear in the input terms but not in the
-    /// output of this step.
-    fn reduced_dims(&self) -> Vec<char> {
-        let in_terms = [
-            self.lhs.term.as_str(),
-            self.rhs.as_ref().map(|rhs| rhs.term.as_str()).unwrap_or(""),
-        ];
-
-        let mut terms = Vec::new();
-        for in_term in in_terms {
-            for in_ch in in_term.chars() {
-                if !terms.contains(&in_ch) && !self.output.contains(in_ch) {
-                    terms.push(in_ch);
-                }
-            }
-        }
-        terms
-    }
 }
 
 /// Convert an Einsum expression with many inputs into a sequence of steps which
@@ -904,6 +930,18 @@ mod tests {
                 equation: "ij,ji->",
                 inputs: vec![mat_a.view(), mat_a.transposed()],
                 expected: Ok(Tensor::from(mat_a.iter().map(|x| x * x).sum::<f32>())),
+            },
+            // Reduction over multiple dimensions where one input has a
+            // 1-sized dimension which is broadcast.
+            Case {
+                equation: "ij,ij->",
+                inputs: vec![mat_a.slice((..1, ..)), mat_a.view()],
+                expected: Ok(Tensor::from(
+                    mul(&pool, mat_a.slice((..1, ..)), mat_a.view())
+                        .unwrap()
+                        .iter()
+                        .sum::<f32>(),
+                )),
             },
             // Reduction over multiple dimensions where the reduced dimensions
             // are not present in all tensors.
