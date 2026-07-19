@@ -7,8 +7,6 @@ use std::fmt;
 /// [`EinsumExpr::parse`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParseError {
-    /// The equation has no input terms (the left-hand side is empty).
-    NoInputTerms,
     /// An input term contains characters other than lowercase ASCII letters
     /// or more than one ellipsis (`...`).
     InvalidInputTerm,
@@ -26,7 +24,6 @@ impl ParseError {
     /// Return a human-readable description of the error.
     pub fn as_str(&self) -> &'static str {
         match self {
-            ParseError::NoInputTerms => "Einsum equation must have at least one term",
             ParseError::InvalidInputTerm => "Input term is invalid",
             ParseError::InvalidOutputTerm => "Output term is invalid",
             ParseError::RepeatedOutputLabels => "Einsum output term contains repeated labels",
@@ -63,14 +60,12 @@ pub struct EinsumExpr {
 impl EinsumExpr {
     /// Parse an Einsum expression.
     ///
-    /// The expression must contain at least one input term.
+    /// An empty left-hand side (eg. in "" or "->") is treated as a single
+    /// empty term, corresponding to a scalar input.
     pub fn parse(expr: &str) -> Result<EinsumExpr, ParseError> {
         let mut parts = expr.trim().splitn(2, "->").map(|part| part.trim());
 
-        let lhs = match parts.next() {
-            Some(lhs) if !lhs.is_empty() => lhs,
-            _ => return Err(ParseError::NoInputTerms),
-        };
+        let lhs = parts.next().unwrap_or_default();
 
         let inputs: Vec<String> = lhs
             .split(',')
@@ -331,15 +326,21 @@ mod tests {
                 equation: "...ij->...ji",
                 expected: Ok(expr(&["...ij"], "...ji")),
             },
-            // Empty equation.
+            // Empty equation. The left-hand side is a single empty term,
+            // corresponding to a scalar input.
             Case {
                 equation: "",
-                expected: Err(ParseError::NoInputTerms),
+                expected: Ok(expr(&[""], "")),
             },
             // Whitespace-only equation.
             Case {
                 equation: "  ",
-                expected: Err(ParseError::NoInputTerms),
+                expected: Ok(expr(&[""], "")),
+            },
+            // Explicit form with a single empty (scalar) term.
+            Case {
+                equation: "->",
+                expected: Ok(expr(&[""], "")),
             },
             // Upper-case letters in an input term.
             Case {

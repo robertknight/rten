@@ -165,6 +165,19 @@ mod tests {
                 inputs: vec![sym_shape!(2, "I", "J")],
                 expected: sym_shape!(2, "I", "J"),
             },
+            // Empty equation. The left-hand side is a single empty term,
+            // corresponding to a scalar input.
+            Case {
+                equation: "",
+                inputs: vec![sym_shape!()],
+                expected: sym_shape!(),
+            },
+            // As above, in explicit form.
+            Case {
+                equation: "->",
+                inputs: vec![sym_shape!()],
+                expected: sym_shape!(),
+            },
             // Outer product.
             Case {
                 equation: "i,j->ij",
