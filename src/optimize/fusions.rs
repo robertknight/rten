@@ -14,9 +14,9 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, Conv, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
-    LayerNormalization, MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean,
-    RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
+    AddSoftmax, Cast, ComputeShape, Conv, FusedMatMul, Gelu, Glu, GluActivation,
+    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, RMSNormalization,
+    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -584,6 +584,65 @@ impl PatternFusion for SiluFusion {
 
     fn maybe_fuse(&self, _: &Match, _: &Graph) -> Result<Silu, FusionError> {
         Ok(Silu {})
+    }
+}
+
+/// Fuse `Mul(activation(A), B)` into `Glu<activation>(A, B)`.
+///
+/// This matches the GeGLU (`activation` = Gelu) and SwiGLU (`activation` =
+/// Silu) patterns used in the feed-forward layers of transformer models. It
+/// relies on [`GeluFusion`], [`ApproxGeluFusion`] or [`SiluFusion`] having
+/// fused the decomposed activation in an earlier pass.
+pub struct GluFusion {}
+
+impl PatternFusion for GluFusion {
+    type Operator = Glu;
+
+    fn name(&self) -> &str {
+        "GluFusion"
+    }
+
+    fn pattern(&self) -> Pattern {
+        let a = Pattern::symbol("a");
+        let b = Pattern::symbol("b");
+        let activation = Pattern::any_of(
+            [
+                Pattern::unary_op("Gelu", a.clone()).with_name("gelu"),
+                Pattern::unary_op("Silu", a.clone()).with_name("silu"),
+            ]
+            .into(),
+        );
+        Pattern::binary_op("Mul", activation, b)
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["a", "b"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Glu, FusionError> {
+        // Unlike `Mul`, the fused operator does not support broadcasting, so
+        // only fuse if shape metadata shows both inputs have the same shape.
+        let input_shape = |name| {
+            g.get_node(pat_match.node_id(name).unwrap())
+                .and_then(|n| n.shape())
+                .ok_or(FusionError::CheckFailed("input shape unknown"))
+        };
+        if input_shape("a")? != input_shape("b")? {
+            return Err(FusionError::CheckFailed("input shapes differ"));
+        }
+
+        let activation = if let Some(gelu_id) = pat_match.node_id("gelu") {
+            let gelu = g
+                .get_operator::<Gelu>(gelu_id)
+                .ok_or(FusionError::CheckFailed("expected Gelu operator"))?;
+            GluActivation::Gelu {
+                approximate: gelu.approximate,
+            }
+        } else {
+            GluActivation::Silu
+        };
+
+        Ok(Glu { activation })
     }
 }
 

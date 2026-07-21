@@ -25,11 +25,11 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, ConvAddFusion, Fusion,
-    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
-    PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
-    RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
-    TransposeFusion,
+    FusionError, FusionVisitor, GeluFusion, GluFusion, GroupedQueryAttentionMatMulFusion,
+    IdentityFusion, LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion,
+    MatMulScaleFusion, PatternFusion, RMSNormalizationFusion, ReciprocalFusion,
+    ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant,
+    SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -565,6 +565,11 @@ impl GraphOptimizer {
         fusions.push(SwishFusion {}.into_visitor());
         fusions.push(GeluFusion {}.into_visitor());
         fusions.push(ApproxGeluFusion {}.into_visitor());
+
+        // GLU fusion. This matches Gelu and Silu operators produced by the
+        // activation fusions above, so it takes effect on a subsequent
+        // iteration of the fusion loop.
+        fusions.push(GluFusion {}.into_visitor());
 
         // Normalization fusions
         fusions.push(LayerNormalizationFusion {}.into_visitor());

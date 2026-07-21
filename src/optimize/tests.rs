@@ -16,9 +16,9 @@ use crate::graph::{
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, Cast, ComputeShape, Conv, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
-    GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
-    Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid,
-    Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Glu, GluActivation, GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization,
+    MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave,
+    Reshape, Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -598,6 +598,98 @@ fn test_fuse_approx_gelu() {
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     let gelu = op.operator().downcast_ref::<Gelu>().unwrap();
     assert_eq!(gelu.approximate, true);
+}
+
+#[test]
+fn test_fuse_glu() {
+    #[derive(Debug)]
+    struct Case {
+        build: fn(Expr, Expr) -> Expr,
+        expected: GluActivation,
+    }
+
+    let cases = [
+        // GeGLU: `Gelu(a) * b`, with the Gelu in decomposed form.
+        Case {
+            build: |a, b| (a.clone() * ((a / (2.0f32).sqrt()).erf() + 1.0) * 0.5) * b,
+            expected: GluActivation::Gelu { approximate: false },
+        },
+        // GeGLU with tanh-approximate Gelu.
+        Case {
+            build: |a, b| {
+                let sqrt_2_pi = Expr::constant((2.0f32 / std::f32::consts::PI).sqrt());
+                let gelu = a.clone()
+                    * 0.5
+                    * (Expr::constant(1.)
+                        + (sqrt_2_pi * (a.clone() + a.pow(Expr::constant(3.0)) * 0.044715)).tanh());
+                gelu * b
+            },
+            expected: GluActivation::Gelu { approximate: true },
+        },
+        // SwiGLU: `Silu(a) * b`, with the Silu in decomposed form.
+        Case {
+            build: |a, b| (a.clone() * a.sigmoid()) * b,
+            expected: GluActivation::Silu,
+        },
+        // SwiGLU with swapped Mul operands.
+        Case {
+            build: |a, b| b * (a.clone() * a.sigmoid()),
+            expected: GluActivation::Silu,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let graph = {
+            let dims = dims!["batch", 8];
+            let a = Expr::value_with_info("a", ValueType::Tensor(DataType::Float), &dims);
+            let b = Expr::value_with_info("b", ValueType::Tensor(DataType::Float), &dims);
+            (case.build)(a, b).build_graph(["a", "b"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let glu = op
+            .operator()
+            .downcast_ref::<Glu>()
+            .expect("expected fused Glu op");
+        assert_eq!(glu.activation, case.expected);
+    });
+}
+
+#[test]
+fn test_no_fuse_glu_if_shapes_not_equal() {
+    #[derive(Debug)]
+    struct Case {
+        /// Shape of the `b` input, or `None` if it has no shape metadata.
+        b_dims: Option<Vec<Dimension>>,
+    }
+
+    let cases = [
+        // `b` broadcasts against `Silu(a)`, but has a different shape.
+        Case {
+            b_dims: Some(dims![8].to_vec()),
+        },
+        // Shape of `b` is unknown.
+        Case { b_dims: None },
+    ];
+
+    cases.test_each(|case| {
+        let graph = {
+            let a_dims = dims!["batch", 8];
+            let a = Expr::value_with_info("a", ValueType::Tensor(DataType::Float), &a_dims);
+            let b = match &case.b_dims {
+                Some(dims) => Expr::value_with_info("b", ValueType::Tensor(DataType::Float), dims),
+                None => Expr::value("b"),
+            };
+            ((a.clone() * a.sigmoid()) * b).build_graph(["a", "b"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "Mul");
+    });
 }
 
 fn layer_norm_graph(with_bias: bool) -> Graph {

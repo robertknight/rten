@@ -763,6 +763,10 @@ pub use contrib::BiasGelu;
 #[cfg(feature = "contrib")]
 mod contrib;
 
+pub use glu::{Glu, GluActivation};
+
+mod glu;
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -1059,7 +1063,7 @@ mod tests {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
     }
 
-    fn reference_approx_gelu(x: f32) -> f32 {
+    pub(super) fn reference_approx_gelu(x: f32) -> f32 {
         let x_cubed = x * x * x;
         let approx_erf = ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x_cubed)).tanh();
         0.5 * x * (1. + approx_erf)
@@ -1188,7 +1192,7 @@ mod tests {
 
     test_unary_op!(test_sign, Sign {}, |x: &f32| x.signum());
 
-    fn reference_sigmoid(x: f32) -> f32 {
+    pub(super) fn reference_sigmoid(x: f32) -> f32 {
         1. / (1. + (-x).exp())
     }
 
