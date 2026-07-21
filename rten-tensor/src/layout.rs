@@ -242,17 +242,22 @@ pub trait Layout {
 
     /// Return the minimum length required for the element data buffer used
     /// with this layout.
+    ///
+    /// If the required length exceeds `usize::MAX` the result saturates.
+    /// This is safe because the result can only be "used" by comparing it
+    /// against the length of a real buffer, which is at most `isize::MAX`
+    /// bytes, so a saturated value will always exceed it.
     fn min_data_len(&self) -> usize {
         if self.shape().iter().any(|d| d == 0) {
             return 0;
         }
-        let max_offset: usize = self
-            .shape()
-            .iter()
-            .zip(self.strides().iter())
-            .map(|(size, stride)| (size - 1) * stride)
-            .sum();
-        max_offset + 1
+        let max_offset = self.shape().iter().zip(self.strides().iter()).fold(
+            0usize,
+            |max_offset, (size, stride)| {
+                max_offset.saturating_add((size - 1).saturating_mul(stride))
+            },
+        );
+        max_offset.saturating_add(1)
     }
 
     /// Return a new layout formed by reshaping this one to `shape`.
@@ -2177,6 +2182,78 @@ mod tests {
             layout.merge_axes();
             assert_eq!(layout.shape(), case.merged_shape);
             assert_eq!(layout.strides(), case.merged_strides);
+        })
+    }
+
+    #[test]
+    fn test_min_data_len() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            shape: &'a [usize],
+            strides: &'a [usize],
+            expected: usize,
+        }
+
+        let cases = [
+            // Scalar
+            Case {
+                shape: &[],
+                strides: &[],
+                expected: 1,
+            },
+            // Contiguous layout
+            Case {
+                shape: &[2, 3],
+                strides: &[3, 1],
+                expected: 6,
+            },
+            // Broadcasting layout
+            Case {
+                shape: &[5, 5],
+                strides: &[0, 0],
+                expected: 1,
+            },
+            // Non-contiguous layout
+            Case {
+                shape: &[2, 2],
+                strides: &[4, 2],
+                expected: 7,
+            },
+            // Empty layout. Strides are ignored.
+            Case {
+                shape: &[0, 2],
+                strides: &[usize::MAX, usize::MAX],
+                expected: 0,
+            },
+            // `(size - 1) * stride` term overflows. Result saturates.
+            Case {
+                shape: &[3],
+                strides: &[usize::MAX / 2 + 1],
+                expected: usize::MAX,
+            },
+            // Sum of per-dimension terms overflows. Result saturates.
+            Case {
+                shape: &[2, 2],
+                strides: &[usize::MAX - 1, usize::MAX - 1],
+                expected: usize::MAX,
+            },
+            // Max offset is `usize::MAX`, so adding one for the final length
+            // overflows. Result saturates.
+            Case {
+                shape: &[2],
+                strides: &[usize::MAX],
+                expected: usize::MAX,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let layout = DynLayout::from_shape_and_strides(
+                case.shape,
+                case.strides,
+                OverlapPolicy::AllowOverlap,
+            )
+            .unwrap();
+            assert_eq!(layout.min_data_len(), case.expected);
         })
     }
 }

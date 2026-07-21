@@ -558,6 +558,46 @@ fn test_from_data_with_strides() {
 }
 
 #[test]
+fn test_from_data_with_strides_overflow() {
+    // Shape and stride combinations for which computing the required storage
+    // length overflows `usize`. These must be rejected rather than wrapping,
+    // as a wrapped length can match the storage length and pass validation.
+    // The strides in the first case are chosen so that the wrapped minimum
+    // storage length would be exactly 4, the actual storage length.
+
+    // Sum of per-dimension max offsets overflows.
+    let x = Tensor::from_data_with_strides(&[2, 2], vec![0; 4], &[usize::MAX - 1, 5]);
+    assert_eq!(x, Err(FromDataError::StorageTooShort));
+
+    // Single dimension's `(size - 1) * stride` term overflows.
+    let x = Tensor::from_data_with_strides(&[3], vec![0; 3], &[usize::MAX / 2 + 1]);
+    assert_eq!(x, Err(FromDataError::StorageTooShort));
+
+    // Stride-consistent (row-major "contiguous") layout whose element count
+    // overflows.
+    let x = Tensor::from_data_with_strides(
+        &[4, usize::MAX / 2 + 1],
+        vec![0; 4],
+        &[usize::MAX / 2 + 1, 1],
+    );
+    assert_eq!(x, Err(FromDataError::StorageTooShort));
+
+    // Same cases via `NdTensor`, which uses a different layout type.
+    let x = NdTensor::from_data_with_strides([2, 2], vec![0; 4], [usize::MAX - 1, 5]);
+    assert_eq!(x, Err(FromDataError::StorageTooShort));
+
+    let x = NdTensor::from_data_with_strides([3], vec![0; 3], [usize::MAX / 2 + 1]);
+    assert_eq!(x, Err(FromDataError::StorageTooShort));
+
+    let x = NdTensor::from_data_with_strides(
+        [4, usize::MAX / 2 + 1],
+        vec![0; 4],
+        [usize::MAX / 2 + 1, 1],
+    );
+    assert_eq!(x, Err(FromDataError::StorageTooShort));
+}
+
+#[test]
 fn test_from_slice_with_strides() {
     // The strides here are overlapping, but `from_slice_with_strides`
     // allows this since it is a read-only view.

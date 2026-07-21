@@ -16,7 +16,10 @@ pub fn is_contiguous<S: SizeArray, Strides: SizeArray>(shape: &S, strides: &Stri
         if stride != product {
             return false;
         }
-        product *= size;
+        // Saturate on overflow. Once saturated, no stride can genuinely match
+        // the product, except `usize::MAX`, which exceeds the maximum
+        // allocation size of `isize::MAX`.
+        product = product.saturating_mul(size);
     }
     true
 }
@@ -61,12 +64,14 @@ pub fn may_have_internal_overlap(shape: impl SizeArray, strides: impl SizeArray)
 
     // Verify that the stride for each dimension fully "steps over" the
     // previous dimension.
-    let mut max_offset = 0;
+    let mut max_offset = 0usize;
     for (stride, shape) in stride_shape {
         if stride <= max_offset {
             return true;
         }
-        max_offset += (shape - 1) * stride;
+        // Saturate on overflow. This keeps the result conservative: a saturated
+        // `max_offset` reports subsequent dimensions as overlapping.
+        max_offset = max_offset.saturating_add((shape - 1).saturating_mul(stride));
     }
     false
 }
@@ -75,7 +80,7 @@ pub fn may_have_internal_overlap(shape: impl SizeArray, strides: impl SizeArray)
 mod tests {
     use rten_testing::TestCases;
 
-    use super::is_contiguous;
+    use super::{is_contiguous, may_have_internal_overlap};
 
     #[test]
     fn test_is_contiguous() {
@@ -156,10 +161,96 @@ mod tests {
                 strides: &[100, 25, 1, 5],
                 contiguous: false,
             },
+            // Stride-consistent layout where the element count overflows
+            // `usize`. Mathematically contiguous, though no buffer can back
+            // it.
+            Case {
+                shape: &[4, usize::MAX / 2 + 1],
+                strides: &[usize::MAX / 2 + 1, 1],
+                contiguous: true,
+            },
+            // Element count product overflows mid-loop, then a stride
+            // mismatch is found.
+            Case {
+                shape: &[2, 2, usize::MAX / 2 + 1],
+                strides: &[5, usize::MAX / 2 + 1, 1],
+                contiguous: false,
+            },
         ];
 
         cases.test_each(|case| {
             assert_eq!(is_contiguous(&case.shape, &case.strides), case.contiguous);
+        })
+    }
+
+    #[test]
+    fn test_may_have_internal_overlap() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            shape: &'a [usize],
+            strides: &'a [usize],
+            may_overlap: bool,
+        }
+
+        let cases = [
+            // Empty
+            Case {
+                shape: &[0, 2],
+                strides: &[2, 1],
+                may_overlap: false,
+            },
+            // Contiguous layout
+            Case {
+                shape: &[2, 3],
+                strides: &[3, 1],
+                may_overlap: false,
+            },
+            // Transposed layout
+            Case {
+                shape: &[2, 3],
+                strides: &[1, 2],
+                may_overlap: false,
+            },
+            // Non-contiguous layout produced by slicing
+            Case {
+                shape: &[2, 2],
+                strides: &[4, 2],
+                may_overlap: false,
+            },
+            // Broadcasting layout
+            Case {
+                shape: &[5, 5],
+                strides: &[0, 1],
+                may_overlap: true,
+            },
+            // Overlapping strides
+            Case {
+                shape: &[2, 2],
+                strides: &[1, 1],
+                may_overlap: true,
+            },
+            // `max_offset` saturates mid-loop, so the final dimension's
+            // stride cannot step over it. Wrapping arithmetic would
+            // incorrectly report no overlap here.
+            Case {
+                shape: &[2, 2, 2],
+                strides: &[2, usize::MAX - 1, usize::MAX],
+                may_overlap: true,
+            },
+            // `max_offset` saturates on the final dimension, after all
+            // strides have been checked.
+            Case {
+                shape: &[2, 2],
+                strides: &[usize::MAX - 1, 2],
+                may_overlap: false,
+            },
+        ];
+
+        cases.test_each(|case| {
+            assert_eq!(
+                may_have_internal_overlap(case.shape, case.strides),
+                case.may_overlap
+            );
         })
     }
 }
