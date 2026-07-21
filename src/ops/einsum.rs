@@ -555,12 +555,17 @@ fn step_output(
 /// terms stand for. The ellipses are replaced with digit labels in the path.
 fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
     let output = expand_ellipsis(&expr.output, broadcast_ndim as usize);
+    let in_terms: Vec<String> = expr
+        .inputs
+        .iter()
+        .map(|term| expand_ellipsis(term, broadcast_ndim as usize))
+        .collect();
     let input_term = |term: &str, index: u32| EinsumTerm {
-        term: expand_ellipsis(term, broadcast_ndim as usize),
+        term: term.to_string(),
         input: EinsumInput::Index(index),
     };
 
-    match &expr.inputs[..] {
+    match &in_terms[..] {
         // This case shouldn't happen since Einsum equations must have at least
         // one input term.
         [] => Vec::new(),
@@ -584,22 +589,20 @@ fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
             let mut steps = Vec::with_capacity(all_terms.len() - 1);
 
             // Count how many terms use each reduced dimension.
-            let mut reduced_dims: HashMap<char, usize> = expr
-                .reduced_dims()
-                .into_iter()
-                .map(|dim| {
-                    (
-                        dim,
-                        all_terms.iter().filter(|term| term.contains(dim)).count(),
-                    )
-                })
-                .collect();
+            let mut reduced_dims: HashMap<char, usize> = HashMap::new();
+            for term in all_terms {
+                for dim in unique_dims(term) {
+                    if !output.contains(dim) {
+                        *reduced_dims.entry(dim).or_insert(0) += 1;
+                    }
+                }
+            }
 
             // Add step for first two terms.
             subtract_term_dims(&mut reduced_dims, term_a);
             subtract_term_dims(&mut reduced_dims, term_b);
 
-            let mut next_output = step_output(term_a, term_b, &expr.output, &reduced_dims);
+            let mut next_output = step_output(term_a, term_b, &output, &reduced_dims);
 
             steps.push(EinsumStep {
                 lhs: input_term(term_a, 0),
@@ -1324,6 +1327,27 @@ mod tests {
                     rhs: None,
                     output: "j012i".to_string(),
                 }]
+                .into(),
+            },
+            // 3+ input terms with ellipses.
+            //
+            // Ellipses must be expanded before intermediate step outputs are
+            // built, otherwise the ellipsis is treated as an ordinary label.
+            Case {
+                equation: "...i,...j,...k->...ijk",
+                broadcast_ndim: 2,
+                path: [
+                    EinsumStep {
+                        lhs: new_term("01i", Some(0)),
+                        rhs: Some(new_term("01j", Some(1))),
+                        output: "01ij".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("01ij", None),
+                        rhs: Some(new_term("01k", Some(2))),
+                        output: "01ijk".to_string(),
+                    },
+                ]
                 .into(),
             },
         ];

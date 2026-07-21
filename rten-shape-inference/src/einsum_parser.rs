@@ -96,19 +96,6 @@ impl EinsumExpr {
         Ok(EinsumExpr { inputs, output })
     }
 
-    /// Return the dimensions in the expression which are summed over.
-    pub fn reduced_dims(&self) -> Vec<char> {
-        let mut terms = Vec::new();
-        for in_term in &self.inputs {
-            for in_ch in in_term.chars() {
-                if !terms.contains(&in_ch) && !self.output.contains(in_ch) {
-                    terms.push(in_ch);
-                }
-            }
-        }
-        terms
-    }
-
     /// Check operator inputs are compatible with the parsed equation and
     /// calculate the number of dimensions represented by `...` in input terms.
     ///
@@ -376,43 +363,6 @@ mod tests {
 
         cases.test_each(|case| {
             assert_eq!(EinsumExpr::parse(case.equation), case.expected);
-        });
-    }
-
-    #[test]
-    fn test_reduced_dims() {
-        #[derive(Debug)]
-        struct Case<'a> {
-            equation: &'a str,
-            reduced: Vec<char>,
-        }
-
-        let cases = [
-            // Matmul reduces the shared `j` label.
-            Case {
-                equation: "ij,jk->ik",
-                reduced: vec!['j'],
-            },
-            // Nothing is reduced for a transpose.
-            Case {
-                equation: "ij->ji",
-                reduced: vec![],
-            },
-            // All labels are reduced for a full reduction.
-            Case {
-                equation: "ij->",
-                reduced: vec!['i', 'j'],
-            },
-            // Labels only count once even if they appear in multiple inputs.
-            Case {
-                equation: "ij,ij->",
-                reduced: vec!['i', 'j'],
-            },
-        ];
-
-        cases.test_each(|case| {
-            let expr = EinsumExpr::parse(case.equation).unwrap();
-            assert_eq!(expr.reduced_dims(), case.reduced);
         });
     }
 
