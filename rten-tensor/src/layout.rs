@@ -780,9 +780,15 @@ pub trait MutLayout: Layout + Clone {
         assert!(index < self.size(axis));
 
         let layout = self.remove_dim(axis);
-        let start_offset = self.stride(axis) * index;
 
-        (start_offset..start_offset + layout.min_data_len(), layout)
+        let range = if layout.is_empty() {
+            0..0
+        } else {
+            let start_offset = self.stride(axis) * index;
+            start_offset..start_offset + layout.min_data_len()
+        };
+
+        (range, layout)
     }
 
     /// Move the axis at position `from` to `to` by swapping their strides.
@@ -1658,6 +1664,20 @@ mod tests {
                 axis: 1,
                 index: 2,
                 expected: (2, layout_with_strides([3], [4])),
+            },
+            // Empty result. The tensor's storage is empty, so the offset must
+            // be zero.
+            Case {
+                layout: NdLayout::from_shape([0, 3]),
+                axis: 1,
+                index: 1,
+                expected: (0, layout_with_strides([0], [3])),
+            },
+            Case {
+                layout: layout_with_strides([3, 0], [1, 3]),
+                axis: 0,
+                index: 1,
+                expected: (0, layout_with_strides([0], [3])),
             },
         ];
 
