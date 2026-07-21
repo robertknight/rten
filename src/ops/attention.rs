@@ -8,7 +8,9 @@ use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{CowNdTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{
+    AssumeInit, CowNdTensor, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView,
+};
 use rten_vecmath::Softmax;
 
 use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
@@ -522,29 +524,56 @@ pub fn sdpa_head(
     query: NdTensorView<f32, 2>,
     key: NdTensorView<f32, 2>,
     value: NdTensorView<f32, 2>,
-    mut out: NdTensorViewMut<MaybeUninit<f32>, 2>,
+    out: NdTensorViewMut<MaybeUninit<f32>, 2>,
     score_mod: impl Fn(&mut [f32], usize),
 ) {
     let q_seq = query.size(0);
     let kv_seq = key.size(0);
+    let mut scores = NdTensor::uninit_in(pool, [q_seq, kv_seq]).auto_return(pool);
+    sdpa_head_with_scratch(
+        gemm,
+        scale,
+        query,
+        GemmInputB::Unpacked(key.transposed()),
+        GemmInputB::Unpacked(value),
+        kv_seq,
+        scores.view_mut(),
+        out,
+        score_mod,
+    );
+}
+
+/// Like [`sdpa_head`], but takes a `[q_seq, kv_seq]` scratch buffer for the
+/// attention scores instead of allocating one, plus possibly pre-packed
+/// transposed key (`[head_size, kv_seq]`) and value matrices.
+fn sdpa_head_with_scratch(
+    gemm: &GemmExecutor<f32>,
+    scale: f32,
+    query: NdTensorView<f32, 2>,
+    key_t: GemmInputB<f32>,
+    value: GemmInputB<f32>,
+    kv_seq: usize,
+    mut scores: NdTensorViewMut<MaybeUninit<f32>, 2>,
+    mut out: NdTensorViewMut<MaybeUninit<f32>, 2>,
+    score_mod: impl Fn(&mut [f32], usize),
+) {
+    let q_seq = query.size(0);
 
     // scores = scale · Q Kᵀ
-    let mut scores = NdTensor::uninit_in(pool, [q_seq, kv_seq]);
     gemm.gemm_uninit(
         scores.data_mut().unwrap(),
         GemmInputA::Unpacked(query),
-        GemmInputB::Unpacked(key.transposed()),
+        key_t,
         GemmUninitOptions {
             alpha: scale,
             ..Default::default()
         },
     )
     .unwrap();
-    // Safety: `gemm_uninit` initializes every element.
-    let mut scores = unsafe { scores.assume_init() };
+    // Safety: `gemm_uninit` initialized every element.
+    let scores_data: &mut [f32] = unsafe { scores.data_mut().unwrap().assume_init() };
 
-    for (s, mut row) in scores.lanes_mut(1).enumerate() {
-        let row = row.as_slice_mut().unwrap();
+    for (s, row) in scores_data.chunks_mut(kv_seq.max(1)).enumerate() {
         score_mod(row, s);
         // Flush NaNs to zero so that fully-masked rows (all scores -inf)
         // produces zeros rather than NaN outputs.
@@ -554,8 +583,8 @@ pub fn sdpa_head(
     // out = scores · V
     gemm.gemm_uninit(
         out.data_mut().unwrap(),
-        GemmInputA::Unpacked(scores.view()),
-        GemmInputB::Unpacked(value),
+        GemmInputA::Unpacked(NdTensorView::from_data([q_seq, kv_seq], &*scores_data)),
+        value,
         GemmUninitOptions::default(),
     )
     .unwrap();
@@ -599,26 +628,73 @@ fn sdpa_multi_head(
     let kv_factor = q_heads / key.size(1);
     let v_head_size = value.size(3);
 
+    // Split queries into row chunks which are processed in parallel, in
+    // addition to parallelism over heads. This creates sufficient parallelism
+    // when the number of heads is small relative to the number of threads.
+    const Q_CHUNK: usize = 32;
+
     let mut attn_out = NdTensor::uninit_in(pool, [batch, q_heads, q_seq, v_head_size]);
     attn_out
         .inner_iter_mut::<2>()
         .into_par_iter()
         .enumerate()
-        .for_each(|(i, out)| {
+        .for_each(|(i, mut out)| {
             let b = i / q_heads;
             let h = i % q_heads;
             let kv_head = h / kv_factor;
 
-            sdpa_head(
-                pool,
-                gemm,
-                scale,
-                query.slice([b, h]),
-                key.slice([b, kv_head]),
-                value.slice([b, kv_head]),
-                out,
-                |row, q_idx| score_mod(b, h, row, q_idx),
-            );
+            let head_query = query.slice([b, h]);
+            let head_key = key.slice([b, kv_head]);
+            let head_value = value.slice([b, kv_head]);
+            let kv_seq = head_key.size(0);
+
+            // Pre-pack the key and value matrices once per head, so that the
+            // per-chunk GEMM calls do not each re-pack them. Skip this when
+            // there is only one chunk as the packing would not be shared.
+            let packed = if q_seq > Q_CHUNK {
+                Some((
+                    gemm.prepack_b(head_key.transposed()),
+                    gemm.prepack_b(head_value),
+                ))
+            } else {
+                None
+            };
+            let (key_t, value) = match &packed {
+                Some((packed_k, packed_v)) => {
+                    (GemmInputB::Packed(packed_k), GemmInputB::Packed(packed_v))
+                }
+                None => (
+                    GemmInputB::Unpacked(head_key.transposed()),
+                    GemmInputB::Unpacked(head_value),
+                ),
+            };
+
+            // One scores buffer per head, sliced per query chunk.
+            let mut scores = NdTensor::uninit_in(pool, [q_seq, kv_seq]).auto_return(pool);
+
+            let chunks: Vec<_> = out
+                .axis_chunks_mut(0, Q_CHUNK)
+                .zip(scores.axis_chunks_mut(0, Q_CHUNK))
+                .enumerate()
+                .collect();
+            chunks
+                .into_par_iter()
+                .for_each(|(chunk_idx, (chunk_out, chunk_scores))| {
+                    let q_start = chunk_idx * Q_CHUNK;
+                    let q_end = q_start + chunk_out.size(0);
+
+                    sdpa_head_with_scratch(
+                        gemm,
+                        scale,
+                        head_query.slice(q_start..q_end),
+                        key_t,
+                        value,
+                        kv_seq,
+                        chunk_scores,
+                        chunk_out,
+                        |row, q_idx| score_mod(b, h, row, q_start + q_idx),
+                    );
+                });
         });
 
     // Safety: every (q_seq, v_head_size) block was written by `sdpa_head`.
@@ -855,8 +931,15 @@ impl Attention {
                 // where the value is zero.
                 match mask {
                     Some(Mask::Float(m)) => {
-                        for (x, m) in row.iter_mut().zip(m.slice([b, h, q_idx]).iter()) {
-                            *x += m;
+                        let m_row = m.slice([b, h, q_idx]);
+                        if let Some(m_data) = m_row.data() {
+                            for (x, m) in row.iter_mut().zip(m_data) {
+                                *x += m;
+                            }
+                        } else {
+                            for (x, m) in row.iter_mut().zip(m_row.iter()) {
+                                *x += m;
+                            }
                         }
                     }
                     Some(Mask::Bool(m)) => {
