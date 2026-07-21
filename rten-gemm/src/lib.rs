@@ -933,12 +933,97 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
 
     let n_col_blocks = b.cols().div_ceil(nc);
     let n_row_blocks = a.rows().div_ceil(mc);
+    let n_depth_blocks = a.cols().div_ceil(kc);
 
     // In a single-threaded context we get better performance by avoiding Rayon
     // overhead altogether.
     let parallel = rayon::current_num_threads() > 1;
 
     let (mr, nr) = (kernel.mr(), kernel.nr());
+
+    // Size range of A for which the whole matrix is packed upfront when there
+    // are multiple column blocks. Below the minimum size, redundant per-column
+    // block packing is cheap enough that the synchronization point created by
+    // packing upfront is not worth it. Above the maximum size, the packed
+    // blocks no longer fit in the L2 cache.
+    const HOIST_A_MIN_BYTES: usize = 256 * 1024;
+    const HOIST_A_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+    // Buffer for a fully packed copy of A. See `hoist_a` below.
+    thread_local!(static HOISTED_A: RefCell<PackingBuffer> = const { RefCell::new(PackingBuffer::new()) });
+
+    // If A must be packed and there are multiple column blocks, pack all of A
+    // once upfront. Packing otherwise happens inside the column-block loop,
+    // which would redundantly re-pack each block of A once per column block.
+    let hoist_a = match a {
+        GemmInputA::Unpacked(mat) => {
+            n_col_blocks > 1
+                && (HOIST_A_MIN_BYTES..=HOIST_A_MAX_BYTES)
+                    .contains(&(mat.rows() * mat.cols() * size_of::<LhsT>()))
+                && kernel
+                    .packed_a_layout(mat, mc.min(mat.rows()), kc.min(mat.cols()), a_quant)
+                    .must_pack
+        }
+        GemmInputA::Packed(_) => false,
+    };
+    // Block offsets and panel strides of hoisted packed blocks of A, in
+    // `(row_block, depth_block)` order.
+    let mut hoisted_a_blocks: Vec<(Range<usize>, usize)> = Vec::new();
+    let mut hoisted_a_buf: Option<PackingBuffer> = None;
+    if hoist_a {
+        let GemmInputA::Unpacked(mat) = a else {
+            unreachable!()
+        };
+
+        // Compute the offset and layout of each block within the buffer.
+        let mut align: usize = 1;
+        let mut offset: usize = 0;
+        let block_ranges: Vec<_> = range_chunks(0..mat.rows(), mc)
+            .flat_map(|row_range| {
+                range_chunks(0..mat.cols(), kc)
+                    .map(move |depth_range| (row_range.clone(), depth_range))
+            })
+            .collect();
+        for (row_range, depth_range) in &block_ranges {
+            let layout = kernel.packed_a_layout(mat, row_range.len(), depth_range.len(), a_quant);
+            align = align.max(layout.align());
+            let start = offset.next_multiple_of(layout.align());
+            let end = start + layout.size();
+            hoisted_a_blocks.push((start..end, layout.panel_stride()));
+            offset = end;
+        }
+
+        let mut buf = HOISTED_A.with(|cell| cell.take());
+        let mut uninit = buf.alloc(offset, align);
+
+        // Split the buffer into per-block chunks and pack them in parallel.
+        let mut chunks = Vec::with_capacity(hoisted_a_blocks.len());
+        let mut chunk_start = 0;
+        for (block_range, _) in &hoisted_a_blocks {
+            let (skip, rest) =
+                std::mem::take(&mut uninit).split_at_mut(block_range.start - chunk_start);
+            let (chunk, rest) = rest.split_at_mut(block_range.len());
+            // Padding between blocks must be initialized as `set_len` treats
+            // the whole buffer as initialized.
+            skip.fill(MaybeUninit::new(0));
+            chunks.push(chunk);
+            uninit = rest;
+            chunk_start = block_range.end;
+        }
+
+        chunks
+            .into_par_iter()
+            .zip(block_ranges.into_par_iter())
+            .for_each(|(chunk, (row_range, depth_range))| {
+                kernel.pack_a_block(chunk, mat, row_range, depth_range, a_quant);
+            });
+
+        // Safety: All chunks and padding between them were initialized above.
+        unsafe {
+            buf.set_len(offset);
+        }
+        hoisted_a_buf = Some(buf);
+    }
 
     // Loop over column blocks.
     (0..n_col_blocks)
@@ -1024,40 +1109,52 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                         // the GEMM block is computed.
                         let mut thread_local_packed_a: Option<PackingBuffer> = None;
 
-                        let lhs_block = match a {
-                            GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
-                                let layout = kernel.packed_a_layout(
-                                    a,
-                                    row_end - row_start,
-                                    depth_range.len(),
-                                    a_quant,
-                                );
-                                if !layout.must_pack {
-                                    return LhsBlock::Unpacked(a);
-                                };
+                        let lhs_block = if let Some(buf) = &hoisted_a_buf {
+                            let (block_range, panel_stride) =
+                                &hoisted_a_blocks[row_idx * n_depth_blocks + depth_block_idx];
+                            LhsBlock::Packed {
+                                data: &buf.as_bytes()[block_range.clone()],
+                                panel_stride: *panel_stride,
+                            }
+                        } else {
+                            match a {
+                                GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
+                                    let layout = kernel.packed_a_layout(
+                                        a,
+                                        row_end - row_start,
+                                        depth_range.len(),
+                                        a_quant,
+                                    );
+                                    if !layout.must_pack {
+                                        return LhsBlock::Unpacked(a);
+                                    };
 
-                                let mut packed_a = cell.take();
-                                let packed_uninit = packed_a.alloc(layout.size(), layout.align());
+                                    let mut packed_a = cell.take();
+                                    let packed_uninit =
+                                        packed_a.alloc(layout.size(), layout.align());
 
-                                kernel.pack_a_block(
-                                    packed_uninit,
-                                    a,
-                                    row_start..row_end,
-                                    depth_range.clone(),
-                                    a_quant,
-                                );
+                                    kernel.pack_a_block(
+                                        packed_uninit,
+                                        a,
+                                        row_start..row_end,
+                                        depth_range.clone(),
+                                        a_quant,
+                                    );
 
-                                // Safety: We initialized `layout.size` bytes.
-                                unsafe {
-                                    packed_a.set_len(layout.size());
+                                    // Safety: We initialized `layout.size` bytes.
+                                    unsafe {
+                                        packed_a.set_len(layout.size());
+                                    }
+                                    thread_local_packed_a = Some(packed_a);
+                                    LhsBlock::Packed {
+                                        data: thread_local_packed_a.as_ref().unwrap().as_bytes(),
+                                        panel_stride: layout.panel_stride(),
+                                    }
+                                }),
+                                GemmInputA::Packed(pm) => {
+                                    pm.block(row_range.clone(), depth_block_idx)
                                 }
-                                thread_local_packed_a = Some(packed_a);
-                                LhsBlock::Packed {
-                                    data: thread_local_packed_a.as_ref().unwrap().as_bytes(),
-                                    panel_stride: layout.panel_stride(),
-                                }
-                            }),
-                            GemmInputA::Packed(pm) => pm.block(row_range.clone(), depth_block_idx),
+                            }
                         };
 
                         gemm_block(
@@ -1085,6 +1182,10 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 }
             }
         });
+
+    if let Some(buf) = hoisted_a_buf {
+        HOISTED_A.with(|cell| cell.replace(buf));
+    }
 
     // Safety: All elements of output matrix have been initialized.
     let output = unsafe { output_mat.assume_init() };
