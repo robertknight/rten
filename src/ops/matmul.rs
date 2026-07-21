@@ -764,18 +764,71 @@ impl Operator for MatMulIntegerToFloat {
     }
 
     fn max_inputs(&self) -> Option<usize> {
-        Some(5)
+        Some(6)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let scale: TensorView<f32> = ctx.inputs().require_as(4)?;
-        let scale = match scale.ndim() {
-            0 => OutputScale::Scalar(scale.item().copied().unwrap()),
-            1 => OutputScale::Vector(scale.into_rank().unwrap()),
-            _ => {
-                return Err(OpError::InvalidValue("scale should have rank 0 or 1"));
+        // Optional second scale factor. This is used when the output scale is
+        // the product of a dynamic per-tensor input scale and constant
+        // per-column weight scales.
+        let scale_b: Option<TensorView<f32>> = ctx.inputs().get_as(5)?;
+
+        if scale.ndim() > 1 || scale_b.as_ref().is_some_and(|s| s.ndim() > 1) {
+            return Err(OpError::InvalidValue("scale should have rank 0 or 1"));
+        }
+
+        let scalar_of =
+            |view: &TensorView<f32>| (view.ndim() == 0).then(|| view.item().copied().unwrap());
+
+        // Combine the two scale inputs into a single scalar or vector scale.
+        let owned_scale: Option<Vec<f32>>;
+        let scale = match (scalar_of(&scale), scale_b) {
+            (Some(s), None) => {
+                owned_scale = None;
+                OutputScale::Scalar(s)
+            }
+            (None, None) => {
+                owned_scale = None;
+                OutputScale::Vector(scale.into_rank().unwrap())
+            }
+            (a_scalar, Some(scale_b)) => {
+                match (a_scalar, scalar_of(&scale_b)) {
+                    (Some(a), Some(b)) => {
+                        owned_scale = None;
+                        OutputScale::Scalar(a * b)
+                    }
+                    (Some(a), None) => {
+                        owned_scale = Some(scale_b.iter().map(|x| x * a).collect());
+                        OutputScale::Scalar(0.) // Placeholder, replaced below.
+                    }
+                    (None, Some(b)) => {
+                        owned_scale = Some(scale.iter().map(|x| x * b).collect());
+                        OutputScale::Scalar(0.) // Placeholder, replaced below.
+                    }
+                    (None, None) => {
+                        if scale.len() != scale_b.len() {
+                            return Err(OpError::IncompatibleInputShapes(
+                                "scale vectors must have the same length",
+                            ));
+                        }
+                        owned_scale = Some(
+                            scale
+                                .iter()
+                                .zip(scale_b.iter())
+                                .map(|(x, y)| x * y)
+                                .collect(),
+                        );
+                        OutputScale::Scalar(0.) // Placeholder, replaced below.
+                    }
+                }
             }
         };
+        let scale = match &owned_scale {
+            Some(vec) => OutputScale::Vector(NdTensorView::from_data([vec.len()], vec.as_slice())),
+            None => scale,
+        };
+
         let output: Tensor<i32> = self.matmul.run(ctx)?.remove(0).try_into().unwrap();
         cast_scale(ctx.pool(), output, scale).into_op_result()
     }

@@ -1033,36 +1033,47 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
 
     fn pattern(&self) -> Pattern {
         let scale = Pattern::symbol("scale");
+        let scale_b = Pattern::symbol("scale_b");
         let a = Pattern::symbol("a");
         let b = Pattern::symbol("b");
         let a_zero = Pattern::symbol("a_zero");
         let b_zero = Pattern::symbol("b_zero");
 
-        Pattern::unary_op(
+        let cast_mm = Pattern::unary_op(
             "Cast",
             Pattern::operator("MatMulInteger", [a, b, a_zero, b_zero]),
         )
-        .with_name("cast")
-            * scale
+        .with_name("cast");
+
+        // Try the two-factor scale form first as the single-scale form would
+        // also match it, binding `scale` to the product.
+        Pattern::any_of([cast_mm.clone() * (scale.clone() * scale_b), cast_mm * scale].into())
     }
 
     fn inputs(&self) -> &[&str] {
-        &["a", "b", "a_zero", "b_zero", "scale"]
+        &["a", "b", "a_zero", "b_zero", "scale", "scale_b"]
     }
 
     fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Result<Self::Operator, FusionError> {
-        let scale = pat_match.node_id("scale").unwrap();
-        let scale_shape = graph
-            .get_node(scale)
-            .ok_or(FusionError::NoMatch)?
-            .shape()
-            .ok_or(FusionError::CheckFailed("unknown scale shape"))?;
-
-        // Fusion supports scalar or vector scale which can be broadcast to
+        // Fusion supports scalar or vector scales which can be broadcast to
         // MatMulInteger output shape.
-        if scale_shape.len() > 1 {
-            return Err(FusionError::NoMatch);
-        }
+        let check_scale = |name: &str| -> Result<(), FusionError> {
+            let Some(scale) = pat_match.node_id(name) else {
+                return Ok(());
+            };
+            let scale_shape = graph
+                .get_node(scale)
+                .ok_or(FusionError::NoMatch)?
+                .shape()
+                .ok_or(FusionError::CheckFailed("unknown scale shape"))?;
+            if scale_shape.len() > 1 {
+                Err(FusionError::NoMatch)
+            } else {
+                Ok(())
+            }
+        };
+        check_scale("scale")?;
+        check_scale("scale_b")?;
 
         Ok(MatMulIntegerToFloat::default())
     }
