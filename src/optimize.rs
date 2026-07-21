@@ -25,11 +25,11 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, ConvAddFusion, Fusion,
-    FusionError, FusionVisitor, GeluFusion, GluFusion, GroupedQueryAttentionMatMulFusion,
-    IdentityFusion, LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion,
-    MatMulScaleFusion, PatternFusion, RMSNormalizationFusion, ReciprocalFusion,
-    ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant,
-    SiluFusion, SwishFusion, TransposeFusion,
+    FusionError, FusionVisitor, GeluFusion, GluFusion, GluSplitFusion,
+    GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
+    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
+    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
+    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -566,9 +566,11 @@ impl GraphOptimizer {
         fusions.push(GeluFusion {}.into_visitor());
         fusions.push(ApproxGeluFusion {}.into_visitor());
 
-        // GLU fusion. This matches Gelu and Silu operators produced by the
-        // activation fusions above, so it takes effect on a subsequent
-        // iteration of the fusion loop.
+        // GLU fusions. These match Gelu and Silu operators produced by the
+        // activation fusions above, so they take effect on a subsequent
+        // iteration of the fusion loop. The split-input variant must be tried
+        // first as the two-input variant also matches its pattern.
+        fusions.push(GluSplitFusion {}.into_visitor());
         fusions.push(GluFusion {}.into_visitor());
 
         // Normalization fusions

@@ -157,6 +157,10 @@ fn glu_in_place(
 #[derive(Debug)]
 pub struct Glu {
     pub activation: GluActivation,
+
+    /// If true, the operator takes a single input containing `A` and `B`
+    /// concatenated along the last axis, instead of two separate inputs.
+    pub split_input: bool,
 }
 
 impl Operator for Glu {
@@ -169,13 +173,32 @@ impl Operator for Glu {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let a: TensorView = ctx.inputs().require_as(0)?;
-        let b: TensorView = ctx.inputs().require_as(1)?;
-        glu(ctx.pool(), self.activation, a, b).into_op_result()
+        if self.split_input {
+            let x: TensorView = ctx.inputs().require_as(0)?;
+            if x.ndim() == 0 || x.size(x.ndim() - 1) % 2 != 0 {
+                return Err(OpError::InvalidValue(
+                    "Last dimension of input must be even",
+                ));
+            }
+            let axis = x.ndim() - 1;
+            let half = x.size(axis) / 2;
+            let a = x.slice_axis(axis, 0..half);
+            let b = x.slice_axis(axis, half..half * 2);
+            glu(ctx.pool(), self.activation, a, b).into_op_result()
+        } else {
+            let a: TensorView = ctx.inputs().require_as(0)?;
+            let b: TensorView = ctx.inputs().require_as(1)?;
+            glu(ctx.pool(), self.activation, a, b).into_op_result()
+        }
     }
 
     fn in_place_inputs(&self) -> BitSet<u16> {
-        BitSet::from_indices([0])
+        if self.split_input {
+            // The output has a different shape than the input.
+            BitSet::new()
+        } else {
+            BitSet::from_indices([0])
+        }
     }
 
     fn run_in_place(
@@ -193,9 +216,13 @@ impl Operator for Glu {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Output shape is the shape of the first input, since both inputs
-        // must have the same shape.
-        Some(&UnaryOp)
+        if self.split_input {
+            None
+        } else {
+            // Output shape is the shape of the first input, since both inputs
+            // must have the same shape.
+            Some(&UnaryOp)
+        }
     }
 }
 
@@ -251,6 +278,7 @@ mod tests {
 
             let op = Glu {
                 activation: case.activation,
+                split_input: false,
             };
             let result: Tensor = op.run_simple((a.view(), b.view())).unwrap();
             expect_equal(&result, &expected).unwrap();
@@ -282,6 +310,7 @@ mod tests {
 
         let op = Glu {
             activation: GluActivation::Silu,
+            split_input: false,
         };
         let result: Tensor = op.run_simple((a, b)).unwrap();
         expect_equal(&result, &expected).unwrap();
@@ -306,6 +335,7 @@ mod tests {
 
         let op = Glu {
             activation: GluActivation::Silu,
+            split_input: false,
         };
         let result: Tensor = op.run_simple_in_place(a, b.view()).unwrap();
         expect_equal(&result, &expected).unwrap();
@@ -317,6 +347,7 @@ mod tests {
         let b = Tensor::<f32>::zeros(&[3, 5]);
         let op = Glu {
             activation: GluActivation::Silu,
+            split_input: false,
         };
         let result = op.run_simple::<_, Tensor>((a.view(), b.view()));
         assert_eq!(

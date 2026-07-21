@@ -631,18 +631,136 @@ impl PatternFusion for GluFusion {
             return Err(FusionError::CheckFailed("input shapes differ"));
         }
 
-        let activation = if let Some(gelu_id) = pat_match.node_id("gelu") {
-            let gelu = g
-                .get_operator::<Gelu>(gelu_id)
-                .ok_or(FusionError::CheckFailed("expected Gelu operator"))?;
-            GluActivation::Gelu {
-                approximate: gelu.approximate,
+        let activation = glu_activation_from_match(pat_match, g)?;
+
+        Ok(Glu {
+            activation,
+            split_input: false,
+        })
+    }
+}
+
+/// Resolve the activation for a GLU fusion from the named "gelu" or "silu"
+/// nodes in a pattern match.
+fn glu_activation_from_match(pat_match: &Match, g: &Graph) -> Result<GluActivation, FusionError> {
+    if let Some(gelu_id) = pat_match.node_id("gelu") {
+        let gelu = g
+            .get_operator::<Gelu>(gelu_id)
+            .ok_or(FusionError::CheckFailed("expected Gelu operator"))?;
+        Ok(GluActivation::Gelu {
+            approximate: gelu.approximate,
+        })
+    } else {
+        Ok(GluActivation::Silu)
+    }
+}
+
+/// Return the rank and fixed last-dimension size of a value node, if known.
+fn rank_and_last_dim(g: &Graph, node_id: NodeId) -> Option<(usize, usize)> {
+    let shape = g.get_node(node_id)?.shape()?;
+    let ndim = shape.len();
+    match shape.last()? {
+        Dimension::Fixed(size) => Some((ndim, *size)),
+        Dimension::Symbolic(_) => None,
+    }
+}
+
+/// Check that a constant axes vector refers to the last axis of a tensor with
+/// `ndim` dimensions.
+fn is_last_axis(axes: &[i32], ndim: usize) -> bool {
+    matches!(axes, &[axis] if axis == -1 || (axis >= 0 && axis as usize == ndim - 1))
+}
+
+/// Fuse `Mul(activation(Slice(X, ..N/2)), Slice(X, N/2..))` into a
+/// `Glu<activation>(X)` which splits its packed input internally.
+///
+/// Compared to [`GluFusion`] this also eliminates the two `Slice` ops which
+/// copy the halves of the packed input.
+pub struct GluSplitFusion {}
+
+impl PatternFusion for GluSplitFusion {
+    type Operator = Glu;
+
+    fn name(&self) -> &str {
+        "GluSplitFusion"
+    }
+
+    fn pattern(&self) -> Pattern {
+        let x = Pattern::symbol("x");
+        let a = Pattern::operator(
+            "Slice",
+            [
+                x.clone(),
+                Pattern::const_symbol("a_start"),
+                Pattern::const_symbol("a_end"),
+                Pattern::const_symbol("a_axes"),
+            ],
+        );
+        let b = Pattern::operator(
+            "Slice",
+            [
+                x.clone(),
+                Pattern::const_symbol("b_start"),
+                Pattern::const_symbol("b_end"),
+                Pattern::const_symbol("b_axes"),
+            ],
+        );
+        let activation = Pattern::any_of(
+            [
+                Pattern::unary_op("Gelu", a.clone()).with_name("gelu"),
+                Pattern::unary_op("Silu", a.clone()).with_name("silu"),
+            ]
+            .into(),
+        );
+        Pattern::binary_op("Mul", activation, b)
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Glu, FusionError> {
+        let x_id = pat_match.node_id("x").unwrap();
+        let (ndim, last_dim) =
+            rank_and_last_dim(g, x_id).ok_or(FusionError::CheckFailed("input shape unknown"))?;
+        if last_dim == 0 || last_dim % 2 != 0 {
+            return Err(FusionError::CheckFailed("last dim not even"));
+        }
+        let half = (last_dim / 2) as i32;
+
+        let scalar = |name: &str| -> Result<i32, FusionError> {
+            let vec = g
+                .get_vector::<i32>(pat_match.node_id(name).unwrap())
+                .ok_or(FusionError::CheckFailed("slice param not an i32 vector"))?;
+            match vec {
+                &[value] => Ok(value),
+                _ => Err(FusionError::CheckFailed("slice param not a single value")),
             }
-        } else {
-            GluActivation::Silu
+        };
+        let axes_ok = |name: &str| -> bool {
+            g.get_vector::<i32>(pat_match.node_id(name).unwrap())
+                .is_some_and(|axes| is_last_axis(axes, ndim))
         };
 
-        Ok(Glu { activation })
+        // The activation input must be the first half of `x` and the "gate"
+        // multiplicand the second half.
+        if scalar("a_start")? != 0 || scalar("a_end")? != half {
+            return Err(FusionError::CheckFailed(
+                "activation slice is not first half",
+            ));
+        }
+        if scalar("b_start")? != half || scalar("b_end")? < last_dim as i32 {
+            return Err(FusionError::CheckFailed("gate slice is not second half"));
+        }
+        if !axes_ok("a_axes") || !axes_ok("b_axes") {
+            return Err(FusionError::CheckFailed("slice axis is not last axis"));
+        }
+
+        let activation = glu_activation_from_match(pat_match, g)?;
+        Ok(Glu {
+            activation,
+            split_input: true,
+        })
     }
 }
 
