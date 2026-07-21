@@ -5,10 +5,12 @@ use std::error::Error;
 use std::fmt;
 
 use rten_base::num::AsUsize;
+use rten_tensor::Tensor;
+use smallvec::SmallVec;
 
 use crate::env::env_flag;
 use crate::graph;
-use crate::graph::{Dimension, Graph, Node, NodeId, RunError, TypedConstant};
+use crate::graph::{Dimension, Graph, Node, NodeId, OperatorNode, TypedConstant};
 use crate::operator::{OutputType, OutputTypesContext};
 use crate::value::ValueType;
 
@@ -55,8 +57,6 @@ pub struct OpInfo {
 /// may attempt to keep going after an error is encountered or may abort.
 #[derive(Debug)]
 pub enum InferError {
-    /// Failed to generate the sequence of operators to run shape inference on.
-    PlanError(RunError),
     /// Type inference failed for an operator.
     TypeInferenceFailed(OpInfo),
     /// Shape inference is not implemented for an operator.
@@ -79,7 +79,6 @@ pub enum InferError {
 impl fmt::Display for InferError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PlanError(e) => write!(f, "execution planning failed: {e}"),
             Self::TypeInferenceFailed(op_info) => write!(
                 f,
                 "type inference failed for {} op \"{}\"",
@@ -159,47 +158,138 @@ impl Default for InferShapeOptions {
     }
 }
 
-/// Infer the shapes and types of operator outputs in a graph.
-///
-/// For each operator output, this can infer:
-///
-///  - Data type
-///  - Tensor shape or constant value
-///
-/// Inference works on a best-effort basis and is not guaranteed to be able
-/// to determine the shape and type of every output. Reasons why inference for
-/// a node can fail include:
-///
-/// - A graph operator does not specify its shape and type inference rules
-/// - Graph inputs are missing shape or type information
-/// - The shapes depend on data in the graph inputs
-/// - The shape of an operator output is a function of inputs with symbolic
-///   sizes and the inference infrastructure is unable to represent the
-///   function.
-pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResult, InferError> {
-    let mut symbol_gen = SymbolGen::new();
+/// Trait for looking up nodes in a graph by ID.
+pub trait GetNode {
+    fn get_node(&self, id: NodeId) -> Option<&Node>;
+    fn is_capture(&self, id: NodeId) -> bool;
+    fn get_node_id(&self, name: &str) -> Option<NodeId>;
+}
 
-    let ops = graph
-        .execution_plan(graph.input_ids(), graph.output_ids(), Default::default())
-        .map_err(InferError::PlanError)?;
+impl GetNode for Graph {
+    fn get_node(&self, id: NodeId) -> Option<&Node> {
+        self.get_node(id)
+    }
+
+    fn is_capture(&self, id: NodeId) -> bool {
+        self.captures().contains(&id)
+    }
+
+    fn get_node_id(&self, name: &str) -> Option<NodeId> {
+        self.get_node_id(name)
+    }
+}
+
+#[derive(Clone)]
+pub struct ShapeEnv<'current, 'parent> {
+    graph: &'current dyn GetNode,
+    shapes: &'current InferredShapes,
+    parent: Option<&'parent ShapeEnv<'parent, 'parent>>,
+}
+
+impl<'current, 'parent> ShapeEnv<'current, 'parent> {
+    pub fn new(
+        graph: &'current dyn GetNode,
+        shapes: &'current InferredShapes,
+        parent: Option<&'parent ShapeEnv<'parent, 'parent>>,
+    ) -> Self {
+        Self {
+            graph,
+            shapes,
+            parent,
+        }
+    }
+
+    fn lookup_type(&self, id: NodeId) -> Option<ValueType> {
+        if self.graph.is_capture(id) {
+            let name = self.graph.get_node(id).and_then(|n| n.name())?;
+            let mut parent = self.parent;
+            while let Some(current) = parent {
+                if let Some(cap_id) = current.graph.get_node_id(name) {
+                    return current.lookup_type(cap_id);
+                }
+                parent = current.parent;
+            }
+            None
+        } else if let Some(dtype) = self.shapes.types.get(&id) {
+            Some(dtype.clone())
+        } else {
+            self.graph.get_node(id)?.dtype()
+        }
+    }
+
+    fn lookup_value(&self, id: NodeId) -> Option<SymTensor> {
+        if self.graph.is_capture(id) {
+            let name = self.graph.get_node(id).and_then(|n| n.name())?;
+            let mut parent = self.parent;
+            while let Some(current) = parent {
+                if let Some(cap_id) = current.graph.get_node_id(name) {
+                    return current.lookup_value(cap_id);
+                }
+                parent = current.parent;
+            }
+            None
+        } else if let Some(value) = self.shapes.values.get(&id) {
+            Some(value.clone())
+        } else {
+            let node = self.graph.get_node(id)?;
+            Some(sym_tensor_from_input(id, node, &self.shapes.values))
+        }
+    }
+}
+
+/// Records inferred shapes and types for values in a graph.
+pub struct InferredShapes {
+    opts: InferShapeOptions,
+
+    symbol_gen: SymbolGen,
 
     // Symbolic shapes (or values) and types of operator outputs processed so far.
     //
     // Reserve initial capacity assuming each operator produces one output,
     // which is the case for most operators.
-    let mut values: HashMap<NodeId, SymTensor> = HashMap::with_capacity(ops.len());
-    let mut types: HashMap<NodeId, ValueType> = HashMap::with_capacity(ops.len());
-
-    let debug = env_flag("RTEN_INFER_SHAPES_DEBUG", false);
+    values: HashMap<NodeId, SymTensor>,
+    types: HashMap<NodeId, ValueType>,
 
     // Temp buffer for shape inference operands.
-    let mut input_shapes: Vec<Option<SymTensor>> = Vec::new();
+    input_shapes: Vec<Option<SymTensor>>,
 
-    for op_id in ops {
-        let Some(Node::Operator(op)) = graph.get_node(op_id) else {
-            unreachable!("invalid execution plan");
-        };
+    debug: bool,
+}
 
+impl InferredShapes {
+    /// Create an incremental shape inference engine.
+    ///
+    /// `capacity` is a hint for the number of values whose shapes/values/types
+    /// will be inferred. This is typically set to the number of operators in
+    /// the graph.
+    ///
+    /// `graph` provides access to nodes in the graph for which shape inference
+    /// is being performed.
+    ///
+    /// `parent` is the shape inference state for the parent graph, if any. It
+    /// is used to look up the inferred shapes of values captured from ancestor
+    /// graphs.
+    pub fn new(capacity: usize, opts: InferShapeOptions) -> Self {
+        let debug = env_flag("RTEN_INFER_SHAPES_DEBUG", false);
+
+        Self {
+            opts,
+            symbol_gen: SymbolGen::new(),
+            values: HashMap::with_capacity(capacity),
+            types: HashMap::with_capacity(capacity),
+            input_shapes: Vec::new(),
+            debug,
+        }
+    }
+
+    /// Infer the shapes or values of an operator's outputs and persist them
+    /// in the current state.
+    pub fn infer(
+        &mut self,
+        op: &OperatorNode,
+        graph: &dyn GetNode,
+        parent: Option<&ShapeEnv>,
+    ) -> Result<(), InferError> {
         let op_info = || OpInfo {
             name: op.name().unwrap_or_default().to_string(),
             op_type: op.operator().name().to_string(),
@@ -216,18 +306,13 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                     continue;
                 };
 
+                let env = ShapeEnv::new(graph, self, parent);
                 let get_input_type = |index: u32| {
                     op.input_ids()
                         .get(index.as_usize())
                         .copied()
                         .flatten()
-                        .and_then(|id| {
-                            if let Some(dtype) = types.get(&id) {
-                                Some(*dtype)
-                            } else {
-                                graph.get_node(id)?.dtype()
-                            }
-                        })
+                        .and_then(|id| env.lookup_type(id))
                 };
 
                 let dtype = match output_type {
@@ -241,33 +326,39 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                     }
                 };
                 if let Some(dtype) = dtype {
-                    types.insert(*id, dtype);
-                } else if opts.strict {
+                    self.types.insert(*id, dtype);
+                } else if self.opts.strict {
                     return Err(InferError::TypeInferenceFailed(op_info()));
                 }
             }
-        } else if opts.strict {
+        } else if self.opts.strict {
             return Err(InferError::TypeInferenceFailed(op_info()));
         }
 
         // Perform shape inference
         if let Some(infer) = op.operator().as_infer_shapes() {
+            let mut input_shapes = std::mem::take(&mut self.input_shapes);
+
+            let env = ShapeEnv::new(graph, self, parent);
             input_shapes.clear();
-            input_shapes.extend(op.input_ids().iter().map(|input_id| {
-                input_id.and_then(|id| {
-                    let node = graph.get_node(id)?;
-                    Some(sym_tensor_from_input(id, node, &values))
-                })
-            }));
+            input_shapes.extend(
+                op.input_ids()
+                    .iter()
+                    .map(|input_id| input_id.and_then(|id| env.lookup_value(id))),
+            );
 
-            let out_shapes =
-                infer.infer_shapes(InferShapesContext::new(&input_shapes), &mut symbol_gen);
+            let out_shapes = infer.infer_shapes(
+                InferShapesContext::new(&self.input_shapes),
+                &mut self.symbol_gen,
+            );
 
-            if debug {
+            self.input_shapes = input_shapes;
+
+            if self.debug {
                 println!(
                     "op {} inputs {:?} outputs {:?}",
                     op.name().unwrap_or(""),
-                    input_shapes,
+                    self.input_shapes,
                     out_shapes
                 );
             }
@@ -281,7 +372,7 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                         };
 
                         // Fail inference if any output dimension has an unknown shape.
-                        if opts.strict {
+                        if self.opts.strict {
                             let has_unknown = if let Some(mut out_shape) = out_shape.shape() {
                                 out_shape.any(|dims| {
                                     dims.iter().any(|expr| match expr {
@@ -307,77 +398,132 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                         // operations such as simplification become very slow. See
                         // https://github.com/robertknight/rten/issues/1298.
                         let mut out_shape = out_shape;
-                        let had_complex = out_shape
-                            .replace_complex_expressions(opts.max_complexity, &mut symbol_gen);
-                        if opts.strict && had_complex {
+                        let had_complex = out_shape.replace_complex_expressions(
+                            self.opts.max_complexity,
+                            &mut self.symbol_gen,
+                        );
+                        if self.opts.strict && had_complex {
                             return Err(InferError::ShapeTooComplex(op_info()));
                         }
 
-                        values.insert(*out_id, out_shape.simplify());
+                        self.values.insert(*out_id, out_shape.simplify());
                     }
                 }
                 Err(_) => {
-                    if opts.strict {
+                    if self.opts.strict {
                         return Err(InferError::ShapeInferenceFailed(op_info()));
                     }
                 }
             }
-        } else if opts.strict {
+        } else if self.opts.strict {
             return Err(InferError::UnsupportedOperator(op_info()));
         }
+
+        Ok(())
     }
 
-    // Unique constant values.
-    let mut constants = Vec::new();
-    let mut constant_to_index = HashMap::new();
-    let mut total_const_values = 0;
+    pub fn into_result(self) -> InferResult {
+        let InferredShapes {
+            values,
+            types,
+            debug,
+            ..
+        } = self;
 
-    // Map of value ID to shape.
-    let mut shapes = HashMap::with_capacity(values.len());
+        // Unique constant values.
+        let mut constants = Vec::new();
+        let mut constant_to_index = HashMap::new();
+        let mut total_const_values = 0;
 
-    for (value_id, sym_value) in values {
-        let shape = if let Some(val) = sym_value.to_constant() {
-            total_const_values += 1;
-            if let Some(&index) = constant_to_index.get(&val) {
-                Some(Shape::Constant { index })
+        // Map of value ID to shape.
+        let mut shapes = HashMap::with_capacity(values.len());
+
+        for (value_id, sym_value) in values {
+            let shape = if let Some(val) = sym_value.to_constant() {
+                total_const_values += 1;
+                if let Some(&index) = constant_to_index.get(&val) {
+                    Some(Shape::Constant { index })
+                } else {
+                    let index = constants.len();
+                    constant_to_index.insert(val.clone(), index);
+                    constants.push(val);
+                    Some(Shape::Constant { index })
+                }
+            } else if let Some(dims) = sym_value.shape() {
+                let dims = dims
+                    .map(|dim| match dim {
+                        // If a dimension size is unexpectedly inferred as a negative
+                        // value, just ignore it.
+                        SymExpr::Value(size) if size >= 0 => Some(Dimension::Fixed(size as usize)),
+                        dim => Some(Dimension::Symbolic(dim.to_string())),
+                    })
+                    .collect::<Option<Vec<_>>>();
+                dims.map(Shape::Shape)
             } else {
-                let index = constants.len();
-                constant_to_index.insert(val.clone(), index);
-                constants.push(val);
-                Some(Shape::Constant { index })
-            }
-        } else if let Some(dims) = sym_value.shape() {
-            let dims = dims
-                .map(|dim| match dim {
-                    // If a dimension size is unexpectedly inferred as a negative
-                    // value, just ignore it.
-                    SymExpr::Value(size) if size >= 0 => Some(Dimension::Fixed(size as usize)),
-                    dim => Some(Dimension::Symbolic(dim.to_string())),
-                })
-                .collect::<Option<Vec<_>>>();
-            dims.map(Shape::Shape)
-        } else {
-            None
-        };
+                None
+            };
 
-        if let Some(shape) = shape {
-            shapes.insert(value_id, shape);
+            if let Some(shape) = shape {
+                shapes.insert(value_id, shape);
+            }
+        }
+
+        if debug {
+            println!(
+                "Shape inference: {} constant values, {} unique",
+                total_const_values,
+                constants.len()
+            );
+        }
+
+        InferResult {
+            constants,
+            shapes,
+            types,
         }
     }
+}
 
-    if debug {
-        println!(
-            "Shape inference: {} constant values, {} unique",
-            total_const_values,
-            constants.len()
-        );
+/// Apply the results of shape inference to a graph.
+pub fn apply_shapes(graph: &mut Graph, shapes: InferResult) {
+    let const_ids: Vec<NodeId> = shapes
+        .constants
+        .into_iter()
+        .map(|constant| {
+            let tensor = match constant {
+                rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
+                rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
+            };
+            graph.add_constant(None, tensor.into_arc())
+        })
+        .collect();
+
+    let replace_value = |graph: &mut Graph, old_value_id, new_value_id| {
+        // Replace `old_value_id` in operator inputs.
+        let Some(consumer_ids) = graph.get_consumers(old_value_id) else {
+            return;
+        };
+        let consumer_ids: SmallVec<[NodeId; 1]> = SmallVec::from_slice(consumer_ids);
+
+        for op_id in consumer_ids {
+            graph.replace_input(op_id, old_value_id, new_value_id);
+        }
+    };
+
+    for (value_id, shape) in shapes.shapes {
+        match shape {
+            Shape::Constant { index } => {
+                let const_id = const_ids[index];
+                replace_value(graph, value_id, const_id);
+            }
+            Shape::Shape(shape) => {
+                graph.update_value_shape(value_id, shape);
+            }
+        }
     }
-
-    Ok(InferResult {
-        constants,
-        shapes,
-        types,
-    })
+    for (value_id, value_type) in shapes.types {
+        graph.update_value_type(value_id, value_type);
+    }
 }
 
 /// Convert a `f32` value to `i32` if it represents an exact integer that
@@ -486,15 +632,32 @@ fn sym_tensor_from_input(
 }
 
 #[cfg(test)]
+pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResult, InferError> {
+    let ops = graph
+        .execution_plan(graph.input_ids(), graph.output_ids(), Default::default())
+        .unwrap();
+
+    let mut ctx = InferredShapes::new(ops.len(), opts);
+    for op_id in ops {
+        let Some(Node::Operator(op)) = graph.get_node(op_id) else {
+            unreachable!("invalid execution plan");
+        };
+        ctx.infer(op, graph, None)?;
+    }
+    Ok(ctx.into_result())
+}
+
+#[cfg(test)]
 mod tests {
     use rten_tensor::NdTensor;
 
     use crate::Dimension;
+    use crate::graph::TypedConstant;
     use crate::graph::builder::{Expr, OutputMeta, dims};
     use crate::ops::{Concat, Gather, Gemm, MatMul, Shape as ShapeOp, Split, Unsqueeze};
     use crate::value::{DataType, ValueType};
 
-    use super::{Constant, InferError, InferShapeOptions, Shape, infer_shapes};
+    use super::{Constant, InferError, InferShapeOptions, Shape, apply_shapes, infer_shapes};
 
     #[test]
     fn test_infer_shapes() {
@@ -674,5 +837,63 @@ mod tests {
             panic!("{:?} is not a constant", shape);
         };
         assert_eq!(result.constants[*index], Constant::Vector(vec![64, 32]));
+    }
+
+    #[test]
+    fn test_apply_shapes() {
+        // Build a graph that has input shape and type metadata, but no output
+        // metadata.
+        let mut graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64),
+            );
+            let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
+            let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
+            out.build_graph(&["data"])
+        };
+
+        // Infer shapes
+        let shapes = infer_shapes(&graph, Default::default()).unwrap();
+        apply_shapes(&mut graph, shapes);
+
+        // Verify that values were updated with inferred shapes and types.
+        let output = graph.get_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(
+            output.shape().as_deref(),
+            Some(dims!("batch", 12).as_slice())
+        );
+        assert_eq!(output.dtype(), Some(ValueType::Tensor(DataType::Float)));
+    }
+
+    #[test]
+    fn test_apply_shapes_replaces_values_with_constants() {
+        let mut graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 64),
+            );
+
+            // Extract second dimension of input via `Gather<axis=0>(Shape(X), indices=[1])`.
+            let indices = Expr::constant(1);
+            let out = x
+                .unary(ShapeOp {
+                    start: None,
+                    end: None,
+                })
+                .apply(Gather { axis: 0 }, &[indices], &[OutputMeta::NoMeta]);
+            out.build_graph(&["data"])
+        };
+
+        // Infer shapes
+        let shapes = infer_shapes(&graph, Default::default()).unwrap();
+        apply_shapes(&mut graph, shapes);
+
+        // The output should be replaced with a constant as it doesn't depend on
+        // model inputs.
+        let output = graph.get_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(output.as_constant().and_then(|c| c.as_scalar()), Some(64));
     }
 }

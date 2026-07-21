@@ -15,8 +15,9 @@ use super::metadata::{MetadataField, ModelMetadata};
 use super::{Model, ModelOptions, OptimizeMode};
 use crate::constant_storage::{ArcSlice, ArcTensorView};
 use crate::graph::{
-    CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, NodeId,
+    CaptureEnv, Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId,
 };
+use crate::infer_shapes::{InferShapeOptions, InferredShapes, ShapeEnv, apply_shapes};
 use crate::op_registry::onnx_registry::{ConstInput, DynParsedOp, OpLoadContext};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::optimize::GraphOptimizer;
@@ -58,6 +59,8 @@ pub fn load(
             onnx_graph,
             &options.registry,
             options.optimize_mode(),
+            options.infer_shapes_options(),
+            None,
             None,
             loader,
             opset_versions,
@@ -133,7 +136,9 @@ fn load_graph(
     onnx_graph: &onnx::GraphProto,
     registry: &OpRegistry,
     optimize: OptimizeMode,
+    infer_shapes: Option<InferShapeOptions>,
     capture_env: Option<&CaptureEnv>,
+    shape_env: Option<&ShapeEnv>,
     loader: Option<&dyn DataLoader>,
     opset_versions: OpsetVersions,
 ) -> Result<Graph, LoadError> {
@@ -270,24 +275,43 @@ fn load_graph(
     let output_ids = node_ids_from_value_info(&graph, &onnx_graph.output);
     graph.set_output_ids(&output_ids);
 
-    // Add model operators
+    let mut shapes = infer_shapes
+        .clone()
+        .map(|opts| InferredShapes::new(onnx_graph.node.len(), opts));
+
+    // Add model operators and infer output shapes.
     for onnx_op in &onnx_graph.node {
         if onnx_op.op_type.as_deref() == Some("Constant") {
             // Constant operators are added to the graph as constants rather
             // than operators.
             continue;
         }
-        add_operator(
+
+        let op_id = add_operator(
             &mut graph,
             onnx_op,
             registry,
             SubgraphOptions {
                 optimize: optimize.clone(),
+                infer_shapes_options: infer_shapes.clone(),
                 capture_env,
+                shape_env: shapes.as_ref().map(|shapes| (shapes, shape_env)),
                 loader,
                 opset_versions,
             },
         )?;
+
+        if let Some(shapes) = shapes.as_mut()
+            && let Some(Node::Operator(op)) = graph.get_node(op_id)
+        {
+            shapes
+                .infer(op, &graph, shape_env)
+                .map_err(|err| LoadErrorImpl::InferShapesError(Box::new(err)))?;
+        }
+    }
+
+    if let Some(shapes) = shapes {
+        apply_shapes(&mut graph, shapes.into_result());
     }
 
     if let OptimizeMode::On(opts) = optimize {
@@ -922,9 +946,16 @@ struct SubgraphOptions<'a> {
     /// Configuration for graph optimizer.
     optimize: OptimizeMode,
 
+    /// Configuration for shape inference.
+    infer_shapes_options: Option<InferShapeOptions>,
+
     /// Provides access to info about nodes captured from parent graphs.
     /// This is needed for some optimization passes.
     capture_env: Option<&'a CaptureEnv<'a>>,
+
+    /// Inferred shapes in the parent graph and the shape environment for
+    /// the _grandparent_ graph.
+    shape_env: Option<(&'a InferredShapes, Option<&'a ShapeEnv<'a, 'a>>)>,
 
     /// Data source for tensors with data stored outside model.
     loader: Option<&'a dyn DataLoader>,
@@ -942,20 +973,30 @@ fn add_operator(
     onnx_op: &onnx::NodeProto,
     registry: &OpRegistry,
     subgraph_opts: SubgraphOptions,
-) -> Result<(), LoadError> {
+) -> Result<NodeId, LoadError> {
     let load_subgraph = |g: &onnx::GraphProto| -> Result<Graph, LoadError> {
         let SubgraphOptions {
+            infer_shapes_options: infer_shapes,
             optimize,
             capture_env,
+            shape_env,
             loader,
             opset_versions,
         } = &subgraph_opts;
+
+        // We construct the `CaptureEnv` and `ShapeEnv` here rather than just
+        // passing them in to `add_operator` to avoid a borrow conflict with
+        // `graph`.
         let capture_env = CaptureEnv::new(*capture_env, graph, None, None, None);
+        let shape_env = shape_env.map(|(shapes, parent)| ShapeEnv::new(graph, shapes, parent));
+
         load_graph(
             g,
             registry,
             optimize.clone(),
+            infer_shapes.clone(),
             Some(&capture_env),
+            shape_env.as_ref(),
             *loader,
             *opset_versions,
         )
@@ -1094,9 +1135,9 @@ fn add_operator(
         name = None;
     }
 
-    graph.add_op(name, op, &inputs, &outputs);
+    let op_id = graph.add_op(name, op, &inputs, &outputs);
 
-    Ok(())
+    Ok(op_id)
 }
 
 #[cfg(test)]
