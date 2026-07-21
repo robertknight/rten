@@ -14,13 +14,13 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::{TransformInputs, TransformInputsBuilder};
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, Concat, Conv, FusedMatMul, Gelu, Glu, GluActivation,
+    AddSoftmax, Attention, Cast, ComputeShape, Concat, Conv, FusedMatMul, Gelu, Glu, GluActivation,
     GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, RMSNormalization,
     Reciprocal, ReduceMean, RepeatInterleave, RotaryEmbedding, Shape, Silu, Softmax, Swish,
     SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
-use crate::value::ValueType;
+use crate::value::{DataType, ValueType};
 
 #[derive(Debug)]
 pub struct FusedOp {
@@ -946,6 +946,81 @@ fn verify_duplicated_cache_halves(
         }
     }
     Err(FusionError::CheckFailed("cache producer chain too deep"))
+}
+
+/// Fuse decomposed scaled-dot-product attention into an [`Attention`]
+/// operator.
+///
+/// This matches `MatMul(AddSoftmax(FusedMatMul(Q, Kᵀ), M), V)` where the
+/// transpose of K has been folded into a `TransformInputs` wrapper and the
+/// attention scale into the `FusedMatMul`'s alpha.
+pub struct AttentionFusion {}
+
+impl PatternFusion for AttentionFusion {
+    type Operator = Attention;
+
+    fn name(&self) -> &str {
+        "AttentionFusion"
+    }
+
+    fn pattern(&self) -> Pattern {
+        let q = Pattern::symbol("q");
+        let k = Pattern::symbol("k");
+        let v = Pattern::symbol("v");
+        let mask = Pattern::symbol("mask");
+
+        let qk = Pattern::binary_op("TransformInputs(FusedMatMul)", q, k).with_name("qk");
+        let probs = Pattern::binary_op("AddSoftmax", qk, mask);
+        Pattern::binary_op("MatMul", probs, v)
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["q", "k", "v", "mask"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<Attention, FusionError> {
+        let qk_id = pat_match.node_id("qk").unwrap();
+        let ti = g
+            .get_operator::<TransformInputs>(qk_id)
+            .ok_or(FusionError::CheckFailed("expected TransformInputs"))?;
+        let fused_matmul = ti
+            .inner()
+            .downcast_ref::<FusedMatMul>()
+            .ok_or(FusionError::CheckFailed("expected FusedMatMul"))?;
+
+        // The only transform must be a transpose of K's last two dimensions.
+        let perms: Vec<_> = ti.permutations().collect();
+        match perms.as_slice() {
+            [(1, Some(perm))] if *perm == [0, 1, 3, 2] => {}
+            _ => {
+                return Err(FusionError::CheckFailed("unsupported input transforms"));
+            }
+        }
+
+        // Q, K and V must be 4D `[batch, heads, seq, head_size]` tensors.
+        for name in ["q", "k", "v"] {
+            if g.get_rank(pat_match.node_id(name).unwrap()) != Some(4) {
+                return Err(FusionError::CheckFailed("query/key/value must be 4D"));
+            }
+        }
+
+        // The mask is added to the attention scores, so it must be a float
+        // tensor. (A boolean mask has different semantics in Attention.)
+        let mask_dtype = g
+            .get_node(pat_match.node_id("mask").unwrap())
+            .and_then(|n| n.dtype());
+        if mask_dtype != Some(ValueType::Tensor(DataType::Float)) {
+            return Err(FusionError::CheckFailed("mask must be a float tensor"));
+        }
+
+        Ok(Attention {
+            is_causal: false,
+            kv_num_heads: None,
+            q_num_heads: None,
+            scale: Some(fused_matmul.alpha.unwrap_or(1.0)),
+            softcap: 0.0,
+        })
+    }
 }
 
 pub struct SwishFusion {}

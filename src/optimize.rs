@@ -24,8 +24,8 @@ mod pattern_matcher;
 use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, ConvAddFusion, Fusion,
-    FusionError, FusionVisitor, GeluFusion, GluFusion, GluSplitFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, AttentionFusion, CastElimination, ComputeShapeFusion,
+    ConvAddFusion, Fusion, FusionError, FusionVisitor, GeluFusion, GluFusion, GluSplitFusion,
     GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
     MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
     ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, RotaryEmbeddingFusion,
@@ -595,6 +595,11 @@ impl GraphOptimizer {
         fusions.push(AddSoftmaxFusion {}.into_visitor());
         fusions.push(RepeatInterleaveFusion {}.into_visitor());
         fusions.push(GroupedQueryAttentionMatMulFusion {}.into_visitor());
+
+        // Fusion of decomposed scaled-dot-product attention. This matches
+        // operators produced by the AddSoftmax, MatMul-scale and Transpose
+        // fusions, so it takes effect on a later iteration of the fusion loop.
+        fusions.push(AttentionFusion {}.into_visitor());
 
         // Layout fusions
         fusions.push(TransposeFusion {});

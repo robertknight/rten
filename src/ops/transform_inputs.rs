@@ -101,6 +101,14 @@ impl TransformInputs {
         self.inner.as_ref()
     }
 
+    /// Return the input permutations as `(input_index, perm)` tuples, where
+    /// `perm` is `None` if the transform reverses the axes.
+    pub(crate) fn permutations(&self) -> impl Iterator<Item = (usize, Option<&[usize]>)> {
+        self.transforms.iter().map(|t| match &t.transform {
+            Transform::Permute(p) => (t.input_index, p.perm.as_deref()),
+        })
+    }
+
     /// Return true if two inputs have identical transforms applied.
     pub(crate) fn inputs_transformed_identically(&self, index_a: usize, index_b: usize) -> bool {
         let transforms_for = |index: usize| {
