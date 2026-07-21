@@ -644,6 +644,7 @@ impl GroupQueryAttention {
                 self.rotary_interleaved,
                 num_heads,
                 rotary_dim,
+                false,
             )?;
             let k = rotary_embedding(
                 ctx.pool(),
@@ -654,6 +655,7 @@ impl GroupQueryAttention {
                 self.rotary_interleaved,
                 kv_num_heads,
                 rotary_dim,
+                false,
             )?;
             (Some(q), Some(k))
         } else {

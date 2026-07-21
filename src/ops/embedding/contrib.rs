@@ -120,6 +120,7 @@ impl Operator for RotaryEmbeddingMicrosoft {
             self.interleaved,
             num_heads,
             self.rotary_embedding_dim,
+            false,
         )?;
 
         output.into_op_result()

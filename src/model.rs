@@ -1809,7 +1809,7 @@ mod tests {
         add_operator!(
             RotaryEmbedding,
             [input_node, rotary_cos, rotary_sin, rotary_pos],
-            { interleaved: false, num_heads: 1, rotary_embedding_dim: 2 }
+            { interleaved: false, num_heads: 1, rotary_embedding_dim: 2, full_width_caches: false }
         );
 
         let const_0 = graph_builder.add_constant(Tensor::from([0]).view());

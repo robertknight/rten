@@ -1746,6 +1746,7 @@ impl_read_op!(RotaryEmbedding, |attrs: &Attrs| {
         interleaved,
         num_heads,
         rotary_embedding_dim,
+        full_width_caches: false,
     })
 });
 

@@ -12,11 +12,12 @@ use crate::graph::{
     TypedConstant,
 };
 use crate::operator::Operator;
-use crate::ops::transform_inputs::TransformInputsBuilder;
+use crate::ops::transform_inputs::{TransformInputs, TransformInputsBuilder};
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, Conv, FusedMatMul, Gelu, Glu, GluActivation,
+    AddSoftmax, Cast, ComputeShape, Concat, Conv, FusedMatMul, Gelu, Glu, GluActivation,
     GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, RMSNormalization,
-    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
+    Reciprocal, ReduceMean, RepeatInterleave, RotaryEmbedding, Shape, Silu, Softmax, Swish,
+    SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -762,6 +763,189 @@ impl PatternFusion for GluSplitFusion {
             split_input: true,
         })
     }
+}
+
+/// Fuse a decomposed "rotate half" rotary embedding into a
+/// [`RotaryEmbedding`] operator.
+///
+/// This matches `x * cos + rotate_half(x) * sin` where `rotate_half(x)` is
+/// `Concat(Neg(x[.., d/2..]), x[.., ..d/2])` along the last axis. The cos/sin
+/// values must be "full width" caches of shape `[1, 1, seq, d]` which are
+/// verified to consist of two identical halves by matching their producers
+/// against `Cos(Concat(f, f))` / `Sin(Concat(f, f))`.
+pub struct RotaryEmbeddingFusion {}
+
+impl PatternFusion for RotaryEmbeddingFusion {
+    type Operator = RotaryEmbedding;
+
+    fn name(&self) -> &str {
+        "RotaryEmbeddingFusion"
+    }
+
+    fn pattern(&self) -> Pattern {
+        let x = Pattern::symbol("x");
+        let cos = Pattern::symbol("cos");
+        let sin = Pattern::symbol("sin");
+
+        let x1 = Pattern::operator(
+            "Slice",
+            [
+                x.clone(),
+                Pattern::const_symbol("a_start"),
+                Pattern::const_symbol("a_end"),
+                Pattern::const_symbol("a_axes"),
+                Pattern::const_symbol("a_steps"),
+            ],
+        );
+        let x2 = Pattern::operator(
+            "Slice",
+            [
+                x.clone(),
+                Pattern::const_symbol("b_start"),
+                Pattern::const_symbol("b_end"),
+                Pattern::const_symbol("b_axes"),
+                Pattern::const_symbol("b_steps"),
+            ],
+        );
+        let rotated =
+            Pattern::operator("Concat", [Pattern::unary_op("Neg", x2), x1]).with_name("rotate");
+        (x.clone() * cos) + (rotated * sin)
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x", "cos", "sin"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, g: &Graph) -> Result<RotaryEmbedding, FusionError> {
+        let x_id = pat_match.node_id("x").unwrap();
+        let (ndim, head_size) =
+            rank_and_last_dim(g, x_id).ok_or(FusionError::CheckFailed("input shape unknown"))?;
+        if ndim != 4 {
+            return Err(FusionError::CheckFailed("input must be 4D"));
+        }
+        if head_size == 0 || head_size % 2 != 0 {
+            return Err(FusionError::CheckFailed("head size not even"));
+        }
+        let half = (head_size / 2) as i32;
+
+        let scalar = |name: &str| -> Result<i32, FusionError> {
+            let vec = g
+                .get_vector::<i32>(pat_match.node_id(name).unwrap())
+                .ok_or(FusionError::CheckFailed("slice param not an i32 vector"))?;
+            match vec {
+                &[value] => Ok(value),
+                _ => Err(FusionError::CheckFailed("slice param not a single value")),
+            }
+        };
+        let axes_ok = |name: &str| -> bool {
+            g.get_vector::<i32>(pat_match.node_id(name).unwrap())
+                .is_some_and(|axes| is_last_axis(axes, ndim))
+        };
+
+        // `x1` must be the first half and `x2` the negated second half.
+        if scalar("a_start")? != 0 || scalar("a_end")? != half {
+            return Err(FusionError::CheckFailed("first slice is not first half"));
+        }
+        if scalar("b_start")? != half || scalar("b_end")? < head_size as i32 {
+            return Err(FusionError::CheckFailed("second slice is not second half"));
+        }
+        if !axes_ok("a_axes") || !axes_ok("b_axes") {
+            return Err(FusionError::CheckFailed("slice axis is not last axis"));
+        }
+        if scalar("a_steps")? != 1 || scalar("b_steps")? != 1 {
+            return Err(FusionError::CheckFailed("slice steps must be 1"));
+        }
+
+        // The rotated halves must be re-joined along the last axis.
+        let concat = g
+            .get_operator::<Concat>(pat_match.node_id("rotate").unwrap())
+            .ok_or(FusionError::CheckFailed("expected Concat operator"))?;
+        if concat.axis != -1 && concat.axis != ndim as isize - 1 {
+            return Err(FusionError::CheckFailed("concat axis is not last axis"));
+        }
+
+        // Check the cos/sin caches have shape `[1, 1, seq, head_size]`,
+        // broadcasting against the `[batch, heads, seq, head_size]` input.
+        let x_shape = g.get_node(x_id).and_then(|n| n.shape()).unwrap();
+        let cache_shape_ok = |name: &str| -> bool {
+            g.get_node(pat_match.node_id(name).unwrap())
+                .and_then(|n| n.shape())
+                .is_some_and(|shape| {
+                    shape.len() == 4
+                        && shape[0] == Dimension::Fixed(1)
+                        && shape[1] == Dimension::Fixed(1)
+                        && shape[2] == x_shape[2]
+                        && shape[3] == Dimension::Fixed(head_size)
+                })
+        };
+        if !cache_shape_ok("cos") || !cache_shape_ok("sin") {
+            return Err(FusionError::CheckFailed("unsupported cos/sin cache shape"));
+        }
+
+        // The fused op only reads the first half of each full-width cache row,
+        // so verify the halves are identical by construction.
+        verify_duplicated_cache_halves(g, pat_match.node_id("cos").unwrap(), "Cos")?;
+        verify_duplicated_cache_halves(g, pat_match.node_id("sin").unwrap(), "Sin")?;
+
+        Ok(RotaryEmbedding {
+            interleaved: false,
+            num_heads: 0,
+            rotary_embedding_dim: head_size,
+            full_width_caches: true,
+        })
+    }
+}
+
+/// Verify that a cos/sin cache value is produced by `trig_op(Concat(f, f))`,
+/// possibly via shape-only ops (Unsqueeze etc.), and therefore consists of two
+/// identical halves along the last axis.
+fn verify_duplicated_cache_halves(
+    g: &Graph,
+    value_id: NodeId,
+    trig_op: &str,
+) -> Result<(), FusionError> {
+    let mut value_id = value_id;
+    for _ in 0..4 {
+        let Some((_, op_node)) = g.get_source_node(value_id) else {
+            return Err(FusionError::CheckFailed("cache producer unknown"));
+        };
+        match op_node.operator().name() {
+            // Shape-only ops which preserve the last axis.
+            "Unsqueeze" | "Identity" => {
+                value_id = op_node.input_ids()[0]
+                    .ok_or(FusionError::CheckFailed("missing producer input"))?;
+            }
+            name if name == trig_op => {
+                let trig_input = op_node.input_ids()[0]
+                    .ok_or(FusionError::CheckFailed("missing producer input"))?;
+                let Some((_, concat_node)) = g.get_source_node(trig_input) else {
+                    return Err(FusionError::CheckFailed("cache producer unknown"));
+                };
+
+                // The trig input must be a concatenation of the same value
+                // with itself, possibly with the same transform applied to
+                // both inputs.
+                let concat_op = concat_node.operator();
+                let is_concat = if concat_op.downcast_ref::<Concat>().is_some() {
+                    true
+                } else if let Some(ti) = concat_op.downcast_ref::<TransformInputs>() {
+                    ti.inner().downcast_ref::<Concat>().is_some()
+                        && ti.inputs_transformed_identically(0, 1)
+                } else {
+                    false
+                };
+                if !is_concat {
+                    return Err(FusionError::CheckFailed("cache is not duplicated halves"));
+                }
+                return match concat_node.input_ids() {
+                    [Some(in_a), Some(in_b)] if in_a == in_b => Ok(()),
+                    _ => Err(FusionError::CheckFailed("cache is not duplicated halves")),
+                };
+            }
+            _ => return Err(FusionError::CheckFailed("unexpected cache producer")),
+        }
+    }
+    Err(FusionError::CheckFailed("cache producer chain too deep"))
 }
 
 pub struct SwishFusion {}

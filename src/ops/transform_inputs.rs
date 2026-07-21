@@ -33,7 +33,7 @@ impl TransformInput for PermuteInput {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Transform {
     Permute(PermuteInput),
 }
@@ -93,6 +93,24 @@ pub struct TransformInputs {
     inner: Arc<dyn Operator + Send + Sync>,
 
     transforms: Vec<TransformIndex>,
+}
+
+impl TransformInputs {
+    /// Return the wrapped operator.
+    pub(crate) fn inner(&self) -> &(dyn Operator + Send + Sync) {
+        self.inner.as_ref()
+    }
+
+    /// Return true if two inputs have identical transforms applied.
+    pub(crate) fn inputs_transformed_identically(&self, index_a: usize, index_b: usize) -> bool {
+        let transforms_for = |index: usize| {
+            self.transforms
+                .iter()
+                .filter(move |t| t.input_index == index)
+                .map(|t| &t.transform)
+        };
+        transforms_for(index_a).eq(transforms_for(index_b))
+    }
 }
 
 impl Operator for TransformInputs {

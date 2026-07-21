@@ -28,8 +28,8 @@ use fusions::{
     FusionError, FusionVisitor, GeluFusion, GluFusion, GluSplitFusion,
     GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
     MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
-    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, RotaryEmbeddingFusion,
+    SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -572,6 +572,9 @@ impl GraphOptimizer {
         // first as the two-input variant also matches its pattern.
         fusions.push(GluSplitFusion {}.into_visitor());
         fusions.push(GluFusion {}.into_visitor());
+
+        // Rotary embedding fusion.
+        fusions.push(RotaryEmbeddingFusion {}.into_visitor());
 
         // Normalization fusions
         fusions.push(LayerNormalizationFusion {}.into_visitor());

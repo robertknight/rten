@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowTensor, NdTensorView, Tensor, TensorView};
 
 use crate::{
     buffer_pool::{AutoReturn, BufferPool},
@@ -52,9 +52,12 @@ pub(crate) fn rotary_embedding(
     interleaved: bool,
     num_heads: usize,
     rotary_embedding_dim: usize,
+    full_width_caches: bool,
 ) -> Result<Tensor, OpError> {
-    // Reshape input to `[batch, seq_len, num_heads, head_size]`.
-    let reshaped_input = match input.shape() {
+    // For 3D inputs, reshape to `[batch, seq_len, num_heads, head_size]`. 4D
+    // inputs are processed in their native `[batch, num_heads, seq_len,
+    // head_size]` layout to avoid transpose copies.
+    let (reshaped_input, bhs_layout) = match input.shape() {
         &[batch, seq_len, hidden_size] => {
             if num_heads == 0 {
                 return Err(OpError::InvalidValue(
@@ -68,18 +71,24 @@ pub(crate) fn rotary_embedding(
             }
 
             let head_size = hidden_size / num_heads;
-            input.reshaped([batch, seq_len, num_heads, head_size])
+            (
+                input.reshaped([batch, seq_len, num_heads, head_size]),
+                false,
+            )
         }
-        [_batch, _num_heads, _seq_len, _head_size] => {
-            input.nd_view().permuted([0, 2, 1, 3]).as_cow()
-        }
+        [_batch, _num_heads, _seq_len, _head_size] => (input.nd_view().as_cow(), true),
         _ => {
             return Err(OpError::IncompatibleInputShapes(
                 "Input processed needs 3-4 dimensions",
             ));
         }
     };
-    let [batch, seq_len, num_heads, head_size] = reshaped_input.shape();
+    let [batch, seq_len, num_heads, head_size] = if bhs_layout {
+        let [b, h, s, d] = reshaped_input.shape();
+        [b, s, h, d]
+    } else {
+        reshaped_input.shape()
+    };
 
     let rotary_embedding_dim = if rotary_embedding_dim == 0 {
         head_size
@@ -98,29 +107,55 @@ pub(crate) fn rotary_embedding(
     }
     let half = rotary_embedding_dim / 2;
 
-    // Resolve the cos/sin caches to a `[batch, seq_len, half]` layout. When
-    // `position_ids` is provided the caches are gathered by position, otherwise
-    // they are indexed by `(batch, seq_len)` directly.
+    // With full-width caches the last cache dimension is `rotary_embedding_dim`
+    // and contains two identical halves, of which only the first is used.
+    let cache_width = if full_width_caches {
+        rotary_embedding_dim
+    } else {
+        half
+    };
+
+    // Squeeze leading 1-sized dims of caches with more than 3 dims, eg. a
+    // `[1, 1, seq, dim]` cache broadcast against a 4D input.
+    fn squeeze_cache<'a>(cache: TensorView<'a, f32>) -> Result<CowTensor<'a, f32>, OpError> {
+        let ndim = cache.ndim();
+        if ndim <= 3 {
+            // 2D `[max_pos, dim/2]` caches are valid when gathered by
+            // `position_ids`; the shape is re-validated after the gather.
+            Ok(cache.as_cow())
+        } else if cache.shape()[..ndim - 3].iter().all(|&size| size == 1) {
+            let squeezed_shape = cache.shape()[ndim - 3..].to_vec();
+            Ok(cache.reshaped(squeezed_shape.as_slice()))
+        } else {
+            Err(OpError::InvalidValue("cos/sin cache must be a 3D tensor"))
+        }
+    }
+    let cos = squeeze_cache(cos)?;
+    let sin = squeeze_cache(sin)?;
+
+    // Resolve the cos/sin caches to a `[batch, seq_len, cache_width]` layout.
+    // When `position_ids` is provided the caches are gathered by position,
+    // otherwise they are indexed by `(batch, seq_len)` directly.
     let (cos_cache, sin_cache) = if let Some(position_ids) = position_ids {
-        let cos = gather(pool, cos, 0, position_ids.as_dyn())?.into_cow();
-        let sin = gather(pool, sin, 0, position_ids.as_dyn())?.into_cow();
+        let cos = gather(pool, cos.view(), 0, position_ids.as_dyn())?.into_cow();
+        let sin = gather(pool, sin.view(), 0, position_ids.as_dyn())?.into_cow();
         (cos, sin)
     } else {
-        (cos.as_cow(), sin.as_cow())
+        (cos, sin)
     };
 
     let (cos_batch, cos_seq) = rotary_cache_dims(
         cos_cache.shape(),
         batch,
         seq_len,
-        half,
+        cache_width,
         "Last dimension of cos cache does not match rotary_embedding_dim/2",
     )?;
     let (sin_batch, sin_seq) = rotary_cache_dims(
         sin_cache.shape(),
         batch,
         seq_len,
-        half,
+        cache_width,
         "Last dimension of sin cache does not match rotary_embedding_dim/2",
     )?;
 
@@ -145,18 +180,21 @@ pub(crate) fn rotary_embedding(
         .zip(out_uninit.par_chunks_mut(head_size))
         .enumerate()
         .for_each(|(row, (x, y))| {
-            let bs = row / num_heads;
-            let b = bs / seq_len;
-            let s = bs % seq_len;
+            let (b, s) = if bhs_layout {
+                (row / (num_heads * seq_len), row % seq_len)
+            } else {
+                let bs = row / num_heads;
+                (bs / seq_len, bs % seq_len)
+            };
 
             let broadcast_idx = |dim_size: usize, index: usize| {
                 if dim_size == 1 { 0 } else { index }
             };
 
             let cos_off =
-                (broadcast_idx(cos_batch, b) * cos_seq + broadcast_idx(cos_seq, s)) * half;
+                (broadcast_idx(cos_batch, b) * cos_seq + broadcast_idx(cos_seq, s)) * cache_width;
             let sin_off =
-                (broadcast_idx(sin_batch, b) * sin_seq + broadcast_idx(sin_seq, s)) * half;
+                (broadcast_idx(sin_batch, b) * sin_seq + broadcast_idx(sin_seq, s)) * cache_width;
             let cos_row = &cos_data[cos_off..cos_off + half];
             let sin_row = &sin_data[sin_off..sin_off + half];
 
@@ -188,11 +226,13 @@ pub(crate) fn rotary_embedding(
     // Safety: every element of `out_data[..out_len]` was initialized above.
     unsafe { out_data.set_len(out_len) };
 
-    let mut output = Tensor::from_data(&[batch, seq_len, num_heads, head_size], out_data);
+    let mut output = if bhs_layout {
+        Tensor::from_data(&[batch, num_heads, seq_len, head_size], out_data)
+    } else {
+        Tensor::from_data(&[batch, seq_len, num_heads, head_size], out_data)
+    };
     if input.ndim() == 3 {
         output.reshape(input.shape());
-    } else {
-        output.permute(&[0, 2, 1, 3]);
     }
 
     Ok(output)
@@ -203,6 +243,11 @@ pub struct RotaryEmbedding {
     pub interleaved: bool,
     pub num_heads: usize,
     pub rotary_embedding_dim: usize,
+
+    /// If true, the cos/sin caches have a last dimension of
+    /// `rotary_embedding_dim` containing two identical halves, instead of
+    /// `rotary_embedding_dim / 2`.
+    pub full_width_caches: bool,
 }
 
 impl Operator for RotaryEmbedding {
@@ -229,6 +274,7 @@ impl Operator for RotaryEmbedding {
             self.interleaved,
             self.num_heads,
             self.rotary_embedding_dim,
+            self.full_width_caches,
         )?;
 
         output.into_op_result()
@@ -333,6 +379,7 @@ mod tests {
                     interleaved: true,
                     num_heads: 2,
                     rotary_embedding_dim: 0,
+                    full_width_caches: false,
                 },
             },
             // RotaryEmbedding_NotInterleaved_SmallData_LlamaMSFT
@@ -379,6 +426,7 @@ mod tests {
                     interleaved: false,
                     num_heads: 3,
                     rotary_embedding_dim: 0,
+                    full_width_caches: false,
                 },
             },
             // RotaryEmbedding_CustomRotaryDim_SmallData_Phi
@@ -399,6 +447,7 @@ mod tests {
                     interleaved: false,
                     num_heads: 1,
                     rotary_embedding_dim: 4,
+                    full_width_caches: false,
                 },
             },
             // RotaryEmbedding_NotInterleaved_NoPosIds_SmallData_LlamaMSFT
@@ -435,6 +484,7 @@ mod tests {
                     interleaved: false,
                     num_heads: 3,
                     rotary_embedding_dim: 0,
+                    full_width_caches: false,
                 },
             },
             // RotaryEmbedding_Interleaved_NoPosIds_SmallData_LlamaMSFT
@@ -469,6 +519,7 @@ mod tests {
                     interleaved: true,
                     num_heads: 2,
                     rotary_embedding_dim: 0,
+                    full_width_caches: false,
                 },
             },
         ];
@@ -546,6 +597,7 @@ mod tests {
                 interleaved: false,
                 num_heads: 1,
                 rotary_embedding_dim: 0,
+                full_width_caches: false,
             };
             let result: Tensor<f32> = op
                 .run_simple((input.view(), cos_cache.view(), sin_cache.view()))
@@ -561,6 +613,7 @@ mod tests {
             interleaved: false,
             num_heads: 2,
             rotary_embedding_dim: 0,
+            full_width_caches: false,
         };
 
         let input_data = Tensor::from([[0., 0., 0., 0., 0.]]).with_new_axis(0);
@@ -584,6 +637,7 @@ mod tests {
                 interleaved: false,
                 num_heads: 1,
                 rotary_embedding_dim,
+                full_width_caches: false,
             };
 
             let input = Tensor::from([[[1.]]]);

@@ -996,6 +996,7 @@ impl_read_op!(
             interleaved: attrs.interleaved(),
             num_heads: attrs.num_heads().as_usize(),
             rotary_embedding_dim: attrs.rotary_embedding_dim().as_usize(),
+            full_width_caches: false,
         })
     }
 );
