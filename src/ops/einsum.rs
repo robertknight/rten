@@ -189,6 +189,39 @@ fn sum_lone_dims<'a>(
     }
 }
 
+/// Return the size of a dimension whose label has size `a` in one term and
+/// size `b` in another.
+///
+/// A 1-sized dimension is broadcast to match the other input. Note that the
+/// result may be zero, as a 1-sized dimension broadcasts to a zero-sized one.
+fn broadcast_size(a: usize, b: usize) -> Result<usize, OpError> {
+    match (a, b) {
+        (a, b) if a == b => Ok(a),
+        (1, size) | (size, 1) => Ok(size),
+        _ => Err(OpError::IncompatibleInputShapes(
+            "Einsum label has different sizes in different terms",
+        )),
+    }
+}
+
+/// Expand the dimension `from_end` positions from the end of `view` to `size`.
+///
+/// The input is returned unchanged if the dimension already has this size.
+fn expand_dim<'a>(
+    pool: &BufferPool,
+    view: TensorView<'a>,
+    size: usize,
+    from_end: usize,
+) -> CowTensor<'a, f32> {
+    let dim = view.ndim() - from_end;
+    if view.size(dim) == size {
+        return view.as_cow();
+    }
+    let mut shape = view.shape().to_vec();
+    shape[dim] = size;
+    expand_to(pool, view, &shape).into_cow()
+}
+
 /// Return the unique labels in `lhs_term` and `rhs_term` which do not appear
 /// in `output`. These are the dimensions summed over when evaluating a step.
 fn reduced_dims(lhs_term: &str, rhs_term: &str, output: &str) -> Vec<char> {
@@ -280,8 +313,9 @@ fn einsum_step(
         let mut tmp_x_shape = xp.shape().to_vec();
         let mut tmp_y_shape = yp.shape().to_vec();
         for i in xp.ndim() - reduced_dims.len()..xp.ndim() {
-            tmp_x_shape[i] = tmp_x_shape[i].max(tmp_y_shape[i]);
-            tmp_y_shape[i] = tmp_y_shape[i].max(tmp_x_shape[i]);
+            let size = broadcast_size(tmp_x_shape[i], tmp_y_shape[i])?;
+            tmp_x_shape[i] = size;
+            tmp_y_shape[i] = size;
         }
         let x = if tmp_x_shape == xp.shape() {
             xp.to_contiguous_in(pool)
@@ -465,7 +499,16 @@ fn einsum_matmul(
 
     let xp = permute_and_insert_axes(x, term1, &x_order);
     let yp = permute_and_insert_axes(y, term2, &y_order);
-    let mut out = matmul(pool, xp, yp, None)?;
+
+    // Matmul broadcasts batch dimensions, but requires the `K` dimension of
+    // both inputs to match, so expand it here if the reduced label has size 1
+    // in one term. The `M` and `N` dimensions cannot need broadcasting, as
+    // they are labels which appear in only one of the two terms.
+    let k_size = broadcast_size(xp.size(xp.ndim() - 1), yp.size(yp.ndim() - 2))?;
+    let xp = expand_dim(pool, xp, k_size, 1);
+    let yp = expand_dim(pool, yp, k_size, 2);
+
+    let mut out = matmul(pool, xp.view(), yp.view(), None)?;
 
     if is_inserted_dim(matmul_m) {
         out.remove_axis(out.ndim() - 2);
@@ -690,6 +733,10 @@ mod tests {
 
         // 3D tensor with each dimension having a different size.
         let ijk = Tensor::zeros(&[10, 5, 8]);
+
+        let row_1x3 = Tensor::from([[1., 2., 3.]]);
+        let mat_4x3 = Tensor::from([[1., 2., 3.], [4., 5., 6.], [7., 8., 9.], [10., 11., 12.]]);
+        let empty_0x3 = Tensor::zeros(&[0, 3]);
 
         // Expected output for matmul equations where the RHS has several
         // dimensions which do not appear in the LHS.
@@ -961,6 +1008,27 @@ mod tests {
                         .iter()
                         .sum::<f32>(),
                 )),
+            },
+            // Broadcast a 1-sized reduced dimension in the LHS. The reduced
+            // dimension maps onto the `K` dimension of a matmul, which does not
+            // broadcast, so it must be expanded beforehand.
+            Case {
+                equation: "ij,ij->j",
+                inputs: vec![row_1x3.view(), mat_4x3.view()],
+                expected: Ok(Tensor::from([22., 52., 90.])),
+            },
+            // As above, but the 1-sized dimension is in the RHS.
+            Case {
+                equation: "ij,ij->j",
+                inputs: vec![mat_4x3.view(), row_1x3.view()],
+                expected: Ok(Tensor::from([22., 52., 90.])),
+            },
+            // Broadcast a 1-sized dimension against a zero-sized one. The
+            // broadcast size is 0, not 1.
+            Case {
+                equation: "ij,ij->",
+                inputs: vec![row_1x3.view(), empty_0x3.view()],
+                expected: Ok(Tensor::from(0.)),
             },
             // Reduction over multiple dimensions where the reduced dimensions
             // are not present in all tensors.
