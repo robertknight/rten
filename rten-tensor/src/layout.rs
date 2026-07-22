@@ -941,8 +941,8 @@ impl<const N: usize> FromShape for NdLayout<N> {
 
 impl<const N: usize> MutLayout for NdLayout<N> {
     fn from_shape_and_strides(
-        shape: Self::Index<'_>,
-        strides: Self::Index<'_>,
+        shape: Self::Shape<'_>,
+        strides: Self::Strides<'_>,
         overlap: OverlapPolicy,
     ) -> Result<Self, FromDataError> {
         let layout = NdLayout { shape, strides };
