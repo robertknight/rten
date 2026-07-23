@@ -55,8 +55,14 @@ pub fn may_have_internal_overlap(shape: impl SizeArray, strides: impl SizeArray)
     }
 
     // Sort dimensions in order of increasing stride.
-    let mut stride_shape: SmallVec<[(usize, usize); 8]> =
-        strides.iter().zip(shape.iter()).collect();
+    //
+    // Dimensions of size 1 are skipped since their only valid index is 0, so
+    // they can never contribute to overlap regardless of their stride.
+    let mut stride_shape: SmallVec<[(usize, usize); 8]> = strides
+        .iter()
+        .zip(shape.iter())
+        .filter(|(_, size)| *size != 1)
+        .collect();
     stride_shape.sort_unstable();
 
     // Verify that the stride for each dimension fully "steps over" the
@@ -75,7 +81,7 @@ pub fn may_have_internal_overlap(shape: impl SizeArray, strides: impl SizeArray)
 mod tests {
     use rten_testing::TestCases;
 
-    use super::is_contiguous;
+    use super::{is_contiguous, may_have_internal_overlap};
 
     #[test]
     fn test_is_contiguous() {
@@ -160,6 +166,40 @@ mod tests {
 
         cases.test_each(|case| {
             assert_eq!(is_contiguous(&case.shape, &case.strides), case.contiguous);
+        })
+    }
+
+    #[test]
+    fn test_may_have_internal_overlap() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            shape: &'a [usize],
+            strides: &'a [usize],
+            overlap: bool,
+        }
+
+        let cases = [
+            // Broadcast layout (stride 0 over a dimension of size > 1).
+            Case {
+                shape: &[5, 5],
+                strides: &[0, 1],
+                overlap: true,
+            },
+            // A leading size-1 dimension with a stride that would otherwise
+            // collide with the inner dimensions must be ignored, since its
+            // only valid index is 0.
+            Case {
+                shape: &[1, 3],
+                strides: &[3, 2],
+                overlap: false,
+            },
+        ];
+
+        cases.test_each(|case| {
+            assert_eq!(
+                may_have_internal_overlap(&case.shape, &case.strides),
+                case.overlap
+            );
         })
     }
 }

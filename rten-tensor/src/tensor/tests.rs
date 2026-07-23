@@ -67,6 +67,31 @@ fn test_append() {
     assert_eq!(empty.shape(), [0, 5]);
 }
 
+// This reproduces an issue where a `may_have_internal_overlap` check could
+// incorrectly fail.
+#[test]
+fn test_append_then_inner_iter_mut() {
+    // Create a tensor which has a 1-sized leading dim with a stride that is
+    // smaller than the product of interior dims.
+    let mut data = Vec::with_capacity(16);
+    data.extend(0..8);
+    let mut tensor = Tensor::from_data(&[1, 2, 4], data);
+    tensor
+        .append(1, &Tensor::from([[[8, 9, 10, 11], [12, 13, 14, 15]]]))
+        .unwrap();
+    assert_eq!(tensor.shape(), &[1, 4, 4]);
+    assert_eq!(tensor.strides(), &[8, 4, 1]);
+
+    // Make tensor non-contiguous
+    let mut sliced = tensor.slice_mut((.., .., ..2));
+
+    // Trigger call to `may_have_internal_overlap`
+    for mut inner in sliced.inner_iter_mut::<3>() {
+        inner.apply(|x| x * 10);
+    }
+    assert_eq!(sliced.to_vec(), &[0, 10, 40, 50, 80, 90, 120, 130]);
+}
+
 #[test]
 fn test_concat() {
     // Concat along dim 0 (rows)
