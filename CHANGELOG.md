@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that did not match the model's metadata but happened to work. See
   https://github.com/robertknight/rten/pull/1257.
 
+- Non-standard "contrib" operators from ONNX Runtime are now gated behind a
+  `contrib` crate feature. This feature is enabled by default, but builds using
+  `default-features = false` will need to enable it to use these operators
+  (https://github.com/robertknight/rten/pull/1348).
+
 **Highlights:**
 
 - Extended the shape and type inference system (introduced in 0.24.0) to cover
@@ -28,8 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `TopK`.
 
 - Added several new operators commonly used in transformer and LLM models,
-  including `MultiHeadAttention`, `RotaryEmbedding`, `RMSNormalization`,
-  `SimplifiedLayerNormalization` and `SkipSimplifiedLayerNormalization`.
+  including `Attention`, `GroupQueryAttention`, `MultiHeadAttention`,
+  `RotaryEmbedding`, `RMSNormalization`, `SimplifiedLayerNormalization` and
+  `SkipSimplifiedLayerNormalization`.
 
 - Added the `DFT`, `Multinomial`, `ReverseSequence`, `Scatter` and (deprecated)
   `Upsample` operators.
@@ -37,13 +43,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support for loading f16 ONNX models by up-converting weights to f32
   (https://github.com/robertknight/rten/pull/1171).
 
+- Shape inference (introduced as opt-in in 0.24.0) is now enabled by default
+  (https://github.com/robertknight/rten/pull/1296).
+
+- Added a new `rten-serialize` crate which supports saving and loading tensors
+  in the `.npy`, `.npz` and Safetensors formats (thanks @xd009642).
+
 ### rten
+
+- Fixed several panics and incorrect outputs in the `Einsum` operator,
+  including bugs in broadcasting, equations with three or more terms containing
+  repeated labels or ellipses, and equations with an empty left-hand side
+  (https://github.com/robertknight/rten/pull/1362,
+  https://github.com/robertknight/rten/pull/1366,
+  https://github.com/robertknight/rten/pull/1368,
+  https://github.com/robertknight/rten/pull/1369)
+
+- Fixed reduction operators computing incorrect results for certain input
+  shapes due to a bug in a fast path
+  (https://github.com/robertknight/rten/pull/1365)
+
+- Fixed a bug where the graph optimizer could remove values captured by
+  subgraphs (https://github.com/robertknight/rten/pull/1360)
+
+- Support broadcasting of the scale and bias inputs in `LayerNormalization` and
+  `RMSNormalization` (https://github.com/robertknight/rten/pull/1357)
+
+- Fixed a panic in int8 GEMV when the LHS data was not 4-byte aligned
+  (https://github.com/robertknight/rten/pull/1356)
+
+- Fixed a panic in `Reshape` when the input is empty but the target shape is
+  not (https://github.com/robertknight/rten/pull/1355)
+
+- Added vectorized `LogSoftmax` kernel
+  (https://github.com/robertknight/rten/pull/1354)
+
+- Improved `Gelu` fusion to recognize patterns emitted by tf2onnx
+  (https://github.com/robertknight/rten/pull/1352)
+
+- Put non-standard contrib operators behind a `contrib` crate feature, enabled
+  by default (https://github.com/robertknight/rten/pull/1348,
+  https://github.com/robertknight/rten/pull/1302)
+
+- Fixed `Unsqueeze` shape inference when there are multiple axes
+  (https://github.com/robertknight/rten/pull/1339)
+
+- Support loading f16 and f64 tensors from external data files
+  (https://github.com/robertknight/rten/pull/1338)
+
+- Added `BiasGelu` contrib operator
+  (https://github.com/robertknight/rten/pull/1336)
+
+- Added `SkipLayerNormalization` contrib operator
+  (https://github.com/robertknight/rten/pull/1328)
+
+- Include the data file path in all external data loading errors
+  (https://github.com/robertknight/rten/pull/1333)
+
+- Added `GroupQueryAttention` operator
+  (https://github.com/robertknight/rten/pull/1304,
+  https://github.com/robertknight/rten/pull/1332)
+
+- Fixed shape inference for operators with optional inputs whose shape is
+  unknown, by distinguishing missing inputs from inputs with unknown rank
+  (https://github.com/robertknight/rten/pull/1329,
+  https://github.com/robertknight/rten/pull/1330,
+  https://github.com/robertknight/rten/pull/1331)
+
+- Added the standard ONNX `Attention` operator
+  (https://github.com/robertknight/rten/pull/1325)
+
+- Support negative indices in `Gather` shape inference
+  (https://github.com/robertknight/rten/pull/1326)
+
+- Added documentation page on safety and resource usage
+  (https://github.com/robertknight/rten/pull/1324)
+
+- Improved simplification of symbolic expressions in shape inference and
+  limited their complexity to bound the time taken by shape inference
+  (https://github.com/robertknight/rten/pull/1303,
+  https://github.com/robertknight/rten/pull/1306,
+  https://github.com/robertknight/rten/pull/1308,
+  https://github.com/robertknight/rten/pull/1309)
+
+- Enabled shape inference by default
+  (https://github.com/robertknight/rten/pull/1296)
+
+- Generalized the `MatMulIntegerToFloat` fusion to support more graph patterns
+  (https://github.com/robertknight/rten/pull/1295)
+
+- Support `Scatter`, `Upsample` and `RotaryEmbedding` operators in the `.rten`
+  file format (https://github.com/robertknight/rten/pull/1301)
 
 - Added `MultiHeadAttention` operator, including shape inference (thanks
   @xd009642) (https://github.com/robertknight/rten/pull/1251,
   https://github.com/robertknight/rten/pull/1287,
   https://github.com/robertknight/rten/pull/1288,
-  https://github.com/robertknight/rten/pull/1290)
+  https://github.com/robertknight/rten/pull/1290,
+  https://github.com/robertknight/rten/pull/1321,
+  https://github.com/robertknight/rten/pull/1323,
+  https://github.com/robertknight/rten/pull/1341,
+  https://github.com/robertknight/rten/pull/1342,
+  https://github.com/robertknight/rten/pull/1343)
 
 - Added `DFT` operator, including support for the inverse one-sided DFT (IRFFT)
   (https://github.com/robertknight/rten/pull/1261)
@@ -94,14 +195,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (https://github.com/robertknight/rten/pull/1264)
 
 - Added `RotaryEmbedding` operator (thanks @xd009642)
-  (https://github.com/robertknight/rten/pull/1209)
+  (https://github.com/robertknight/rten/pull/1209,
+  https://github.com/robertknight/rten/pull/1294)
 
 - Added `RMSNormalization` operator
   (https://github.com/robertknight/rten/pull/1190)
 
 - Added `SimplifiedLayerNormalization` and `SkipSimplifiedLayerNormalization`
   operators (thanks @xd009642) (https://github.com/robertknight/rten/pull/1206,
-  https://github.com/robertknight/rten/pull/1210)
+  https://github.com/robertknight/rten/pull/1210,
+  https://github.com/robertknight/rten/pull/1299)
 
 - Added `Swish` operator (https://github.com/robertknight/rten/pull/1223)
 
@@ -111,7 +214,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `ReduceL1` operator (https://github.com/robertknight/rten/pull/1198)
 
 - Support f16 ONNX models by up-converting to f32 in the loader
-  (https://github.com/robertknight/rten/pull/1171)
+  (https://github.com/robertknight/rten/pull/1171,
+  https://github.com/robertknight/rten/pull/1351)
 
 - Support all int8/uint8 input combinations in `MatMulInteger`
   (https://github.com/robertknight/rten/pull/1208)
@@ -139,9 +243,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten-tensor
 
+- Refactored tensor layouts to use separate types for tensor indices, shapes
+  and strides (https://github.com/robertknight/rten/pull/1340,
+  https://github.com/robertknight/rten/pull/1372)
+
+- Fixed `MutLayout::index_axis` for empty tensors
+  (https://github.com/robertknight/rten/pull/1370)
+
+- Fixed a panic in `TensorBase::inner_iter` when the inner views are empty
+  (https://github.com/robertknight/rten/pull/1364)
+
 - Added `TensorBase::{into_rank, into_permuted}` methods, plus `into_owned` and
   `into_shape` for `Cow` tensors
-  (https://github.com/robertknight/rten/pull/1289)
+  (https://github.com/robertknight/rten/pull/1289,
+  https://github.com/robertknight/rten/pull/1292)
 
 - Added `Tensor::into_contiguous` method and implemented `Eq`/`Hash` for
   `Contiguous` (https://github.com/robertknight/rten/pull/1250)
@@ -160,6 +275,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `TensorBase::with_axis_removed` method
   (https://github.com/robertknight/rten/pull/1197)
+
+### rten-simd
+
+- Added basic f16 vector support
+  (https://github.com/robertknight/rten/pull/1350)
+
+- Split the `NumOps` trait into a `BitOps` base trait and a `NumOps` sub-trait
+  (https://github.com/robertknight/rten/pull/1349)
+
+### rten-serialize
+
+- Added new crate for tensor (de-)serialization, supporting the `.npy`, `.npz`
+  and Safetensors formats, including tensors with mixed data types (thanks
+  @xd009642) (https://github.com/robertknight/rten/pull/1285,
+  https://github.com/robertknight/rten/pull/1311,
+  https://github.com/robertknight/rten/pull/1312,
+  https://github.com/robertknight/rten/pull/1314)
+
+### rten-cli
+
+- Avoid copying inputs on each iteration of the timing loop, which distorted
+  timings for models with large inputs
+  (https://github.com/robertknight/rten/pull/1327)
 
 ### rten-examples
 
