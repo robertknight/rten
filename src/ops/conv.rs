@@ -223,25 +223,6 @@ where
         .as_ref()
         .map(|zero_point| QuantParams { zero_point });
 
-    if k_h == 1
-        && k_w == 1
-        && !has_padding
-        && groups == 1
-        && stride_y == 1
-        && stride_x == 1
-        && dilation_y == 1
-        && dilation_x == 1
-    {
-        return Ok(conv_2d_pointwise(
-            pool,
-            &input.nd_view(),
-            &kernel.nd_view(),
-            bias.as_ref().map(|b| b.nd_view()),
-            input_quant,
-            kernel_zero,
-        ));
-    }
-
     if groups == 0 {
         return Err(OpError::InvalidValue("Group count must be > 0"));
     }
@@ -263,6 +244,25 @@ where
     if out_channels % groups != 0 {
         return Err(OpError::InvalidValue(
             "Output channel count not divisible by groups",
+        ));
+    }
+
+    if k_h == 1
+        && k_w == 1
+        && !has_padding
+        && groups == 1
+        && stride_y == 1
+        && stride_x == 1
+        && dilation_y == 1
+        && dilation_x == 1
+    {
+        return Ok(conv_2d_pointwise(
+            pool,
+            &input.nd_view(),
+            &kernel.nd_view(),
+            bias.as_ref().map(|b| b.nd_view()),
+            input_quant,
+            kernel_zero,
         ));
     }
 
@@ -1236,6 +1236,18 @@ mod tests {
                 dilations: &[1, 1],
                 groups: 0,
                 expected: OpError::InvalidValue("Group count must be > 0"),
+            },
+            // Input channels don't match kernel input channels. This is a 1x1
+            // kernel, so it exercises the pointwise fast path.
+            Case {
+                input: Tensor::rand(&[1, 3, 2, 2], &mut rng),
+                kernel: Tensor::rand(&[1, 4, 1, 1], &mut rng),
+                strides: &[1, 1],
+                dilations: &[1, 1],
+                groups: 1,
+                expected: OpError::IncompatibleInputShapes(
+                    "Input channels (per group) does not match kernel input channels",
+                ),
             },
         ];
 
