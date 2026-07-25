@@ -47,8 +47,10 @@ impl Operator for ConstantOfShape {
         let shape = ctx.inputs().require_as(0)?;
 
         match self.value {
-            Scalar::Int(value) => constant_of_shape(pool, value, &shape).into_op_result(),
             Scalar::Float(value) => constant_of_shape(pool, value, &shape).into_op_result(),
+            Scalar::Int32(value) => constant_of_shape(pool, value, &shape).into_op_result(),
+            Scalar::Int8(value) => constant_of_shape(pool, value, &shape).into_op_result(),
+            Scalar::UInt8(value) => constant_of_shape(pool, value, &shape).into_op_result(),
         }
     }
 
@@ -66,7 +68,9 @@ impl_infer_shapes!(
     op,
     shape_ops::ConstantOfShape {
         value: match op.value {
-            Scalar::Int(val) => Some(val),
+            Scalar::Int32(val) => Some(val),
+            Scalar::Int8(val) => Some(val.into()),
+            Scalar::UInt8(val) => Some(val.into()),
             Scalar::Float(_) => None,
         },
     }
@@ -307,7 +311,7 @@ mod tests {
     #[test]
     fn test_constant_of_shape() {
         let op = ConstantOfShape {
-            value: Scalar::Int(42),
+            value: Scalar::Int32(42),
         };
         let shape = Tensor::from([1, 5, 10]);
         let result: Tensor<i32> = op.run_simple(&shape).unwrap();

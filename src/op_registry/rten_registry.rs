@@ -513,11 +513,11 @@ impl_read_op!(
     attrs_as_constant_of_shape_attrs,
     |attrs: sg::ConstantOfShapeAttrs| {
         let value = if let Some(int_val) = attrs.value_as_int_scalar() {
-            Scalar::Int(int_val.value())
+            Scalar::Int32(int_val.value())
         } else if let Some(float_val) = attrs.value_as_float_scalar() {
             Scalar::Float(float_val.value())
         } else {
-            Scalar::Int(0)
+            Scalar::Int32(0)
         };
         Ok(ops::ConstantOfShape { value })
     }

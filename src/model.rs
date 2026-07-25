@@ -27,7 +27,7 @@ mod load_error;
 mod metadata;
 
 #[cfg(feature = "onnx_format")]
-mod onnx_loader;
+pub(crate) mod onnx_loader;
 
 #[cfg(feature = "rten_format")]
 mod rten_loader;
@@ -1471,7 +1471,7 @@ mod tests {
         add_operator!(Concat, [input_node, input_node], { axis: 0 });
 
         let shape = graph_builder.add_constant(Tensor::from([1, 5, 10]).view());
-        add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
+        add_operator!(ConstantOfShape, [shape], { value: Scalar::Int32(42) });
 
         add_operator!(Conv, [input_node, kernel], {
             dilations: vec![1, 1],

@@ -372,7 +372,7 @@ fn load_value_info(
 /// Create a constant graph node from an ONNX tensor.
 ///
 /// If `name` is provided, it overrides the name from `initializer.name`.
-fn load_constant(
+pub(crate) fn load_constant(
     initializer: &onnx::TensorProto,
     loader: Option<&dyn DataLoader>,
     name: Option<&str>,
@@ -965,6 +965,9 @@ fn add_operator(
         load_graph: &'a dyn Fn(&onnx::GraphProto) -> Result<Graph, LoadError>,
         opset_versions: OpsetVersions<'a>,
 
+        /// Source for tensor data stored outside the model file.
+        loader: Option<&'a dyn DataLoader>,
+
         /// Domain of the operator being loaded.
         domain: &'a str,
     }
@@ -978,11 +981,21 @@ fn add_operator(
             // Resolved on demand since most deserializers don't need it.
             self.opset_versions.version(self.domain)
         }
+
+        fn load_tensor(
+            &self,
+            attr_name: &str,
+            tensor: &onnx::TensorProto,
+        ) -> Result<Constant, ReadOpError> {
+            load_constant(tensor, self.loader, None)
+                .map_err(|err| ReadOpError::attr_error(attr_name, err.to_string()))
+        }
     }
 
     let ctx = LoadContext {
         load_graph: &load_subgraph,
         opset_versions: subgraph_opts.opset_versions,
+        loader: subgraph_opts.loader,
         domain: onnx_op.domain.as_deref().unwrap_or_default(),
     };
 

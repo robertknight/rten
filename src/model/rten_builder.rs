@@ -503,7 +503,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             OpType::ConstantOfShape(args) => {
                 op_with_attrs!(ConstantOfShape, ConstantOfShapeAttrs, {
                     match args.value {
-                        Scalar::Int(int_value) => sg::ConstantOfShapeAttrsArgs {
+                        Scalar::Int32(int_value) => sg::ConstantOfShapeAttrsArgs {
                             value_type: sg::Scalar::IntScalar,
                             value: Some(
                                 sg::IntScalar::create(
@@ -523,6 +523,9 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                                 .as_union_value(),
                             ),
                         },
+                        Scalar::Int8(_) | Scalar::UInt8(_) => unimplemented!(
+                            "serializing int8/uint8 ConstantOfShape values requires a schema change"
+                        ),
                     }
                 })
             }

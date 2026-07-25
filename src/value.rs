@@ -847,15 +847,19 @@ impl ExtractBuffer for ValueOrView<'_> {
 /// A scalar value with runtime-determined type.
 #[derive(Debug, PartialEq)]
 pub enum Scalar {
-    Int(i32),
     Float(f32),
+    Int32(i32),
+    Int8(i8),
+    UInt8(u8),
 }
 
 impl Scalar {
     pub fn dtype(&self) -> DataType {
         match self {
-            Self::Int(_) => DataType::Int32,
             Self::Float(_) => DataType::Float,
+            Self::Int32(_) => DataType::Int32,
+            Self::Int8(_) => DataType::Int8,
+            Self::UInt8(_) => DataType::UInt8,
         }
     }
 }
