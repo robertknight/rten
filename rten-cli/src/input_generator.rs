@@ -121,7 +121,7 @@ impl RandomInputGenerator {
             "use_cache_branch"
                 if range.is_none() && matches!(dtype, Some(DataType::Int32) | None) =>
             {
-                Value::from(Tensor::from(0i32))
+                Value::from(Tensor::<i32>::zeros(&resolved_shape))
             }
 
             // For anything else, random values. The default ranges are
@@ -300,7 +300,7 @@ mod tests {
         );
         assert_eq!(
             elements(&generate("use_cache_branch", DataType::Int32, None)),
-            [0.]
+            [0.; 64]
         );
 
         // An explicitly specified range overrides these heuristics.
