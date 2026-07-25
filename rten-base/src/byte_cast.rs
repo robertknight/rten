@@ -119,6 +119,12 @@ fn transmuted_slice_len<Src, Dst>(src: &[Src]) -> Option<usize> {
 /// Returns `None` if the source pointer is not correctly aligned for the
 /// destination type.
 pub fn cast_slice<Src: ToByteArray, Dst: FromByteArray>(src: &[Src]) -> Option<&[Dst]> {
+    // Containers which have not allocated use a dangling pointer aligned for
+    // `Src`, which may not be aligned for `Dst`.
+    if src.is_empty() {
+        return Some(&[]);
+    }
+
     let new_len = transmuted_slice_len::<_, Dst>(src)?;
 
     // Safety:
@@ -136,6 +142,12 @@ pub fn cast_slice<Src: ToByteArray, Dst: FromByteArray>(src: &[Src]) -> Option<&
 /// destination type.
 #[allow(unused)]
 pub fn cast_mut_slice<Src: ToByteArray, Dst: FromByteArray>(src: &mut [Src]) -> Option<&mut [Dst]> {
+    // Containers which have not allocated use a dangling pointer aligned for
+    // `Src`, which may not be aligned for `Dst`.
+    if src.is_empty() {
+        return Some(&mut []);
+    }
+
     let new_len = transmuted_slice_len::<_, Dst>(src)?;
 
     // Safety:
@@ -151,6 +163,12 @@ pub fn cast_mut_slice<Src: ToByteArray, Dst: FromByteArray>(src: &mut [Src]) -> 
 pub fn cast_uninit_mut_slice<Src: ToByteArray, Dst: FromByteArray>(
     src: &mut [MaybeUninit<Src>],
 ) -> Option<&mut [MaybeUninit<Dst>]> {
+    // Containers which have not allocated use a dangling pointer aligned for
+    // `Src`, which may not be aligned for `Dst`.
+    if src.is_empty() {
+        return Some(&mut []);
+    }
+
     let new_len = transmuted_slice_len::<_, Dst>(src)?;
 
     // Safety:
@@ -166,6 +184,12 @@ pub fn cast_uninit_mut_slice<Src: ToByteArray, Dst: FromByteArray>(
 /// The source and destination types must have the same size and alignment.
 /// The length and capacity of the vector will be the same afterwards.
 pub fn cast_vec<Src: ToByteArray, Dst: FromByteArray>(src: Vec<Src>) -> Option<Vec<Dst>> {
+    // A vector which has not allocated owns no buffer to transmute, and its
+    // dangling pointer is aligned for `Src` rather than `Dst`.
+    if src.capacity() == 0 {
+        return Some(Vec::new());
+    }
+
     // From `Vec::into_raw_parts`.
     let mut src = ManuallyDrop::new(src);
     let (src_ptr, src_len, src_cap) = (src.as_mut_ptr(), src.len(), src.capacity());
@@ -250,6 +274,26 @@ mod tests {
         // Convert back to wider type
         let i32s_v2 = cast_slice::<i8, i32>(&i8s).unwrap();
         assert_eq!(i32s_v2, i32s);
+    }
+
+    #[test]
+    fn test_cast_empty() {
+        // An empty `Vec` uses a dangling pointer aligned for the source type,
+        // which may not be aligned for the destination type.
+        let empty: Vec<u8> = Vec::new();
+        assert_eq!(cast_slice::<u8, i32>(&empty), Some([].as_slice()));
+
+        let mut empty: Vec<u8> = Vec::new();
+        assert_eq!(
+            cast_mut_slice::<u8, i32>(&mut empty),
+            Some([].as_mut_slice())
+        );
+
+        let mut empty: Vec<MaybeUninit<u8>> = Vec::new();
+        assert!(cast_uninit_mut_slice::<u8, i32>(&mut empty).is_some_and(|s| s.is_empty()));
+
+        let empty: Vec<u8> = Vec::new();
+        assert_eq!(cast_vec::<u8, i32>(empty), Some(Vec::new()));
     }
 
     #[test]
