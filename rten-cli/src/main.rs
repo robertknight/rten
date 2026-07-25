@@ -6,17 +6,21 @@ use std::str::FromStr;
 use std::time::Instant;
 
 use rten::{
-    DataType, Dimension, Model, ModelMetadata, ModelOptions, NodeId, RunOptions, ThreadPool, Value,
-    ValueOrView, ValueType,
+    Model, ModelMetadata, ModelOptions, NodeId, RunOptions, ThreadPool, Value, ValueOrView,
 };
 use rten_base::num::AsUsize;
+use rten_tensor::TensorView;
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
 
 mod dim_size;
 use dim_size::DimSize;
+mod input_generator;
+use input_generator::RandomInputGenerator;
 mod input_info;
 use input_info::{print_input_output_list, print_input_shapes, print_output_shapes};
+mod input_range;
+use input_range::InputRange;
+mod name_value;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum ProfileMode {
@@ -79,6 +83,11 @@ struct Args {
     /// run model and don't produce other output
     #[argh(switch, short = 'q')]
     quiet: bool,
+
+    /// specify the range of randomly generated values for an input in the form `input_name=min:max`. Can be specified multiple times.
+    /// Input names may be quoted (eg. `"input.one"=0:10`).
+    #[argh(option, short = 'r')]
+    range: Vec<String>,
 
     /// specify size for a dynamic dimension in the form `dim_name=size` or `input_name.dim_name=size`. Can be specified multiple times.
     /// Input and dimension names may be quoted (eg. `"input.one"."dim.two"=3`).
@@ -145,6 +154,9 @@ struct InputConfig {
     /// a dynamic size.
     dim_sizes: Vec<DimSize>,
 
+    /// Ranges of values to use when generating random inputs.
+    ranges: Vec<InputRange>,
+
     /// Map of input name to value.
     ///
     /// Inputs use values from this map if present, otherwise a random input is
@@ -172,6 +184,9 @@ fn run_model(
     // Indexes of entries in `dim_sizes` that didn't match any inputs.
     let mut unused_dim_sizes: HashSet<usize> = (0..input_config.dim_sizes.len()).collect();
 
+    // Indexes of entries in `ranges` that didn't match any inputs.
+    let mut unused_ranges: HashSet<usize> = (0..input_config.ranges.len()).collect();
+
     let mut input_generator = RandomInputGenerator::new();
 
     // Fetch or generate model inputs
@@ -188,11 +203,21 @@ fn run_model(
             let value_or_view = if let Some(value) = input_config.values.get(name) {
                 ValueOrView::View(value.as_view())
             } else {
+                let range = input_config
+                    .ranges
+                    .iter()
+                    .enumerate()
+                    .find(|(_i, range)| range.matches(name));
+                if let Some((idx, _)) = range {
+                    unused_ranges.remove(&idx);
+                }
+
                 let tensor = input_generator.generate(
                     name,
                     dtype,
                     &shape,
                     &input_config.dim_sizes,
+                    range.map(|(_i, range)| range),
                     |dim_name, dim_size_idx| {
                         if let Some(idx) = dim_size_idx {
                             unused_dim_sizes.remove(&idx);
@@ -239,6 +264,17 @@ fn run_model(
                 dim_size.dim_name
             )
         };
+        return Err(err.into());
+    }
+
+    // Error if specified value ranges were unused, as this likely indicates a
+    // typo in the input name.
+    if let Some(idx) = unused_ranges.into_iter().next() {
+        let range = &input_config.ranges[idx];
+        let err = format!(
+            "Input name \"{}\" in value range did not match any generated inputs",
+            range.input_name
+        );
         return Err(err.into());
     }
 
@@ -393,129 +429,6 @@ fn compare_tensors<T: Copy + Debug>(
     CompareMetrics { max_diff }
 }
 
-#[derive(Debug)]
-enum GenerateError {
-    UnsupportedDataType(ValueType),
-}
-
-impl std::fmt::Display for GenerateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnsupportedDataType(dtype) => {
-                write!(f, "generation of {dtype} inputs is not supported")
-            }
-        }
-    }
-}
-
-impl Error for GenerateError {}
-
-struct RandomInputGenerator {
-    rng: fastrand::Rng,
-}
-
-impl RandomInputGenerator {
-    fn new() -> Self {
-        RandomInputGenerator {
-            rng: fastrand::Rng::new(),
-        }
-    }
-
-    /// Generate a random value for an input using the name, shape and dtype
-    /// properties from the model as well as configuration provided when
-    /// running the CLI.
-    ///
-    /// `on_resolve_size` is invoked for each dynamic dimension size that
-    /// is resolved, specifying the dimension name and index of the entry in
-    /// `dim_sizes` that was used, if any.
-    fn generate(
-        &mut self,
-        name: &str,
-        value_type: Option<ValueType>,
-        shape: &[Dimension],
-        dim_sizes: &[DimSize],
-        mut on_resolve_size: impl FnMut(&str, Option<usize>),
-    ) -> Result<Value, GenerateError> {
-        let dtype = match value_type {
-            Some(ValueType::Tensor(dtype)) => Some(dtype),
-            Some(vtype) => {
-                return Err(GenerateError::UnsupportedDataType(vtype));
-            }
-            None => None,
-        };
-
-        let resolved_shape: Vec<usize> = shape
-            .iter()
-            .map(|dim| match dim {
-                Dimension::Symbolic(dim_name) => {
-                    if let Some((idx, dim_size)) = dim_sizes
-                        .iter()
-                        .enumerate()
-                        .find(|(_i, ds)| ds.matches(name, dim_name))
-                    {
-                        on_resolve_size(dim_name, Some(idx));
-                        dim_size.size
-                    } else {
-                        on_resolve_size(dim_name, None);
-                        1
-                    }
-                }
-                Dimension::Fixed(size) => *size,
-            })
-            .collect();
-
-        fn random_ints<T, F: FnMut() -> T>(shape: &[usize], generate: F) -> Value
-        where
-            Value: From<Tensor<T>>,
-        {
-            Tensor::from_simple_fn(shape, generate).into()
-        }
-
-        // Guess suitable content for the input based on its name.
-        let value = match name {
-            // If this is a mask, use all ones on the assumption that we
-            // don't want to mask anything out.
-            name if name.ends_with("_mask") && matches!(dtype, Some(DataType::Int32) | None) => {
-                Value::from(Tensor::full(&resolved_shape, 1i32))
-            }
-
-            // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
-            // We use zero as a value that is likely to be valid for all
-            // of these.
-            name if name.ends_with("_ids") && matches!(dtype, Some(DataType::Int32) | None) => {
-                Value::from(Tensor::<i32>::zeros(&resolved_shape))
-            }
-
-            // Optimum can export "merged" transformer models which have two
-            // branches. One accepts KV-cache inputs and the other does not.
-            // Set this to false as a "safer" value because we don't have
-            // cached outputs from a previous run.
-            "use_cache_branch" if matches!(dtype, Some(DataType::Int32) | None) => {
-                Value::from(Tensor::from(0i32))
-            }
-
-            // For anything else, random values.
-            _ => match dtype {
-                // Generate floats in [0, 1]
-                Some(DataType::Float) | None => {
-                    Value::from(Tensor::from_simple_fn(&resolved_shape, || self.rng.f32()))
-                }
-                // Generate random values for int types. The default ranges
-                // are intended to be suitable for many models, but there
-                // ought to be a way to override them.
-                Some(DataType::Int32) => random_ints(&resolved_shape, || self.rng.i32(0..256)),
-                Some(DataType::Int8) => random_ints(&resolved_shape, || self.rng.i8(0..=127)),
-                Some(DataType::UInt8) => random_ints(&resolved_shape, || self.rng.u8(0..=255)),
-                Some(dtype) => {
-                    return Err(GenerateError::UnsupportedDataType(ValueType::Tensor(dtype)));
-                }
-            },
-        };
-
-        Ok(value)
-    }
-}
-
 /// Convert a tensor read from a Safetensors file into an rten [`Value`].
 fn rten_value(value: rten_serialize::Value) -> Result<Value, Box<dyn Error>> {
     use rten_serialize::Value as SV;
@@ -578,12 +491,25 @@ fn main() {
         match DimSize::parse(size_str) {
             Ok(size) => input_sizes.push(size),
             Err(err) => {
-                eprintln!("Invalid size specification '{}': {}", size_str, err);
+                eprintln!("Invalid --size argument: {}", err);
                 std::process::exit(1);
             }
         }
     }
     DimSize::sort_dedup(&mut input_sizes);
+
+    // Parse input value ranges from string arguments
+    let mut input_ranges = Vec::new();
+    for range_str in &args.range {
+        match InputRange::parse(range_str) {
+            Ok(range) => input_ranges.push(range),
+            Err(err) => {
+                eprintln!("Invalid --range argument: {}", err);
+                std::process::exit(1);
+            }
+        }
+    }
+    InputRange::sort_dedup(&mut input_ranges);
 
     // Parse profile mode from switch count
     let profile_mode = match args.profile {
@@ -673,6 +599,7 @@ fn main() {
 
     let inputs = InputConfig {
         dim_sizes: input_sizes,
+        ranges: input_ranges,
         values: input_values,
     };
 

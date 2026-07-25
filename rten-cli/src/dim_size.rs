@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use crate::name_value::{self, ParseError, Token};
+
 /// Specifies the size for a dynamic input dimension.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DimSize {
@@ -34,38 +36,27 @@ impl DimSize {
     /// Parse a dimension size specifier in the form `dim_name=size` or
     /// `input_name.dim_name=size`.
     pub fn parse(spec: &str) -> Result<DimSize, ParseError> {
-        let tokens = tokenize(spec);
-        let Some(eq_pos) = tokens.iter().position(|tok| matches!(tok, Token::Equals)) else {
+        let Some((name_tokens, size_str)) = name_value::split(spec) else {
             return Err(ParseError::new(
                 spec,
-                ParseErrorKind::InvalidFormat {
-                    message: "expected <name>=<size> but no '=' was found".into(),
-                },
+                "expected <name>=<size> but no '=' was found",
             ));
         };
 
-        let (name_spec, size_spec) = tokens.split_at(eq_pos);
-
-        let [Token::Equals, Token::Text(size_str)] = size_spec else {
-            return Err(ParseError::new(
-                spec,
-                ParseErrorKind::InvalidFormat {
-                    message: "expected specifier to end with '=<size>'".into(),
-                },
-            ));
-        };
-
-        let (input_name, dim_name) = match name_spec {
+        let (input_name, dim_name) = match name_tokens.as_slice() {
             [Token::Text(dim)] => (None, dim),
             [Token::Text(input), Token::Dot, Token::Text(dim)] => (Some(input), dim),
             _ => {
-                return Err(ParseError::new(spec, ParseErrorKind::InvalidName));
+                return Err(ParseError::new(spec, "invalid input or dimension name"));
             }
         };
 
-        let size: usize = size_str
-            .parse()
-            .map_err(|_| ParseError::new(spec, ParseErrorKind::InvalidSize))?;
+        let size: usize = size_str.parse().map_err(|_| {
+            ParseError::new(
+                spec,
+                "invalid dimension size. Must be a non-negative integer",
+            )
+        })?;
 
         Ok(DimSize {
             input_name: input_name.map(|s| s.to_string()),
@@ -99,93 +90,12 @@ impl DimSize {
     }
 }
 
-enum Token {
-    Equals,
-    Dot,
-    Text(String),
-}
-
-fn tokenize(spec: &str) -> Vec<Token> {
-    let mut tokens = Vec::new();
-    let mut in_quote = false;
-
-    for ch in spec.chars() {
-        match ch {
-            '=' if !in_quote => {
-                tokens.push(Token::Equals);
-            }
-            '.' if !in_quote => {
-                tokens.push(Token::Dot);
-            }
-            '"' => in_quote = !in_quote,
-            ch => {
-                if let Some(tok) = tokens.last_mut()
-                    && let Token::Text(text) = tok
-                {
-                    text.push(ch);
-                } else {
-                    tokens.push(Token::Text(ch.into()));
-                }
-            }
-        }
-    }
-
-    tokens
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[allow(clippy::enum_variant_names)] // Don't warn about all variants having "Invalid" prefix.
-enum ParseErrorKind {
-    /// Dimension size spec doesn't match "name=size"
-    InvalidFormat { message: String },
-    /// Dimension size spec has an invalid input or dimension name
-    InvalidName,
-    /// Dimension size spec has an invalid size
-    InvalidSize,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ParseError {
-    spec: String,
-    kind: ParseErrorKind,
-}
-
-impl ParseError {
-    fn new(spec: &str, kind: ParseErrorKind) -> ParseError {
-        ParseError {
-            spec: spec.to_string(),
-            kind,
-        }
-    }
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.kind {
-            ParseErrorKind::InvalidFormat { message } => write!(
-                fmt,
-                "invalid format for dimension size spec \"{}\": {}",
-                self.spec, message
-            ),
-            ParseErrorKind::InvalidName => {
-                write!(fmt, "invalid name in dimension size spec \"{}\"", self.spec)
-            }
-            ParseErrorKind::InvalidSize => write!(
-                fmt,
-                "invalid dimension size in \"{}\". Must be a non-negative integer.",
-                self.spec
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
-
 #[cfg(test)]
 mod tests {
     use rten_testing::TestCases;
 
-    use super::{DimSize, ParseError, ParseErrorKind};
+    use super::DimSize;
+    use crate::name_value::ParseError;
 
     #[test]
     fn test_parse() {
@@ -213,42 +123,37 @@ mod tests {
                 }),
             },
             Case {
-                spec: "x.\"dim.name\"=1",
-                expected: Ok(DimSize {
-                    input_name: Some("x".to_string()),
-                    dim_name: "dim.name".to_string(),
-                    size: 1,
-                }),
-            },
-            Case {
-                spec: "\"input.name\".dim=1",
-                expected: Ok(DimSize {
-                    input_name: Some("input.name".to_string()),
-                    dim_name: "dim".to_string(),
-                    size: 1,
-                }),
-            },
-            Case {
                 spec: "foobar",
                 expected: Err(ParseError::new(
                     "foobar",
-                    ParseErrorKind::InvalidFormat {
-                        message: "expected <name>=<size> but no '=' was found".into(),
-                    },
+                    "expected <name>=<size> but no '=' was found",
+                )),
+            },
+            Case {
+                spec: "a.b.c=1",
+                expected: Err(ParseError::new(
+                    "a.b.c=1",
+                    "invalid input or dimension name",
                 )),
             },
             Case {
                 spec: "foobar=g",
-                expected: Err(ParseError::new("foobar=g", ParseErrorKind::InvalidSize)),
+                expected: Err(ParseError::new(
+                    "foobar=g",
+                    "invalid dimension size. Must be a non-negative integer",
+                )),
             },
             Case {
                 spec: "foobar=-1",
-                expected: Err(ParseError::new("foobar=-1", ParseErrorKind::InvalidSize)),
+                expected: Err(ParseError::new(
+                    "foobar=-1",
+                    "invalid dimension size. Must be a non-negative integer",
+                )),
             },
         ];
 
         cases.test_each(|Case { spec, expected }| {
-            let dim_size = DimSize::parse(&spec);
+            let dim_size = DimSize::parse(spec);
             assert_eq!(dim_size, *expected);
         })
     }
