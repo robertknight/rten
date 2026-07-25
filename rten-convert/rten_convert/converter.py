@@ -790,6 +790,33 @@ def op_node_from_onnx_operator(
                 "rotary_embedding_dim", "int", 0
             )
 
+        case "Scan":
+            attrs = sg.ScanAttrsT()
+
+            body = graph_from_onnx_graph(
+                attr_reader.get_attr("body", "graph", None), allow_captures=True
+            )
+            attrs.body = DummyGraphT(body, None)
+            attrs.numScanInputs = attr_reader.require_attr("num_scan_inputs", "int")
+            attrs.scanInputAxes = attr_reader.get_attr("scan_input_axes", "ints", [])
+            attrs.scanOutputAxes = attr_reader.get_attr("scan_output_axes", "ints", [])
+
+            # Directions are stored as 0 (forward) or 1 (reverse), which matches
+            # the `ScanDirection` enum.
+            def check_directions(name: str, directions: list[int]) -> list[int]:
+                if any(d not in (0, 1) for d in directions):
+                    raise ConversionError(f"Unsupported {name} value")
+                return directions
+
+            attrs.scanInputDirections = check_directions(
+                "scan_input_directions",
+                attr_reader.get_attr("scan_input_directions", "ints", []),
+            )
+            attrs.scanOutputDirections = check_directions(
+                "scan_output_directions",
+                attr_reader.get_attr("scan_output_directions", "ints", []),
+            )
+
         case "Scatter":
             # Deprecated alias for ScatterElements without a reduction.
             attrs = sg.ScatterElementsAttrsT()

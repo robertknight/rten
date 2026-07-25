@@ -152,6 +152,7 @@ class OperatorType(object):
     LpNormalization = 142
     ReduceLogSum = 143
     ReduceLogSumExp = 144
+    Scan = 145
 
 
 class RNNDirection(object):
@@ -255,6 +256,7 @@ class OperatorAttrs(object):
     AttentionAttrs = 60
     CumSumAttrs = 61
     LpNormalizationAttrs = 62
+    ScanAttrs = 63
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -384,6 +386,8 @@ def OperatorAttrsCreator(unionType, table):
         return CumSumAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.LpNormalizationAttrs:
         return LpNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.ScanAttrs:
+        return ScanAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -406,6 +410,11 @@ def ScalarCreator(unionType, table):
     if unionType == Scalar.FloatScalar:
         return FloatScalarT.InitFromBuf(table.Bytes, table.Pos)
     return None
+
+
+class ScanDirection(object):
+    Forward = 0
+    Reverse = 1
 
 
 class GeluApproximation(object):
@@ -3105,6 +3114,319 @@ class LoopAttrsT(object):
             LoopAttrsAddBody(builder, body)
         loopAttrs = LoopAttrsEnd(builder)
         return loopAttrs
+
+
+class ScanAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ScanAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsScanAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ScanAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # ScanAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ScanAttrs
+    def Body(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = Graph()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ScanAttrs
+    def NumScanInputs(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # ScanAttrs
+    def ScanInputAxes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ScanAttrs
+    def ScanInputAxesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # ScanAttrs
+    def ScanInputAxesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ScanAttrs
+    def ScanInputAxesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        return o == 0
+
+    # ScanAttrs
+    def ScanInputDirections(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # ScanAttrs
+    def ScanInputDirectionsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # ScanAttrs
+    def ScanInputDirectionsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ScanAttrs
+    def ScanInputDirectionsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
+
+    # ScanAttrs
+    def ScanOutputAxes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ScanAttrs
+    def ScanOutputAxesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # ScanAttrs
+    def ScanOutputAxesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ScanAttrs
+    def ScanOutputAxesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return o == 0
+
+    # ScanAttrs
+    def ScanOutputDirections(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # ScanAttrs
+    def ScanOutputDirectionsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # ScanAttrs
+    def ScanOutputDirectionsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ScanAttrs
+    def ScanOutputDirectionsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return o == 0
+
+def ScanAttrsStart(builder):
+    builder.StartObject(6)
+
+def ScanAttrsAddBody(builder, body):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(body), 0)
+
+def ScanAttrsAddNumScanInputs(builder, numScanInputs):
+    builder.PrependUint32Slot(1, numScanInputs, 0)
+
+def ScanAttrsAddScanInputAxes(builder, scanInputAxes):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(scanInputAxes), 0)
+
+def ScanAttrsStartScanInputAxesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ScanAttrsAddScanInputDirections(builder, scanInputDirections):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(scanInputDirections), 0)
+
+def ScanAttrsStartScanInputDirectionsVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def ScanAttrsAddScanOutputAxes(builder, scanOutputAxes):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(scanOutputAxes), 0)
+
+def ScanAttrsStartScanOutputAxesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ScanAttrsAddScanOutputDirections(builder, scanOutputDirections):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(scanOutputDirections), 0)
+
+def ScanAttrsStartScanOutputDirectionsVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def ScanAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List, Optional
+except:
+    pass
+
+class ScanAttrsT(object):
+
+    # ScanAttrsT
+    def __init__(
+        self,
+        body = None,
+        numScanInputs = 0,
+        scanInputAxes = None,
+        scanInputDirections = None,
+        scanOutputAxes = None,
+        scanOutputDirections = None,
+    ):
+        self.body = body  # type: Optional[GraphT]
+        self.numScanInputs = numScanInputs  # type: int
+        self.scanInputAxes = scanInputAxes  # type: Optional[List[int]]
+        self.scanInputDirections = scanInputDirections  # type: Optional[List[int]]
+        self.scanOutputAxes = scanOutputAxes  # type: Optional[List[int]]
+        self.scanOutputDirections = scanOutputDirections  # type: Optional[List[int]]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        scanAttrs = ScanAttrs()
+        scanAttrs.Init(buf, pos)
+        return cls.InitFromObj(scanAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, scanAttrs):
+        x = ScanAttrsT()
+        x._UnPack(scanAttrs)
+        return x
+
+    # ScanAttrsT
+    def _UnPack(self, scanAttrs):
+        if scanAttrs is None:
+            return
+        if scanAttrs.Body() is not None:
+            self.body = GraphT.InitFromObj(scanAttrs.Body())
+        self.numScanInputs = scanAttrs.NumScanInputs()
+        if not scanAttrs.ScanInputAxesIsNone():
+            if np is None:
+                self.scanInputAxes = []
+                for i in range(scanAttrs.ScanInputAxesLength()):
+                    self.scanInputAxes.append(scanAttrs.ScanInputAxes(i))
+            else:
+                self.scanInputAxes = scanAttrs.ScanInputAxesAsNumpy()
+        if not scanAttrs.ScanInputDirectionsIsNone():
+            if np is None:
+                self.scanInputDirections = []
+                for i in range(scanAttrs.ScanInputDirectionsLength()):
+                    self.scanInputDirections.append(scanAttrs.ScanInputDirections(i))
+            else:
+                self.scanInputDirections = scanAttrs.ScanInputDirectionsAsNumpy()
+        if not scanAttrs.ScanOutputAxesIsNone():
+            if np is None:
+                self.scanOutputAxes = []
+                for i in range(scanAttrs.ScanOutputAxesLength()):
+                    self.scanOutputAxes.append(scanAttrs.ScanOutputAxes(i))
+            else:
+                self.scanOutputAxes = scanAttrs.ScanOutputAxesAsNumpy()
+        if not scanAttrs.ScanOutputDirectionsIsNone():
+            if np is None:
+                self.scanOutputDirections = []
+                for i in range(scanAttrs.ScanOutputDirectionsLength()):
+                    self.scanOutputDirections.append(scanAttrs.ScanOutputDirections(i))
+            else:
+                self.scanOutputDirections = scanAttrs.ScanOutputDirectionsAsNumpy()
+
+    # ScanAttrsT
+    def Pack(self, builder):
+        if self.body is not None:
+            body = self.body.Pack(builder)
+        if self.scanInputAxes is not None:
+            if np is not None and type(self.scanInputAxes) is np.ndarray:
+                scanInputAxes = builder.CreateNumpyVector(self.scanInputAxes)
+            else:
+                ScanAttrsStartScanInputAxesVector(builder, len(self.scanInputAxes))
+                for i in reversed(range(len(self.scanInputAxes))):
+                    builder.PrependInt32(self.scanInputAxes[i])
+                scanInputAxes = builder.EndVector()
+        if self.scanInputDirections is not None:
+            if np is not None and type(self.scanInputDirections) is np.ndarray:
+                scanInputDirections = builder.CreateNumpyVector(self.scanInputDirections)
+            else:
+                ScanAttrsStartScanInputDirectionsVector(builder, len(self.scanInputDirections))
+                for i in reversed(range(len(self.scanInputDirections))):
+                    builder.PrependUint8(self.scanInputDirections[i])
+                scanInputDirections = builder.EndVector()
+        if self.scanOutputAxes is not None:
+            if np is not None and type(self.scanOutputAxes) is np.ndarray:
+                scanOutputAxes = builder.CreateNumpyVector(self.scanOutputAxes)
+            else:
+                ScanAttrsStartScanOutputAxesVector(builder, len(self.scanOutputAxes))
+                for i in reversed(range(len(self.scanOutputAxes))):
+                    builder.PrependInt32(self.scanOutputAxes[i])
+                scanOutputAxes = builder.EndVector()
+        if self.scanOutputDirections is not None:
+            if np is not None and type(self.scanOutputDirections) is np.ndarray:
+                scanOutputDirections = builder.CreateNumpyVector(self.scanOutputDirections)
+            else:
+                ScanAttrsStartScanOutputDirectionsVector(builder, len(self.scanOutputDirections))
+                for i in reversed(range(len(self.scanOutputDirections))):
+                    builder.PrependUint8(self.scanOutputDirections[i])
+                scanOutputDirections = builder.EndVector()
+        ScanAttrsStart(builder)
+        if self.body is not None:
+            ScanAttrsAddBody(builder, body)
+        ScanAttrsAddNumScanInputs(builder, self.numScanInputs)
+        if self.scanInputAxes is not None:
+            ScanAttrsAddScanInputAxes(builder, scanInputAxes)
+        if self.scanInputDirections is not None:
+            ScanAttrsAddScanInputDirections(builder, scanInputDirections)
+        if self.scanOutputAxes is not None:
+            ScanAttrsAddScanOutputAxes(builder, scanOutputAxes)
+        if self.scanOutputDirections is not None:
+            ScanAttrsAddScanOutputDirections(builder, scanOutputDirections)
+        scanAttrs = ScanAttrsEnd(builder)
+        return scanAttrs
 
 
 class GatherAttrs(object):
@@ -7377,7 +7699,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'CumSumAttrsT', 'LpNormalizationAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'CumSumAttrsT', 'LpNormalizationAttrsT', 'ScanAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

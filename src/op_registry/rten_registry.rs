@@ -13,7 +13,7 @@ use crate::operator::Operator;
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
-    ResizeMode, ScatterReduction,
+    ResizeMode, ScanDirection, ScatterReduction,
 };
 use crate::value::{DataType, Scalar};
 
@@ -203,6 +203,7 @@ impl RtenOpRegistry {
         register_op!(ReverseSequence);
         register_op!(RotaryEmbedding);
         register_op!(Round);
+        register_op!(Scan);
         register_op!(Scatter);
         register_op!(ScatterElements);
         register_op!(ScatterND);
@@ -802,6 +803,52 @@ impl_read_op!(LSTM, attrs_as_lstmattrs, |attrs: sg::LSTMAttrs| {
         hidden_size,
     })
 });
+impl ReadOp for ops::Scan {
+    fn op_type() -> sg::OperatorType {
+        sg::OperatorType::Scan
+    }
+
+    fn read(op: &sg::OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+        let attrs = op
+            .attrs_as_scan_attrs()
+            .ok_or(ReadOpError::AttrsMissingError)?;
+        let body = ctx.load_graph(
+            attrs
+                .body()
+                .ok_or(ReadOpError::attr_error("scan", "missing body"))?,
+        )?;
+
+        fn read_directions(
+            directions: Option<::flatbuffers::Vector<'_, sg::ScanDirection>>,
+        ) -> Vec<ScanDirection> {
+            directions
+                .map(|directions| {
+                    directions
+                        .iter()
+                        .map(|dir| match dir {
+                            sg::ScanDirection::Reverse => ScanDirection::Reverse,
+                            _ => ScanDirection::Forward,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
+        fn read_axes(axes: Option<::flatbuffers::Vector<'_, i32>>) -> Vec<i32> {
+            axes.map(|axes| axes.iter().collect()).unwrap_or_default()
+        }
+
+        Ok(ops::Scan {
+            body,
+            num_scan_inputs: attrs.num_scan_inputs().as_usize(),
+            scan_input_axes: read_axes(attrs.scan_input_axes()),
+            scan_input_directions: read_directions(attrs.scan_input_directions()),
+            scan_output_axes: read_axes(attrs.scan_output_axes()),
+            scan_output_directions: read_directions(attrs.scan_output_directions()),
+        })
+    }
+}
+
 impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
 impl_read_op!(Max);
