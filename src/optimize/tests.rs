@@ -15,10 +15,10 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, Cast, ComputeShape, Conv, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
-    GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
-    Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid,
-    Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Add, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf, Expand, FusedMatMul,
+    Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul,
+    MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape,
+    Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -973,6 +973,76 @@ fn test_fuse_matmulinteger_cast_scale() {
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
 
     assert_eq!(op.operator().name(), "MatMulIntegerToFloat");
+}
+
+#[test]
+fn test_fuse_convinteger_cast_scale() {
+    #[derive(Debug)]
+    struct Case {
+        scale: Tensor<f32>,
+        expected_op: &'static str,
+    }
+
+    let cases = [
+        // Scalar scale
+        Case {
+            scale: Tensor::from(0.1),
+            expected_op: "ConvIntegerToFloat",
+        },
+        // Unsupported scale shapes
+        Case {
+            scale: Tensor::from([0.1, 0.2, 0.3]),
+            expected_op: "Mul",
+        },
+        Case {
+            scale: Tensor::from_data(&[1, 1, 1, 1, 1], vec![0.1]),
+            expected_op: "Mul",
+        },
+    ];
+
+    cases.test_each(|case| {
+        let graph = {
+            let x = Expr::value("x");
+            let weights = Expr::constant(Tensor::<i8>::zeros(&[3, 2, 3, 3]));
+            let weights_zero = Expr::constant(Tensor::<i8>::zeros(&[3]));
+
+            let quant = x.apply(
+                DynamicQuantizeLinear {},
+                &[],
+                &[
+                    OutputMeta::NoMeta,
+                    OutputMeta::Meta((DataType::Float, vec![])),
+                    OutputMeta::NoMeta,
+                ],
+            );
+            let quant_x = quant.output(0);
+            let quant_scale = quant.output(1);
+            let quant_zero = quant.output(2);
+            let weight_scale = Expr::constant(case.scale.clone());
+
+            let expr = quant_x
+                .apply(
+                    ConvInteger {
+                        groups: 1,
+                        dilations: vec![1, 1],
+                        padding: Padding::zero::<2>(),
+                        strides: vec![1, 1],
+                    },
+                    &[weights, quant_zero, weights_zero],
+                    &[OutputMeta::NoMeta],
+                )
+                .unary(Cast {
+                    to: DataType::Float,
+                })
+                * (quant_scale * weight_scale);
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph_infer_shapes(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+
+        assert_eq!(op.operator().name(), case.expected_op);
+    })
 }
 
 #[test]
