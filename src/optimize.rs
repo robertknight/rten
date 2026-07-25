@@ -1,10 +1,11 @@
 use std::any::Any;
+use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use rten_tensor::Tensor;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use crate::Value;
@@ -16,6 +17,7 @@ use crate::graph::{
 use crate::infer_shapes::{InferError, InferShapeOptions, Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
+use crate::value::{DataType, ValueType};
 
 mod diagnostics;
 mod fusions;
@@ -361,6 +363,44 @@ struct ConsumerInfo {
     consumer: ConsumerKind,
 }
 
+/// Add a constant produced by shape inference to the graph, using `dtype` as
+/// the element type.
+///
+/// Returns `None` if any elements cannot be represented exactly in `dtype`.
+fn add_typed_constant(
+    graph: &mut GraphMutator,
+    constant: &rten_shape_inference::Constant,
+    dtype: DataType,
+) -> Option<NodeId> {
+    fn add_constant<T: Copy + rten_tensor::Scalar>(
+        graph: &mut GraphMutator,
+        constant: &rten_shape_inference::Constant,
+        convert: impl Fn(i32) -> Option<T>,
+    ) -> Option<NodeId>
+    where
+        Constant: From<ConstantNode<T>>,
+    {
+        let tensor = match constant {
+            rten_shape_inference::Constant::Scalar(x) => Tensor::from(convert(*x)?),
+            rten_shape_inference::Constant::Vector(vec) => {
+                let elts: Option<Vec<T>> = vec.iter().map(|&x| convert(x)).collect();
+                Tensor::from(elts?)
+            }
+        };
+        Some(graph.add_constant(None, tensor.into_arc()))
+    }
+
+    match dtype {
+        DataType::Int32 => add_constant(graph, constant, Some),
+        // `f32` represents integers exactly only up to 2^24.
+        DataType::Float => add_constant(graph, constant, |x| {
+            (x.unsigned_abs() <= (1 << f32::MANTISSA_DIGITS)).then_some(x as f32)
+        }),
+        DataType::Int8 => add_constant(graph, constant, |x| i8::try_from(x).ok()),
+        DataType::UInt8 => add_constant(graph, constant, |x| u8::try_from(x).ok()),
+    }
+}
+
 /// Check for an operator output ID that would be removed by a fusion and is
 /// captured by a subgraph.
 fn find_operator_output_captured_by_subgraph(
@@ -485,22 +525,41 @@ impl GraphOptimizer {
         if let Some(infer_opts) = opts.infer_shapes {
             let infer_result = infer_shapes(&graph_mut.graph, infer_opts)
                 .map_err(OptimizeError::InferShapesError)?;
-            let const_ids: Vec<NodeId> = infer_result
-                .constants
-                .into_iter()
-                .map(|constant| {
-                    let tensor = match constant {
-                        rten_shape_inference::Constant::Scalar(x) => Tensor::from(x),
-                        rten_shape_inference::Constant::Vector(vec) => Tensor::from(vec),
-                    };
-                    graph_mut.add_constant(None, tensor.into_arc())
-                })
-                .collect();
+
+            // Map of `(const_index, value_dtype) => const_id` for constant
+            // nodes created from shape inference constants. This exists because
+            // a single constant from shape inference might need to be converted
+            // into multiple constant nodes with different dtypes.
+            let mut const_ids: FxHashMap<(usize, DataType), NodeId> = FxHashMap::default();
 
             for (value_id, shape) in infer_result.shapes {
                 match shape {
                     Shape::Constant { index } => {
-                        let const_id = const_ids[index];
+                        let dtype = graph_mut
+                            .graph()
+                            .get_node(value_id)
+                            .and_then(|node| node.dtype())
+                            .or_else(|| infer_result.types.get(&value_id).copied());
+                        let Some(ValueType::Tensor(dtype)) = dtype else {
+                            // Without a known element type we can't produce a
+                            // correctly typed constant, so leave the value as is.
+                            continue;
+                        };
+
+                        let const_id = match const_ids.entry((index, dtype)) {
+                            Entry::Occupied(entry) => *entry.get(),
+                            Entry::Vacant(entry) => {
+                                let Some(const_id) = add_typed_constant(
+                                    &mut graph_mut,
+                                    &infer_result.constants[index],
+                                    dtype,
+                                ) else {
+                                    // Value is not representable in target type
+                                    continue;
+                                };
+                                *entry.insert(const_id)
+                            }
+                        };
                         graph_mut.replace_value(value_id, const_id);
                     }
                     Shape::Shape(shape) => {

@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use crate::buffer_pool::{Buffer, BufferPool, ExtractBuffer};
 
 /// Element type of a tensor.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum DataType {
     Int32,
