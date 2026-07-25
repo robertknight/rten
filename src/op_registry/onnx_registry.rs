@@ -7,13 +7,13 @@ use std::fmt;
 use std::sync::Arc;
 
 use rten_base::bit_set::BitSet;
-use rten_base::num::{AsUsize, LeBytes};
+use rten_base::num::AsUsize;
 use rten_onnx::onnx;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 use super::ReadOpError;
-use crate::graph::Graph;
+use crate::graph::{Constant, Graph};
 use crate::operator::Operator;
 use crate::ops;
 #[cfg(feature = "contrib")]
@@ -342,6 +342,16 @@ pub trait OpLoadContext {
     /// Return the opset version that the operator uses, or `None` if
     /// unspecified or invalid.
     fn opset_version(&self) -> Option<u16>;
+
+    /// Deserialize a tensor from the operator attribute named `attr_name`.
+    ///
+    /// Tensor data stored in the `raw_data` field is moved out of `tensor`
+    /// rather than copied, so this must be called at most once per tensor.
+    fn load_tensor(
+        &self,
+        attr_name: &str,
+        tensor: &onnx::TensorProto,
+    ) -> Result<Constant, ReadOpError>;
 }
 
 /// Value for an operator input created from an attribute (`onnx::AttributeProto`).
@@ -958,69 +968,31 @@ impl_read_op!(ConvInteger, |attrs: &Attrs| {
     })
 });
 
-/// Helper for extracting scalar values from a `TensorProto`.
-///
-/// The data may be stored either as little-endian bytes in the `raw_data` field
-/// or in one of the repeated numeric fields (`float_data`, `int32_data` etc.)
-/// The numeric field may have a wider type than the tensor's data type (eg.
-/// int8 values are stored in the int32_data field).
-fn extract_scalar<T: Copy + LeBytes, U: Copy + TryInto<T>>(
-    raw_data: Option<&[u8]>,
-    typed_data: &[U],
-) -> Result<T, ReadOpError> {
-    if let Some(data) = raw_data
-        && let Ok(bytes) = data.try_into()
-    {
-        Ok(T::from_le_bytes(bytes))
-    } else if typed_data.len() == 1
-        && let Ok(value) = typed_data[0].try_into()
-    {
-        Ok(value)
-    } else {
-        Err(ReadOpError::attr_error("value", "invalid scalar value"))
+impl ReadOp for ops::ConstantOfShape {
+    fn id() -> OpId<'static> {
+        OpId::new("ConstantOfShape")
+    }
+
+    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
+        let attrs = Attrs::new(&op.attribute, ctx.opset_version());
+
+        let value = attrs
+            .get("value")
+            .map(|attr| {
+                let Some(tensor) = attr.attr.t.as_ref() else {
+                    return Err(ReadOpError::attr_error("value", "missing tensor value"));
+                };
+                let constant = ctx.load_tensor("value", tensor)?;
+                constant
+                    .item()
+                    .ok_or_else(|| ReadOpError::attr_error("value", "expected a single element"))
+            })
+            .transpose()?
+            .unwrap_or(Scalar::Float(0.));
+
+        Ok(ParsedOp::from(ops::ConstantOfShape { value }).with_unused_attrs(attrs.unused_attrs()))
     }
 }
-
-impl_read_op!(ConstantOfShape, |attrs: &Attrs| {
-    let value = attrs
-        .get("value")
-        .map(|attr| {
-            let Some(tensor) = attr.attr.t.as_ref() else {
-                return Err(ReadOpError::attr_error("value", "missing tensor value"));
-            };
-
-            let raw_data = tensor.raw_data.as_ref().map(|data| data.take());
-
-            match tensor.data_type {
-                Some(onnx::DataType::FLOAT) => {
-                    let value = extract_scalar(raw_data.as_deref(), &tensor.float_data)?;
-                    Ok(Scalar::Float(value))
-                }
-                Some(onnx::DataType::INT64) => {
-                    let value: i64 = extract_scalar(raw_data.as_deref(), &tensor.int64_data)?;
-                    #[allow(clippy::as_conversions)]
-                    Ok(Scalar::Int(value as i32))
-                }
-                Some(onnx::DataType::INT32) => {
-                    let value: i32 = extract_scalar(raw_data.as_deref(), &tensor.int32_data)?;
-                    Ok(Scalar::Int(value))
-                }
-                Some(onnx::DataType::BOOL) => {
-                    let value: u8 = extract_scalar(raw_data.as_deref(), &tensor.int32_data)?;
-                    let value = if value != 0 { 1 } else { 0 };
-                    Ok(Scalar::Int(value))
-                }
-                _ => Err(ReadOpError::attr_error(
-                    "value",
-                    "unsupported data type for ConstantOfShape",
-                )),
-            }
-        })
-        .transpose()?
-        .unwrap_or(Scalar::Float(0.));
-
-    Ok(ops::ConstantOfShape { value })
-});
 
 impl_read_op!(ConvTranspose, |attrs: &Attrs| {
     let ConvAttrs {
@@ -1943,11 +1915,13 @@ impl_read_op!(Xor);
 #[cfg(test)]
 mod tests {
     use rten_onnx::onnx;
+    use rten_simd::f16;
     use rten_testing::TestCases;
 
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
-    use crate::graph::Graph;
+    use crate::graph::{Constant, Graph};
     use crate::model::onnx_builder::{NodeProtoExt, TensorData, create_node, create_tensor};
+    use crate::model::onnx_loader::load_constant;
     #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
@@ -1969,6 +1943,15 @@ mod tests {
 
         fn opset_version(&self) -> Option<u16> {
             self.opset_version
+        }
+
+        fn load_tensor(
+            &self,
+            attr_name: &str,
+            tensor: &onnx::TensorProto,
+        ) -> Result<Constant, ReadOpError> {
+            load_constant(tensor, None, None)
+                .map_err(|err| ReadOpError::attr_error(attr_name, err.to_string()))
         }
     }
 
@@ -2272,59 +2255,138 @@ mod tests {
     #[test]
     fn test_constant_of_shape_dtypes() {
         #[derive(Debug)]
-        struct Case {
+        struct Case<'a> {
             dtype: onnx::DataType,
+            shape: &'a [usize],
             data: TensorData,
-            expected: ConstantOfShape,
+            expected: Result<ConstantOfShape, &'a str>,
         }
 
         let cases = [
             // Conversions that don't alter the dtype.
             Case {
                 dtype: onnx::DataType::FLOAT,
+                shape: &[],
                 data: TensorData::Raw(1.0f32.to_le_bytes().into()),
-                expected: ConstantOfShape {
+                expected: Ok(ConstantOfShape {
                     value: Scalar::Float(1.0),
-                },
+                }),
             },
             Case {
                 dtype: onnx::DataType::INT32,
+                shape: &[],
                 data: TensorData::Raw(2i32.to_le_bytes().into()),
-                expected: ConstantOfShape {
-                    value: Scalar::Int(2),
-                },
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Int32(2),
+                }),
+            },
+            Case {
+                dtype: onnx::DataType::INT8,
+                shape: &[],
+                data: TensorData::Raw((-3i8).to_le_bytes().into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Int8(-3),
+                }),
+            },
+            Case {
+                dtype: onnx::DataType::UINT8,
+                shape: &[],
+                data: TensorData::Raw(200u8.to_le_bytes().into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::UInt8(200),
+                }),
             },
             // Test conversions that alter the dtype.
             Case {
                 dtype: onnx::DataType::BOOL,
+                shape: &[],
                 data: TensorData::Int([1].into()),
-                expected: ConstantOfShape {
-                    value: Scalar::Int(1),
-                },
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Int32(1),
+                }),
             },
             Case {
                 dtype: onnx::DataType::BOOL,
+                shape: &[],
                 data: TensorData::Raw([0].into()),
-                expected: ConstantOfShape {
-                    value: Scalar::Int(0),
-                },
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Int32(0),
+                }),
             },
             Case {
                 dtype: onnx::DataType::INT64,
+                shape: &[],
                 data: TensorData::Raw(42i64.to_le_bytes().into()),
-                expected: ConstantOfShape {
-                    value: Scalar::Int(42),
-                },
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Int32(42),
+                }),
+            },
+            Case {
+                dtype: onnx::DataType::DOUBLE,
+                shape: &[],
+                data: TensorData::Double([2.5].into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Float(2.5),
+                }),
+            },
+            // f16 values are converted to f32.
+            Case {
+                dtype: onnx::DataType::FLOAT16,
+                shape: &[],
+                data: TensorData::Raw(f16::from_f32(2.5).to_bits().to_le_bytes().into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Float(2.5),
+                }),
+            },
+            // The ONNX spec describes `value` as a 1-element 1D tensor, but any
+            // shape with a single element is accepted.
+            Case {
+                dtype: onnx::DataType::FLOAT,
+                shape: &[1],
+                data: TensorData::Raw(3.0f32.to_le_bytes().into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Float(3.0),
+                }),
+            },
+            Case {
+                dtype: onnx::DataType::FLOAT,
+                shape: &[1, 1],
+                data: TensorData::Raw(3.0f32.to_le_bytes().into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Float(3.0),
+                }),
+            },
+            // Tensors with more than one element are rejected.
+            Case {
+                dtype: onnx::DataType::INT32,
+                shape: &[2],
+                data: TensorData::Int([1, 2].into()),
+                expected: Err("expected a single element"),
             },
         ];
 
         cases.test_each(|case| {
             let reg = OnnxOpRegistry::with_all_ops();
-            let tensor = create_tensor("test", &[], case.dtype, case.data.clone());
+            let tensor = create_tensor("test", case.shape, case.dtype, case.data.clone());
             let node = create_node("ConstantOfShape").with_attr("value", tensor);
-            let op = reg.read_op(&node, &FakeOpLoadContext::default()).unwrap();
-            let cos_op = op.op.downcast_ref::<ConstantOfShape>().unwrap();
-            assert_eq!(cos_op, &case.expected);
+
+            match (
+                reg.read_op(&node, &FakeOpLoadContext::default()),
+                &case.expected,
+            ) {
+                (Ok(op), Ok(expected)) => {
+                    let cos_op = op.op.downcast_ref::<ConstantOfShape>().unwrap();
+                    assert_eq!(cos_op, expected);
+                }
+                (Err(err), Err(expected)) => {
+                    assert!(
+                        err.to_string().contains(expected),
+                        "expected error containing {expected:?}, got {err}"
+                    );
+                }
+                (Ok(_), Err(expected)) => panic!("expected error containing {expected:?}"),
+                (Err(err), Ok(_)) => panic!("unexpected error {err}"),
+            }
         });
     }
 

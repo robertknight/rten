@@ -522,7 +522,7 @@ mod tests {
                     // the iteration index.
                     let iter_vec = iter.clone() + Expr::constant(Tensor::from([0]));
                     let output = iter_vec.unary(crate::ops::ConstantOfShape {
-                        value: Scalar::Int(1),
+                        value: Scalar::Int32(1),
                     });
 
                     Expr::make_graph([iter, cond.clone()], [cond, output])

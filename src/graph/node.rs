@@ -9,7 +9,7 @@ use rten_tensor::{ArcTensor, DynLayout, TensorView};
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
 use crate::operator::Operator;
-use crate::value::{DataType, ValueType, ValueView};
+use crate::value::{DataType, Scalar, ValueType, ValueView};
 
 #[derive(Debug)]
 pub enum Node {
@@ -321,6 +321,16 @@ impl Constant {
             Constant::Int32(i) => i.layout(),
             Constant::Int8(i) => i.layout(),
             Constant::UInt8(i) => i.layout(),
+        }
+    }
+
+    /// Return this constant's value as a scalar, if it has exactly one element.
+    pub fn item(&self) -> Option<Scalar> {
+        match self {
+            Constant::Float(f) => f.view().item().copied().map(Scalar::Float),
+            Constant::Int32(i) => i.view().item().copied().map(Scalar::Int32),
+            Constant::Int8(i) => i.view().item().copied().map(Scalar::Int8),
+            Constant::UInt8(i) => i.view().item().copied().map(Scalar::UInt8),
         }
     }
 

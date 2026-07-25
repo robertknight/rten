@@ -113,7 +113,7 @@ pub enum ReadOpError {
 }
 
 impl ReadOpError {
-    fn attr_error(attr: impl AsRef<str>, error: impl AsRef<str>) -> Self {
+    pub(crate) fn attr_error(attr: impl AsRef<str>, error: impl AsRef<str>) -> Self {
         Self::AttrError {
             attr: attr.as_ref().to_string(),
             error: error.as_ref().to_string(),
