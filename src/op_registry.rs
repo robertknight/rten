@@ -208,9 +208,15 @@ pub mod op_types {
     use crate::ops;
 
     macro_rules! declare_op {
-        ($op:ident) => {
+        // Declare an operator which can be read from models in either ONNX or
+        // .rten format.
+        //
+        // The .rten format is deprecated and new operators will be ONNX-only.
+        ($op:ident $(, feature = $feature:literal)?) => {
+            $(#[cfg(feature = $feature)])?
             pub struct $op;
 
+            $(#[cfg(feature = $feature)])?
             impl RegisterOp for $op {
                 fn register(&self, registry: &mut OpRegistry) {
                     #[cfg(feature = "rten_format")]
@@ -221,16 +227,16 @@ pub mod op_types {
             }
         };
 
-        ($op:ident, feature=$feature:literal) => {
-            #[cfg(feature = $feature)]
+        // Declare an operator which can be read from models in ONNX format only.
+        ($op:ident, onnx_only $(, feature = $feature:literal)?) => {
+            #[cfg(feature = "onnx_format")]
+            $(#[cfg(feature = $feature)])?
             pub struct $op;
 
-            #[cfg(feature = $feature)]
+            #[cfg(feature = "onnx_format")]
+            $(#[cfg(feature = $feature)])?
             impl RegisterOp for $op {
                 fn register(&self, registry: &mut OpRegistry) {
-                    #[cfg(feature = "rten_format")]
-                    registry.rten_registry.register_op::<ops::$op>();
-                    #[cfg(feature = "onnx_format")]
                     registry.onnx_registry.register_op::<ops::$op>();
                 }
             }
@@ -340,6 +346,7 @@ pub mod op_types {
     declare_op!(ReverseSequence);
     declare_op!(RotaryEmbedding);
     declare_op!(Round);
+    declare_op!(Scan, onnx_only);
     declare_op!(Scatter);
     declare_op!(ScatterElements);
     declare_op!(ScatterND);
