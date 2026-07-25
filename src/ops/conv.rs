@@ -17,7 +17,7 @@ use crate::operator::{
     OutputTypesContext, check_eq, static_dims,
 };
 use crate::ops::Padding;
-use crate::ops::matmul::{shift_cast_gemm_lhs_to_u8, zero_point_to_vec};
+use crate::ops::matmul::{OutputScale, cast_scale, shift_cast_gemm_lhs_to_u8, zero_point_to_vec};
 use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
 use crate::shift_cast::ShiftCast;
 use crate::value::{DataType, ValueType, ValueView};
@@ -475,7 +475,7 @@ where
     )
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ConvInteger {
     pub groups: usize,
     pub dilations: Vec<usize>,
@@ -544,6 +544,48 @@ impl_infer_shapes!(
     }
 );
 
+/// Fusion of [`ConvInteger`] with the cast and scaling of its output to float.
+///
+/// This computes `Cast(ConvInteger(x, w, x_zero_point, w_zero_point)) * scale`,
+/// where `scale` is a scalar.
+#[derive(Debug)]
+pub struct ConvIntegerToFloat {
+    conv: ConvInteger,
+}
+
+impl ConvIntegerToFloat {
+    pub fn new(conv: ConvInteger) -> Self {
+        ConvIntegerToFloat { conv }
+    }
+}
+
+impl Operator for ConvIntegerToFloat {
+    fn name(&self) -> &str {
+        "ConvIntegerToFloat"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(5)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let scale: TensorView<f32> = ctx.inputs().require_as(4)?;
+        let Some(&scale) = scale.item() else {
+            return Err(OpError::InvalidValue("scale should be a scalar"));
+        };
+        let output: Tensor<i32> = self.conv.run(ctx)?.remove(0).try_into().unwrap();
+        cast_scale(ctx.pool(), output, OutputScale::Scalar(scale)).into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(DataType::Float))].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&self.conv)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -560,7 +602,7 @@ mod tests {
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
     use crate::ops::tests::expect_eq_1e4;
-    use crate::ops::{Conv, Padding, conv, conv_integer};
+    use crate::ops::{Conv, ConvInteger, ConvIntegerToFloat, Padding, conv, conv_integer};
 
     trait ReferenceConvKernel<X, W> {
         /// Update a single output element (`self`) with a given input and weight value.
@@ -1471,6 +1513,83 @@ mod tests {
     impl_conv_integer_test!(test_conv_integer_u8_i8, u8, i8);
     impl_conv_integer_test!(test_conv_integer_i8_u8, i8, u8);
     impl_conv_integer_test!(test_conv_integer_i8_i8, i8, i8);
+
+    #[test]
+    fn test_conv_integer_to_float() {
+        #[derive(Debug)]
+        struct Case {
+            scale: Tensor<f32>,
+            expected: Result<Tensor<f32>, OpError>,
+        }
+
+        let mut rng = XorShiftRng::new(1234);
+        let mut kernel_rng = ReducedRangeRng::new(true /* reduce_range */, 1234);
+        let input = Tensor::<u8>::rand(&[1, 2, 5, 5], &mut rng);
+        let kernel = Tensor::<i8>::rand(&[3, 2, 3, 3], &mut kernel_rng);
+        let input_zero = Tensor::from(12u8);
+        let kernel_zero = Tensor::from([1i8, 2, 3]);
+
+        let conv = ConvInteger {
+            groups: 1,
+            dilations: vec![1, 1],
+            padding: Padding::zero::<2>(),
+            strides: vec![1, 1],
+        };
+
+        // Unscaled output.
+        let int_output: Tensor<i32> = conv
+            .run_simple((
+                input.view(),
+                kernel.view(),
+                input_zero.view(),
+                kernel_zero.view(),
+            ))
+            .unwrap();
+
+        let scale_by = |scale: f32| {
+            Tensor::from_data(
+                int_output.shape(),
+                int_output
+                    .iter()
+                    .map(|x| *x as f32 * scale)
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        let cases = [
+            // Scalar scale.
+            Case {
+                scale: Tensor::from(0.1),
+                expected: Ok(scale_by(0.1)),
+            },
+            // Single-element vector scale, which is equivalent to a scalar.
+            Case {
+                scale: Tensor::from([0.1]),
+                expected: Ok(scale_by(0.1)),
+            },
+            // Non-scalar scale.
+            Case {
+                scale: Tensor::from([0.1, 0.2, 0.3]),
+                expected: Err(OpError::InvalidValue("scale should be a scalar")),
+            },
+        ];
+
+        let op = ConvIntegerToFloat::new(conv);
+
+        cases.test_each(|case| {
+            let result: Result<Tensor<f32>, _> = op.run_simple((
+                input.view(),
+                kernel.view(),
+                input_zero.view(),
+                kernel_zero.view(),
+                case.scale.view(),
+            ));
+            match (&result, &case.expected) {
+                (Ok(result), Ok(expected)) => expect_equal(result, expected).unwrap(),
+                _ => assert_eq!(&result, &case.expected),
+            }
+        })
+    }
 
     #[ignore]
     #[test]

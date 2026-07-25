@@ -14,9 +14,9 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, Conv, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
-    LayerNormalization, MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean,
-    RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
+    AddSoftmax, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat, FusedMatMul, Gelu,
+    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, RMSNormalization,
+    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -1006,6 +1006,54 @@ impl PatternFusion for MatMulIntegerToFloatFusion {
         }
 
         Ok(MatMulIntegerToFloat::default())
+    }
+}
+
+pub struct ConvIntegerToFloatFusion {}
+
+impl PatternFusion for ConvIntegerToFloatFusion {
+    type Operator = ConvIntegerToFloat;
+
+    fn name(&self) -> &str {
+        "ConvIntegerToFloatFusion"
+    }
+
+    fn pattern(&self) -> Pattern {
+        let scale = Pattern::symbol("scale");
+        let x = Pattern::symbol("x");
+        let w = Pattern::symbol("w");
+        let x_zero = Pattern::symbol("x_zero");
+        let w_zero = Pattern::symbol("w_zero");
+
+        Pattern::unary_op(
+            "Cast",
+            Pattern::operator("ConvInteger", [x, w, x_zero, w_zero]).with_name("conv"),
+        ) * scale
+    }
+
+    fn inputs(&self) -> &[&str] {
+        &["x", "w", "x_zero", "w_zero", "scale"]
+    }
+
+    fn maybe_fuse(&self, pat_match: &Match, graph: &Graph) -> Result<Self::Operator, FusionError> {
+        let scale = pat_match.node_id("scale").unwrap();
+        let scale_shape = graph
+            .get_node(scale)
+            .ok_or(FusionError::NoMatch)?
+            .shape()
+            .ok_or(FusionError::CheckFailed("unknown scale shape"))?;
+
+        let is_scalar = matches!(scale_shape.as_ref(), [] | [Dimension::Fixed(1)]);
+        if !is_scalar {
+            return Err(FusionError::NoMatch);
+        }
+
+        let conv_id = pat_match.node_id("conv").unwrap();
+        let conv: &ConvInteger = graph
+            .get_operator(conv_id)
+            .ok_or(FusionError::CheckFailed("expected ConvInteger operator"))?;
+
+        Ok(ConvIntegerToFloat::new(conv.clone()))
     }
 }
 

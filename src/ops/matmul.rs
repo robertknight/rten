@@ -705,14 +705,33 @@ impl Operator for MatMulInteger {
     }
 }
 
+/// Scale factor applied to the integer output of a quantized operator when
+/// converting it to float.
 #[derive(Clone, Debug)]
-enum OutputScale<'a> {
+pub enum OutputScale<'a> {
+    /// Scale which is applied to every element.
     Scalar(f32),
+    /// Scale which is applied per-column (ie. along the last axis).
     Vector(NdTensorView<'a, f32, 1>),
 }
 
+impl<'a> OutputScale<'a> {
+    /// Extract the scale from an operator input.
+    ///
+    /// The input must be a scalar or vector. A vector with a single element is
+    /// treated as a scalar, since it broadcasts against all columns.
+    fn from_view(scale: TensorView<'a, f32>) -> Result<Self, OpError> {
+        match scale.ndim() {
+            0 => Ok(OutputScale::Scalar(scale.item().copied().unwrap())),
+            1 if scale.size(0) == 1 => Ok(OutputScale::Scalar(scale.item().copied().unwrap())),
+            1 => Ok(OutputScale::Vector(scale.into_rank().unwrap())),
+            _ => Err(OpError::InvalidValue("scale should have rank 0 or 1")),
+        }
+    }
+}
+
 /// Cast elements in `data` to f32 and scale by the per-column scales in `scale`.
-fn cast_scale(
+pub fn cast_scale(
     pool: &BufferPool,
     mut data: Tensor<i32>,
     scale: OutputScale,
@@ -769,13 +788,7 @@ impl Operator for MatMulIntegerToFloat {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let scale: TensorView<f32> = ctx.inputs().require_as(4)?;
-        let scale = match scale.ndim() {
-            0 => OutputScale::Scalar(scale.item().copied().unwrap()),
-            1 => OutputScale::Vector(scale.into_rank().unwrap()),
-            _ => {
-                return Err(OpError::InvalidValue("scale should have rank 0 or 1"));
-            }
-        };
+        let scale = OutputScale::from_view(scale)?;
         let output: Tensor<i32> = self.matmul.run(ctx)?.remove(0).try_into().unwrap();
         cast_scale(ctx.pool(), output, scale).into_op_result()
     }

@@ -830,6 +830,20 @@ impl<
     }
 }
 
+impl<
+    'a,
+    I1: Into<ValueView<'a>>,
+    I2: Into<ValueView<'a>>,
+    I3: Into<ValueView<'a>>,
+    I4: Into<ValueView<'a>>,
+    I5: Into<ValueView<'a>>,
+> From<(I1, I2, I3, I4, I5)> for InputList<'a>
+{
+    fn from((a, b, c, d, e): (I1, I2, I3, I4, I5)) -> InputList<'a> {
+        InputList::from(&[a.into(), b.into(), c.into(), d.into(), e.into()])
+    }
+}
+
 impl<'a> Extend<ValueView<'a>> for InputList<'a> {
     fn extend<T>(&mut self, iter: T)
     where
