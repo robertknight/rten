@@ -8,6 +8,10 @@ use crate::sym_tensor::SymTensor;
 /// Return the output size for a spatial dimension in a convolution or pooling
 /// operation.
 ///
+/// `ceil_mode` corresponds to the attribute of the same name on ONNX pooling
+/// operators, and selects whether the size is rounded up or down. Convolution
+/// always rounds down.
+///
 /// The formulae are given in the ONNX docs for convolution and pooling
 /// operators, but expressed more clearly in the [PyTorch
 /// docs](https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html).
@@ -17,6 +21,7 @@ fn output_size(
     stride: usize,
     dilation: usize,
     padding: DimPadding,
+    ceil_mode: bool,
 ) -> SymExpr {
     let stride = SymExpr::from(stride as i32);
 
@@ -27,10 +32,24 @@ fn output_size(
         } => {
             let dilation = SymExpr::from(dilation as i32);
             let one = SymExpr::from(1);
+            let pad_start = SymExpr::from(pad_start as i32);
             let padded_in_size =
-                in_size + SymExpr::from(pad_start as i32) + SymExpr::from(pad_end as i32);
-            (padded_in_size - dilation * (kernel_size - one.clone()) - one.clone()) / stride
-                + one.clone()
+                in_size.clone() + pad_start.clone() + SymExpr::from(pad_end as i32);
+            let last_window_start =
+                padded_in_size - dilation * (kernel_size - one.clone()) - one.clone();
+
+            if !ceil_mode {
+                return last_window_start / stride + one;
+            }
+
+            // Rounding up can place the final window entirely within the end
+            // padding, leaving it with no values to pool. ONNX drops that
+            // position, which caps the output at the number of window starts
+            // that fall within the input. See
+            // https://github.com/onnx/onnx/issues/5711.
+            let out_size = last_window_start.div_ceil(&stride) + one;
+            let max_out_size = (in_size + pad_start).div_ceil(&stride);
+            out_size.min(&max_out_size)
         }
         DimPadding::Same => in_size.div_ceil(&stride),
     }
@@ -125,6 +144,7 @@ impl InferShapes for Conv<'_> {
                 .first()
                 .ok_or(InferShapesError::InvalidValue)?,
             pad_h,
+            false, /* ceil_mode */
         );
 
         let mut out_shape = Vec::with_capacity(data_shape.len());
@@ -148,6 +168,7 @@ impl InferShapes for Conv<'_> {
                     .get(1)
                     .ok_or(InferShapesError::InvalidValue)?,
                 pad_w,
+                false, /* ceil_mode */
             );
             out_shape.push(out_w);
         }
@@ -265,6 +286,8 @@ impl InferShapes for ConvTranspose<'_> {
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__MaxPool.html>.
 pub struct Pool<'a> {
+    /// Whether the output size is rounded up rather than down.
+    pub ceil_mode: bool,
     pub dilations: &'a [usize],
     pub kernel_size: &'a [usize],
     pub padding: Padding<'a>,
@@ -308,6 +331,7 @@ impl InferShapes for Pool<'_> {
                 .first()
                 .ok_or(InferShapesError::InvalidValue)?,
             pad_h,
+            self.ceil_mode,
         );
 
         let mut out_shape = Vec::with_capacity(data_shape.len());
@@ -334,6 +358,7 @@ impl InferShapes for Pool<'_> {
                     .get(1)
                     .ok_or(InferShapesError::InvalidValue)?,
                 pad_w,
+                self.ceil_mode,
             );
             out_shape.push(out_w);
         }
@@ -460,6 +485,7 @@ mod tests {
         // 1D pool
         let data = sym_shape!("batch", "in_c", "seq");
         let op = Pool {
+            ceil_mode: false,
             kernel_size: &[32],
             padding: Padding::Fixed(&[0, 2]),
             dilations: &[4],
@@ -483,6 +509,7 @@ mod tests {
 
         // 1D pool with "same" padding
         let op = Pool {
+            ceil_mode: false,
             kernel_size: &[32],
             padding: Padding::Same,
             dilations: &[4],
@@ -498,9 +525,33 @@ mod tests {
             )
         );
 
+        // Ceil mode rounds the size up rather than down.
+        let mut pool_size = |in_size: i32, kernel_size, stride, ceil_mode| {
+            let op = Pool {
+                ceil_mode,
+                kernel_size,
+                padding: Padding::Fixed(&[0, 0]),
+                dilations: &[1],
+                strides: stride,
+            };
+            let result = op
+                .infer_shapes([sym_shape!(1, 1, in_size)].into(), &mut sym_gen)
+                .unwrap();
+            result[0].size(2).expect("expected a known size").simplify()
+        };
+
+        assert_eq!(pool_size(10, &[3], &[2], true), SymExpr::from(5));
+        assert_eq!(pool_size(10, &[3], &[2], false), SymExpr::from(4));
+
+        // Ceil mode where the extra position would start beyond the end of the
+        // input. It is dropped, so the size matches floor mode.
+        assert_eq!(pool_size(12, &[1], &[2], true), SymExpr::from(6));
+        assert_eq!(pool_size(12, &[1], &[2], false), SymExpr::from(6));
+
         // 2D pool
         let data = sym_shape!("batch", "in_c", "height", "width");
         let op = Pool {
+            ceil_mode: false,
             kernel_size: &[32, 32],
             padding: Padding::Fixed(&[0, 1, 2, 3]),
             dilations: &[4, 5],

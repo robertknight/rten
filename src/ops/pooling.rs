@@ -469,6 +469,7 @@ impl_infer_shapes!(
     AveragePool,
     op,
     shape_ops::Pool {
+        ceil_mode: op.ceil_mode,
         strides: &op.strides,
         dilations: &[1, 1],
         kernel_size: &op.kernel_size,
@@ -654,6 +655,7 @@ impl_infer_shapes!(
     MaxPool,
     op,
     shape_ops::Pool {
+        ceil_mode: op.ceil_mode,
         strides: &op.strides,
         dilations: &[1, 1],
         kernel_size: &op.kernel_size,
