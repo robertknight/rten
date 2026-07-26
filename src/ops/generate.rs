@@ -1,5 +1,3 @@
-use std::ops;
-
 use rten_base::num::Identities;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::errors::DimensionError;
@@ -160,24 +158,63 @@ impl_infer_shapes!(
     }
 );
 
-pub fn range<T: Copy + Default + ops::Add<Output = T> + PartialOrd>(
+/// Generate arithmetic sequences of a type.
+pub trait ArithmeticSeq: Copy {
+    /// Return the number of elements in an arithmetic sequence from `start`
+    /// to `limit` with a spacing of `delta`.
+    fn seq_len(start: Self, limit: Self, delta: Self) -> Result<usize, OpError>;
+
+    /// Return the `idx`th item in arithmetic sequence beginning at `start` and
+    /// using `delta` as the spacing.
+    fn nth(start: Self, delta: Self, idx: usize) -> Self;
+}
+
+impl ArithmeticSeq for i32 {
+    fn seq_len(start: i32, limit: i32, delta: i32) -> Result<usize, OpError> {
+        if delta == 0 {
+            return Err(OpError::invalid_value("delta must be non-zero"));
+        }
+        // Use i64 to avoid overflow when computing `limit - start`.
+        let diff = limit as i64 - start as i64;
+        let delta = delta as i64;
+        let round_up = diff % delta != 0 && (diff > 0) == (delta > 0);
+        let len = diff / delta + round_up as i64;
+        Ok(len.max(0) as usize)
+    }
+
+    fn nth(start: i32, delta: i32, idx: usize) -> i32 {
+        // Intermediate values may overflow, but the result lies between
+        // `start` and `limit`, so wrapping arithmetic produces the right value.
+        start.wrapping_add(delta.wrapping_mul(idx as i32))
+    }
+}
+
+impl ArithmeticSeq for f32 {
+    fn seq_len(start: f32, limit: f32, delta: f32) -> Result<usize, OpError> {
+        if delta == 0. {
+            return Err(OpError::invalid_value("delta must be non-zero"));
+        }
+        let len = ((limit as f64 - start as f64) / delta as f64).ceil();
+        if !len.is_finite() {
+            return Err(OpError::invalid_value("Range length is not finite"));
+        }
+        Ok(len.max(0.) as usize)
+    }
+
+    fn nth(start: f32, delta: f32, idx: usize) -> f32 {
+        start + delta * idx as f32
+    }
+}
+
+pub fn range<T: ArithmeticSeq>(
+    pool: &BufferPool,
     start: T,
     limit: T,
     delta: T,
 ) -> Result<Tensor<T>, OpError> {
-    if delta == T::default() {
-        return Err(OpError::invalid_value("delta must be non-zero"));
-    }
-
-    // This is not very efficient as it grows the output gradually instead of
-    // allocating once. This however made the initial implementation easier by
-    // minimizing the traits that T needs to implement.
-    let mut output = Vec::new();
-    let mut val = start;
-    while (delta > T::default() && val < limit) || (delta < T::default() && val > limit) {
-        output.push(val);
-        val = val + delta;
-    }
+    let len = T::seq_len(start, limit, delta)?;
+    let mut output = pool.alloc(len);
+    output.extend((0..len).map(|i| T::nth(start, delta, i)));
     Ok(output.into())
 }
 
@@ -206,7 +243,7 @@ impl Operator for Range {
                 .ok_or(OpError::invalid_value("`start` must be a scalar"))?;
             let limit = limit.try_into()?;
             let delta = delta.try_into()?;
-            range(start, limit, delta).into_op_result()
+            range(ctx.pool(), start, limit, delta).into_op_result()
         })
     }
 
@@ -297,6 +334,7 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
     use crate::ops::{ConstantOfShape, EyeLike, OneHot, range};
     use crate::value::{DataType, Scalar, Value};
@@ -479,33 +517,70 @@ mod tests {
 
     #[test]
     fn test_range() {
+        let pool = BufferPool::new();
+
         // Int range from zero
-        let r = range(0, 5, 1).unwrap();
+        let r = range(&pool, 0, 5, 1).unwrap();
         assert_eq!(r.to_vec(), vec![0, 1, 2, 3, 4]);
 
         // Float range from zero
-        let r = range(0., 5., 1.).unwrap();
+        let r = range(&pool, 0., 5., 1.).unwrap();
         assert_eq!(r.to_vec(), vec![0., 1., 2., 3., 4.]);
 
         // Int range from negative value with step > 1
-        let r = range(-5, 5, 2).unwrap();
+        let r = range(&pool, -5, 5, 2).unwrap();
         assert_eq!(r.to_vec(), vec![-5, -3, -1, 1, 3]);
 
         // Float range from negative value with step > 1
-        let r = range(-5., 5., 2.).unwrap();
+        let r = range(&pool, -5., 5., 2.).unwrap();
         assert_eq!(r.to_vec(), vec![-5., -3., -1., 1., 3.]);
 
         // Negative step
-        let r = range(10, 4, -2).unwrap();
+        let r = range(&pool, 10, 4, -2).unwrap();
         assert_eq!(r.to_vec(), vec![10, 8, 6]);
+
+        // Range where `limit - start` is not a multiple of `delta`
+        let r = range(&pool, 3, 10, 3).unwrap();
+        assert_eq!(r.to_vec(), vec![3, 6, 9]);
+        let r = range(&pool, 10, 5, -2).unwrap();
+        assert_eq!(r.to_vec(), vec![10, 8, 6]);
+        let r = range(&pool, 0., 1., 0.3).unwrap();
+        assert_eq!(r.to_vec(), vec![0., 0.3, 0.6, 0.90000004]);
+
+        // Empty ranges
+        let r = range(&pool, 5, 0, 1).unwrap();
+        assert!(r.is_empty());
+        let r = range(&pool, 0, 5, -1).unwrap();
+        assert!(r.is_empty());
+        let r = range(&pool, 5., 0., 1.).unwrap();
+        assert!(r.is_empty());
+
+        // Ranges where `limit - start` or intermediate values overflow i32
+        let r = range(&pool, i32::MIN, i32::MAX, 1 << 30).unwrap();
+        assert_eq!(r.to_vec(), vec![i32::MIN, -(1 << 30), 0, 1 << 30]);
+        let r = range(&pool, i32::MAX, i32::MIN, i32::MIN).unwrap();
+        assert_eq!(r.to_vec(), vec![i32::MAX, -1]);
     }
 
     #[test]
     fn test_range_invalid_inputs() {
-        let r = range(0, 5, 0);
+        let pool = BufferPool::new();
+        let r = range(&pool, 0, 5, 0);
         assert_eq!(
             r.err(),
             Some(OpError::invalid_value("delta must be non-zero"))
         );
+        let r = range(&pool, 0., 5., 0.);
+        assert_eq!(
+            r.err(),
+            Some(OpError::invalid_value("delta must be non-zero"))
+        );
+        for limit in [f32::INFINITY, f32::NAN] {
+            let r = range(&pool, 0., limit, 1.);
+            assert_eq!(
+                r.err(),
+                Some(OpError::invalid_value("Range length is not finite"))
+            );
+        }
     }
 }
