@@ -108,9 +108,7 @@ fn output_size_and_padding_for_axis(
                     (padded_in_size - dilation * (kernel_size - 1) - 1) / stride + 1
                 }
                 RoundMode::Ceil => {
-                    (padded_in_size - dilation * (kernel_size - 1) - 1 + stride - 1)
-                        .div_ceil(stride)
-                        + 1
+                    (padded_in_size - dilation * (kernel_size - 1) - 1).div_ceil(stride) + 1
                 }
             };
 
@@ -1088,6 +1086,16 @@ mod tests {
                 strides: (3, 3),
                 kernel_size: (2, 2),
                 padding: Padding::Same,
+                expected: Ok((3, 3, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Ceil round mode where the stride divides the remaining input
+            // exactly. The rounding must not add an extra position here.
+            Case {
+                in_size: (7, 7),
+                kernel_size: (3, 3),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
                 expected: Ok((3, 3, [0, 0, 0, 0])),
                 ..Default::default()
             },
