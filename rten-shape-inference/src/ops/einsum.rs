@@ -184,6 +184,19 @@ mod tests {
                 inputs: vec![sym_shape!(4), sym_shape!(5)],
                 expected: sym_shape!(4, 5),
             },
+            // Upper-case labels, which are case-sensitive.
+            Case {
+                equation: "iI->Ii",
+                inputs: vec![sym_shape!(2, 3)],
+                expected: sym_shape!(3, 2),
+            },
+            // Implicit output with mixed-case labels. Labels are ordered by
+            // ASCII code, so the output here is "Bac".
+            Case {
+                equation: "aBc",
+                inputs: vec![sym_shape!(2, 3, 4)],
+                expected: sym_shape!(3, 2, 4),
+            },
         ];
 
         cases.test_each(|case| {

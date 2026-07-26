@@ -7,11 +7,11 @@ use std::fmt;
 /// [`EinsumExpr::parse`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParseError {
-    /// An input term contains characters other than lowercase ASCII letters
-    /// or more than one ellipsis (`...`).
+    /// An input term contains characters other than ASCII letters or more than
+    /// one ellipsis (`...`).
     InvalidInputTerm,
-    /// The output term contains characters other than lowercase ASCII letters
-    /// or more than one ellipsis (`...`).
+    /// The output term contains characters other than ASCII letters or more
+    /// than one ellipsis (`...`).
     InvalidOutputTerm,
     /// The output term contains a repeated label.
     RepeatedOutputLabels,
@@ -45,8 +45,12 @@ impl Error for ParseError {}
 /// A parsed equation for an Einsum operator.
 ///
 /// Einsum expressions have the form `abc,def,...->xyz` where the `->xyz` part
-/// is optional. If omitted, it is inferred as the alphabetically ordered set of
-/// letters from the left hand side that do not repeat.
+/// is optional. If omitted, it is inferred as the set of letters from the left
+/// hand side that do not repeat, ordered by ASCII code (ie. upper-case letters
+/// before lower-case ones).
+///
+/// Labels are ASCII letters and are case-sensitive, so `i` and `I` refer to
+/// different dimensions.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Einsum.html>.
 #[derive(Clone, Debug, PartialEq)]
@@ -88,7 +92,7 @@ impl EinsumExpr {
         }
         if output
             .chars()
-            .any(|c| c.is_ascii_lowercase() && !inputs.iter().any(|term| term.contains(c)))
+            .any(|c| c.is_ascii_alphabetic() && !inputs.iter().any(|term| term.contains(c)))
         {
             return Err(ParseError::UnknownOutputLabel);
         }
@@ -177,41 +181,58 @@ pub enum ValidateError {
 /// Compute the default output term for an equation with no explicit `->` part.
 ///
 /// The default consists of (1) the broadcast (ellipsis) dimensions if any input
-/// has an ellipsis, followed by (2) the lowercase-letter labels which appear
-/// exactly once across all input terms, in alphabetical order.
+/// has an ellipsis, followed by (2) the letter labels which appear exactly once
+/// across all input terms, ordered by ASCII code. This matches `numpy.einsum`,
+/// where upper-case labels come before lower-case ones.
 fn default_output(inputs: &[String]) -> String {
-    const N_LETTERS: usize = 26;
+    const N_LETTERS: usize = 52;
 
-    // Count occurrences of each lowercase ASCII letter.
+    // Map between labels and indices in `char_count`.
+    let label_index = |c: char| -> usize {
+        if c.is_ascii_uppercase() {
+            (c as u8 - b'A') as usize
+        } else {
+            26 + (c as u8 - b'a') as usize
+        }
+    };
+    let index_label = |i: usize| -> char {
+        if i < 26 {
+            (b'A' + i as u8) as char
+        } else {
+            (b'a' + (i - 26) as u8) as char
+        }
+    };
+
+    // Count occurrences of each letter.
     let mut char_count = [0; N_LETTERS];
     for ch in inputs
         .iter()
-        .flat_map(|term| term.chars().filter(|c| c.is_ascii_lowercase()))
+        .flat_map(|term| term.chars().filter(|c| c.is_ascii_alphabetic()))
     {
-        char_count[(ch as u8 - b'a') as usize] += 1;
+        char_count[label_index(ch)] += 1;
     }
 
-    // Generate output as the ellipsis (if any) followed by alphabetically
-    // ordered letters which appear only once in the input.
+    // Generate output as the ellipsis (if any) followed by the letters which
+    // appear only once in the input, in ASCII order.
     let mut output = String::with_capacity(N_LETTERS);
     if inputs.iter().any(|term| term.contains("...")) {
         output.push_str("...");
     }
-    for i in 0..N_LETTERS as u8 {
-        if char_count[i as usize] == 1 {
-            output.push((b'a' + i) as char);
+    for (i, count) in char_count.iter().enumerate() {
+        if *count == 1 {
+            output.push(index_label(i));
         }
     }
     output
 }
 
-/// Return true if `term` is a valid sequence of dimension labels: lowercase
-/// ASCII letters with at most one ellipsis (`...`).
+/// Return true if `term` is a valid sequence of dimension labels: ASCII letters
+/// with at most one ellipsis (`...`).
 fn is_valid_term(term: &str) -> bool {
     if let Some((lhs, rhs)) = term.split_once("...") {
         is_valid_term(lhs) && !rhs.contains("...") && is_valid_term(rhs)
     } else {
-        term.chars().all(|c| c.is_ascii_lowercase())
+        term.chars().all(|c| c.is_ascii_alphabetic())
     }
 }
 
@@ -329,9 +350,34 @@ mod tests {
                 equation: "->",
                 expected: Ok(expr(&[""], "")),
             },
-            // Upper-case letters in an input term.
+            // Upper-case letters are valid labels. The ONNX spec allows only
+            // lower-case letters, but `numpy.einsum` and ONNX Runtime accept
+            // upper-case ones.
             Case {
-                equation: "IJ,JK",
+                equation: "IJ,JK->IK",
+                expected: Ok(expr(&["IJ", "JK"], "IK")),
+            },
+            // Labels are case-sensitive, so `i` and `I` are different
+            // dimensions.
+            Case {
+                equation: "iI->Ii",
+                expected: Ok(expr(&["iI"], "Ii")),
+            },
+            // Implicit output with mixed-case labels. Labels are ordered by
+            // ASCII code, so upper-case letters come first. This matches
+            // `numpy.einsum`.
+            Case {
+                equation: "aBc",
+                expected: Ok(expr(&["aBc"], "Bac")),
+            },
+            Case {
+                equation: "Ij,jK",
+                expected: Ok(expr(&["Ij", "jK"], "IK")),
+            },
+            // Digits are not valid labels. They are used internally as
+            // placeholders for ellipsis dimensions.
+            Case {
+                equation: "i1j",
                 expected: Err(ParseError::InvalidInputTerm),
             },
             // A period that is not part of an ellipsis.
@@ -346,8 +392,14 @@ mod tests {
             },
             // Invalid output term.
             Case {
-                equation: "ij,jk->IK",
+                equation: "ij,jk->i.k",
                 expected: Err(ParseError::InvalidOutputTerm),
+            },
+            // Output labels which differ only in case from the input labels
+            // refer to dimensions which are not in any input.
+            Case {
+                equation: "ij,jk->IK",
+                expected: Err(ParseError::UnknownOutputLabel),
             },
             // Repeated labels in the output term.
             Case {

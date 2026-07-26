@@ -345,8 +345,7 @@ fn einsum_step(
 
         // Evaluate the equation with the simplified input shapes using a
         // matmul.
-        let reduced_dim = 'K'; // Upper-case to avoid conflict with equation
-        // terms.
+        let reduced_dim = MERGED_K;
         let term_simplified: String = step
             .output
             .chars()
@@ -364,15 +363,27 @@ fn einsum_step(
     }
 }
 
+/// Label for a 1-sized dimension inserted into a term to serve as the `M`
+/// dimension of a matmul.
+///
+/// Labels from the equation are ASCII letters or digits (standing in for
+/// ellipsis dimensions), so non-alphanumeric characters are used for labels
+/// generated internally.
+const INSERTED_M: char = '<';
+
+/// Label for a 1-sized dimension inserted into a term to serve as the `N`
+/// dimension of a matmul. See [`INSERTED_M`].
+const INSERTED_N: char = '>';
+
+/// Label for the single dimension formed by merging several reduced dimensions
+/// into one. See [`INSERTED_M`].
+const MERGED_K: char = '*';
+
 /// Return true if `c` denotes a 1-sized dimension which was inserted into a
 /// term to give an input the shape required by a matmul, rather than a
 /// dimension from the equation.
-///
-/// Dimensions from the equation are lower-case letters or digits (standing in
-/// for ellipsis dimensions), so upper-case letters are used for inserted
-/// dimensions.
 fn is_inserted_dim(c: char) -> bool {
-    c.is_ascii_uppercase()
+    matches!(c, INSERTED_M | INSERTED_N)
 }
 
 fn is_valid_permute_insert_spec(src: &str, dest: &str) -> bool {
@@ -449,9 +460,9 @@ fn einsum_matmul(
     // Find terms that can be used as the `N` and `M` dimensions of a matmul.
     // These must be dimensions which appear in only one of the two inputs.
     //
-    // If there aren't suitable dimensions, we'll insert them. Upper-case
-    // letters are used to denote inserted dimensions since these cannot
-    // conflict with dimensions in the equation.
+    // If there aren't suitable dimensions, we'll insert them. Non-alphanumeric
+    // labels are used to denote inserted dimensions since these cannot conflict
+    // with dimensions in the equation.
     //
     // The last candidate is chosen in each case because it requires the least
     // re-ordering of the input: `M` and `N` need to be the second-to-last and
@@ -463,12 +474,12 @@ fn einsum_matmul(
         .chars()
         .rev()
         .find(|c| !term1.contains(*c))
-        .unwrap_or('N');
+        .unwrap_or(INSERTED_N);
     let matmul_m = term1
         .chars()
         .rev()
         .find(|c| !term2.contains(*c))
-        .unwrap_or('M');
+        .unwrap_or(INSERTED_M);
 
     // Every remaining dimension becomes a matmul batch dimension. A dimension
     // which appears in only one input is handled by inserting a 1-sized
@@ -769,6 +780,16 @@ mod tests {
         .unwrap()
         .into_shape([2, 3, 5, 6].as_slice());
 
+        // Expected output for an equation which reduces over the first two
+        // dimensions of two 3D inputs.
+        let abf_sq_sum_ij = reduce_sum(
+            &pool,
+            mul(&pool, abf.view(), abf.view()).unwrap().view(),
+            Some(&[0, 1]),
+            false, /* keep_dims */
+        )
+        .unwrap();
+
         // Expected output for an equation where one reduced dimension appears
         // in both terms and another appears in only the second term.
         let abf_summed_b =
@@ -1064,10 +1085,51 @@ mod tests {
                 inputs: vec![scalar.view()],
                 expected: Ok(scalar.clone()),
             },
+            // Upper-case labels. These are not allowed by the ONNX spec, but
+            // are supported by `numpy.einsum` and ONNX Runtime.
+            //
+            // See https://github.com/robertknight/rten/issues/1386
+            Case {
+                equation: "C,MCN->MN",
+                inputs: vec![mat_a.slice(0), hck.as_dyn()],
+                expected: Ok(matmul(&pool, mat_a.slice((..1, ..)), mat_b.view(), None).unwrap()),
+            },
+            // Reduction over multiple dimensions with upper-case labels.
+            Case {
+                equation: "IJK,IJK->K",
+                inputs: vec![abf.view(), abf.view()],
+                expected: Ok(abf_sq_sum_ij.clone()),
+            },
+            // Labels are case-sensitive, so `i` and `I` are different
+            // dimensions.
+            Case {
+                equation: "iI->Ii",
+                inputs: vec![mat_a.view()],
+                expected: Ok(mat_a.transposed().to_tensor()),
+            },
+            // Repeated upper-case label takes the diagonal.
+            Case {
+                equation: "II->I",
+                inputs: vec![square_mat.view()],
+                expected: Ok(Tensor::from([1., 5., 9.])),
+            },
+            // Implicit output with mixed-case labels. Labels are ordered by
+            // ASCII code, so the output term here is "Bac".
+            Case {
+                equation: "aBc",
+                inputs: vec![abf.view()],
+                expected: Ok(abf.permuted(&[1, 0, 2]).to_tensor()),
+            },
+            // Upper-case labels combined with an ellipsis.
+            Case {
+                equation: "I...J->J...I",
+                inputs: vec![ijk.view()],
+                expected: Ok(ijk.transposed().to_tensor()),
+            },
             // Invalid input terms
             Case {
-                equation: "IJ,JK", // Upper-case letters
-                inputs: vec![mat_a.view(), mat_b.view()],
+                equation: "i1j", // Digits are used internally for ellipsis dims
+                inputs: vec![mat_a.view()],
                 expected: Err(OpError::InvalidValue("Input term is invalid")),
             },
             Case {
@@ -1107,9 +1169,18 @@ mod tests {
             },
             // Invalid output term
             Case {
-                equation: "ij,jk->IK",
+                equation: "ij,jk->i.k",
                 inputs: vec![mat_a.view(), mat_b.view()],
                 expected: Err(OpError::InvalidValue("Output term is invalid")),
+            },
+            // Output labels which differ only in case from the input labels
+            // refer to dimensions which are not in any input.
+            Case {
+                equation: "ij,jk->IK",
+                inputs: vec![mat_a.view(), mat_b.view()],
+                expected: Err(OpError::InvalidValue(
+                    "Einsum output term contains a label not present in any input term",
+                )),
             },
             // Repeated labels in output term
             Case {
