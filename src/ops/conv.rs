@@ -18,7 +18,7 @@ use crate::operator::{
 };
 use crate::ops::Padding;
 use crate::ops::matmul::{OutputScale, cast_scale, shift_cast_gemm_lhs_to_u8, zero_point_to_vec};
-use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
+use crate::ops::pooling::{OversizedKernel, RoundMode, calc_output_size_and_padding};
 use crate::shift_cast::ShiftCast;
 use crate::value::{DataType, ValueType, ValueView};
 
@@ -211,6 +211,7 @@ where
         padding,
         Some((dilation_y, dilation_x)),
         RoundMode::default(),
+        OversizedKernel::Reject,
     )?;
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
@@ -600,7 +601,7 @@ mod tests {
     use crate::buffer_pool::AutoReturn;
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
-    use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
+    use crate::ops::pooling::{OversizedKernel, RoundMode, calc_output_size_and_padding};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{Conv, ConvInteger, ConvIntegerToFloat, Padding, conv, conv_integer};
 
@@ -684,6 +685,7 @@ mod tests {
             padding.into(),
             Some((dilation_y, dilation_x)),
             RoundMode::default(),
+            OversizedKernel::Reject,
         )
         .expect("Input too small");
         let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_pads;

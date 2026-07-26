@@ -27,6 +27,20 @@ pub enum RoundMode {
     Ceil,
 }
 
+/// How to handle a kernel which is larger than the padded input.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum OversizedKernel {
+    /// Return an error. Used by convolution, where a kernel larger than the
+    /// input leaves no valid output position.
+    Reject,
+
+    /// Clip the kernel window to the padded input.
+    ///
+    /// ONNX pooling operators allow this. In `ceil_mode` the output still has
+    /// one position, covering the part of the input the window overlaps.
+    Clip,
+}
+
 /// Padding specification for a single axis.
 #[derive(Copy, Clone)]
 enum AxisPadding {
@@ -67,6 +81,7 @@ fn output_size_and_padding_for_axis(
     padding: AxisPadding,
     dilation: usize,
     round_mode: RoundMode,
+    oversized_kernel: OversizedKernel,
 ) -> Result<(usize, usize, usize), OpError> {
     check_value!(dilation > 0, InvalidValue, "Dilations must be > 0");
     check_value!(kernel_size > 0, InvalidValue, "Kernel size must be > 0");
@@ -98,7 +113,36 @@ fn output_size_and_padding_for_axis(
             let dilated_kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1);
 
             if padded_in_size < dilated_kernel_size {
-                return Err(OpError::InvalidValue("Input too small for kernel size"));
+                if oversized_kernel == OversizedKernel::Reject {
+                    return Err(OpError::InvalidValue("Input too small for kernel size"));
+                }
+
+                // No window fits inside the padded input, so the formulae below
+                // would have a negative numerator. ONNX still defines an output
+                // here. Working through the general formula with exact
+                // arithmetic and clamping a negative size to zero:
+                //
+                //  - In ceil mode there is one output position if the first
+                //    window ends within the first stride of the padded input,
+                //    and none otherwise.
+                //  - In floor mode a window must fit entirely within the padded
+                //    input, so there are no output positions.
+                //
+                // An empty input is excluded because the window would then
+                // contain no values to pool, in the same way that ceil mode
+                // drops a trailing window lying entirely in the padding.
+                //
+                // The window is clipped to the padded input when pooling, see
+                // `pool_impl`.
+                let out_size = match round_mode {
+                    RoundMode::Ceil
+                        if in_size > 0 && dilated_kernel_size - padded_in_size < stride =>
+                    {
+                        1
+                    }
+                    _ => 0,
+                };
+                return Ok((out_size, pad_start, pad_end));
             }
 
             // Compute output size. The PyTorch docs provide the clearest
@@ -137,8 +181,8 @@ fn output_size_and_padding_for_axis(
 /// Returns an `(out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])`
 /// tuple.
 ///
-/// Returns an error if the padded input size is too small for the kernel
-/// size.
+/// If the padded input size is too small for the kernel size, `oversized_kernel`
+/// determines whether this is an error or the window is clipped to the input.
 pub fn calc_output_size_and_padding(
     in_size: (usize, usize),
     kernel_size: (usize, usize),
@@ -146,6 +190,7 @@ pub fn calc_output_size_and_padding(
     padding: Padding,
     dilations: Option<(usize, usize)>,
     round_mode: RoundMode,
+    oversized_kernel: OversizedKernel,
 ) -> Result<(usize, usize, [usize; 4]), OpError> {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
@@ -153,16 +198,43 @@ pub fn calc_output_size_and_padding(
     let (dilation_y, dilation_x) = dilations.unwrap_or((1, 1));
     let [h_pad, w_pad] = AxisPadding::from_2d(padding)?;
 
-    let (out_h, pad_top, pad_bottom) =
-        output_size_and_padding_for_axis(in_h, k_h, stride_h, h_pad, dilation_y, round_mode)?;
-    let (out_w, pad_left, pad_right) =
-        output_size_and_padding_for_axis(in_w, k_w, stride_w, w_pad, dilation_x, round_mode)?;
+    let (out_h, pad_top, pad_bottom) = output_size_and_padding_for_axis(
+        in_h,
+        k_h,
+        stride_h,
+        h_pad,
+        dilation_y,
+        round_mode,
+        oversized_kernel,
+    )?;
+    let (out_w, pad_left, pad_right) = output_size_and_padding_for_axis(
+        in_w,
+        k_w,
+        stride_w,
+        w_pad,
+        dilation_x,
+        round_mode,
+        oversized_kernel,
+    )?;
 
     Ok((out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right]))
 }
 
 /// Number of channels processed together by the pooling kernel.
 const CHAN_GROUP_SIZE: usize = 4;
+
+/// Element counts for a single pooling window.
+///
+/// These differ only when the window overlaps the padding region, or is clipped
+/// because the kernel extends beyond the end of the padded input.
+#[derive(Copy, Clone)]
+struct WindowCounts {
+    /// Positions in the window which lie within the padded input.
+    window: usize,
+
+    /// Positions in the window which lie within the input, excluding padding.
+    non_pad: usize,
+}
 
 /// Generic pooling implementation.
 ///
@@ -173,8 +245,9 @@ const CHAN_GROUP_SIZE: usize = 4;
 ///   of the padding region.
 /// - Folding the values using `fold`, starting with `fold_init`
 /// - Computing an average of the accumulated value using `average(accum,
-///   non_padding_count)`
-fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Sync>(
+///   counts)`, where `counts` gives the size of the window and the number of
+///   values that were collected from it
+fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, WindowCounts) -> T + Sync>(
     pool: &BufferPool,
     input: TensorView<T>,
     kernel_size: &[usize],
@@ -241,20 +314,23 @@ where
         padding,
         None, /* dilations */
         round_mode,
+        OversizedKernel::Clip,
     )?;
-    let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
+    let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
+    let padded_size = [in_h + pad_top + pad_bottom, in_w + pad_left + pad_right];
     let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
 
     // Apply pooling to the channel indexes specified by `chans`.
     // Assuming `N` is chosen appropriately the inner loop should get unrolled /
     // autovectorized.
-    fn pool_chans<T: Copy, F: Fn(T, T) -> T, A: Fn(T, usize) -> T, const N: usize>(
+    fn pool_chans<T: Copy, F: Fn(T, T) -> T, A: Fn(T, WindowCounts) -> T, const N: usize>(
         mut out: NdTensorViewMut<MaybeUninit<T>, 3>,
         in_view: NdTensorView<T, 3>,
         chans: [usize; N],
         [kernel_h, kernel_w]: [usize; 2],
         [stride_h, stride_w]: [usize; 2],
         [pad_top, pad_left]: [usize; 2],
+        [padded_h, padded_w]: [usize; 2],
         fold_init: T,
         fold: F,
         average: A,
@@ -269,11 +345,17 @@ where
             let max_in_y = min_in_y + kernel_h.saturating_sub(1);
             let y_non_pad_region = min_in_y >= pad_top && max_in_y < in_h + pad_top;
 
+            // Extent of the window within the padded input. This is the kernel
+            // size unless the kernel runs off the end of the padded input, in
+            // which case the window is clipped.
+            let window_h = kernel_h.min(padded_h - min_in_y);
+
             for out_x in 0..out_w {
                 // Compute min/max input X coordinates for this output position.
                 let min_in_x = out_x * stride_w;
                 let max_in_x = min_in_x + kernel_w.saturating_sub(1);
                 let x_non_pad_region = min_in_x >= pad_left && max_in_x < in_w + pad_left;
+                let window_w = kernel_w.min(padded_w - min_in_x);
 
                 let mut accumulator = [fold_init; N];
                 let mut non_pad_elements = 0;
@@ -325,13 +407,18 @@ where
                     }
                 }
 
+                let counts = WindowCounts {
+                    window: window_h * window_w,
+                    non_pad: non_pad_elements,
+                };
+
                 for (i, chan) in chans.into_iter().enumerate() {
                     // Safety:
                     //  - We checked all `chans` are in-bounds
                     //  - `out_y` and `out_x` are in 0..out_h, 0..out_w
                     unsafe {
                         out.get_unchecked_mut([chan, out_y, out_x])
-                            .write(average(accumulator[i], non_pad_elements));
+                            .write(average(accumulator[i], counts));
                     }
                 }
             }
@@ -362,6 +449,7 @@ where
                     kernel_size,
                     strides,
                     [pad_top, pad_left],
+                    padded_size,
                     accum_init_val(),
                     fold,
                     average,
@@ -378,6 +466,7 @@ where
                     kernel_size,
                     strides,
                     [pad_top, pad_left],
+                    padded_size,
                     accum_init_val(),
                     fold,
                     average,
@@ -400,7 +489,6 @@ pub fn average_pool(
     count_include_pad: bool,
     round_mode: RoundMode,
 ) -> Result<Tensor, OpError> {
-    let kernel_len: usize = kernel_size.iter().product();
     pool_impl(
         pool,
         input,
@@ -409,12 +497,17 @@ pub fn average_pool(
         padding,
         0.,
         &|acc, x| acc + x,
-        &|acc, non_pad_elements| {
-            if count_include_pad {
-                acc / (kernel_len as f32)
+        &|acc, counts| {
+            // When the kernel is larger than the padded input the window is
+            // clipped, so the divisor is the size of the clipped window rather
+            // than the kernel size. Where the window fits, `counts.window` is
+            // the kernel size and this matches the usual formula.
+            let divisor = if count_include_pad {
+                counts.window
             } else {
-                acc / (non_pad_elements as f32)
-            }
+                counts.non_pad
+            };
+            acc / (divisor as f32)
         },
         round_mode,
     )
@@ -597,7 +690,7 @@ pub fn max_pool(
         padding,
         f32::NEG_INFINITY,
         &|acc, x| acc.max(x),
-        &|x, _non_pad_count| x,
+        &|x, _counts| x,
         round_mode,
     )
 }
@@ -673,8 +766,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        RoundMode, average_pool, calc_output_size_and_padding, global_average_pool,
-        global_max_pool, max_pool,
+        OversizedKernel, RoundMode, average_pool, calc_output_size_and_padding,
+        global_average_pool, global_max_pool, max_pool,
     };
     use crate::buffer_pool::BufferPool;
     use crate::ops::tests::expect_eq_1e4;
@@ -842,6 +935,100 @@ mod tests {
         expect_eq_1e4(&result.view(), &expected_include_pad.as_dyn())?;
 
         Ok(())
+    }
+
+    // A kernel larger than the input is allowed by ONNX: the `ceil_mode`
+    // formula still yields an output position and the window is clipped to the
+    // padded input.
+    #[test]
+    fn test_pool_kernel_larger_than_input() {
+        let input = Tensor::from([[1., 2.], [3., 4.]])
+            .into_shape([1, 1, 2, 2])
+            .into_dyn();
+
+        #[derive(Debug)]
+        struct Case {
+            padding: Padding,
+            count_include_pad: bool,
+            expected: f32,
+        }
+
+        let cases = [
+            // Without padding the window is clipped to the 2x2 input, so the
+            // divisor is 4 either way and `count_include_pad` has nothing to
+            // count.
+            Case {
+                padding: [0, 0, 0, 0].into(),
+                count_include_pad: false,
+                expected: 2.5,
+            },
+            Case {
+                padding: [0, 0, 0, 0].into(),
+                count_include_pad: true,
+                expected: 2.5,
+            },
+            // With padding the window is clipped to the 4x4 padded input, so
+            // `count_include_pad` divides by 16 rather than by the 25 elements
+            // of the kernel.
+            Case {
+                padding: [1, 1, 1, 1].into(),
+                count_include_pad: false,
+                expected: 2.5,
+            },
+            Case {
+                padding: [1, 1, 1, 1].into(),
+                count_include_pad: true,
+                expected: 0.625,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let pool = BufferPool::new();
+            let result = average_pool(
+                &pool,
+                input.view(),
+                &[5, 5],
+                &[5, 5],
+                case.padding.clone(),
+                case.count_include_pad,
+                RoundMode::Ceil,
+            )
+            .unwrap();
+            assert_eq!(result.shape(), &[1, 1, 1, 1]);
+            assert_eq!(result.to_vec(), [case.expected]);
+        });
+
+        let pool = BufferPool::new();
+
+        // Max pooling ignores the clipped region rather than treating it as
+        // zero padding, so an all-negative input stays negative.
+        let negative = Tensor::from([[-1., -2.], [-3., -4.]])
+            .into_shape([1, 1, 2, 2])
+            .into_dyn();
+        let result = max_pool(
+            &pool,
+            negative.view(),
+            &[5, 5],
+            &[5, 5],
+            [0, 0, 0, 0].into(),
+            RoundMode::Ceil,
+        )
+        .unwrap();
+        assert_eq!(result.shape(), &[1, 1, 1, 1]);
+        assert_eq!(result.to_vec(), [-1.]);
+
+        // In floor mode no window fits within the input, so the output is
+        // empty.
+        let result = max_pool(
+            &pool,
+            input.view(),
+            &[5, 5],
+            &[5, 5],
+            [0, 0, 0, 0].into(),
+            RoundMode::Floor,
+        )
+        .unwrap();
+        assert_eq!(result.shape(), &[1, 1, 0, 0]);
     }
 
     #[test]
@@ -1032,6 +1219,7 @@ mod tests {
             strides: (usize, usize),
             padding: Padding,
             round_mode: RoundMode,
+            oversized_kernel: OversizedKernel,
             expected: Result<(usize, usize, [usize; 4]), OpError>,
         }
 
@@ -1044,6 +1232,7 @@ mod tests {
                     strides: (1, 1),
                     padding: [0, 0, 0, 0].into(),
                     round_mode: RoundMode::Floor,
+                    oversized_kernel: OversizedKernel::Reject,
                     expected: Err(OpError::InvalidValue("default")),
                 }
             }
@@ -1175,6 +1364,84 @@ mod tests {
                 expected: Err(OpError::InvalidValue("Input too small for kernel size")),
                 ..Default::default()
             },
+            // Kernel much larger than the input, with the window clipped
+            // instead of rejected. In ceil mode this yields a single output
+            // position.
+            Case {
+                in_size: (7, 7),
+                kernel_size: (1280, 1280),
+                strides: (1280, 1280),
+                round_mode: RoundMode::Ceil,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((1, 1, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Kernel larger than the input, floor mode. No window fits, so the
+            // output is empty.
+            Case {
+                in_size: (7, 7),
+                kernel_size: (1280, 1280),
+                strides: (1280, 1280),
+                round_mode: RoundMode::Floor,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((0, 0, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Kernel larger than the input, ceil mode, but the first window
+            // ends beyond the first stride so there is no output position.
+            Case {
+                in_size: (7, 7),
+                kernel_size: (9, 9),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((0, 0, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // As above, but with a stride large enough to leave one position.
+            Case {
+                in_size: (7, 7),
+                kernel_size: (8, 8),
+                strides: (3, 3),
+                round_mode: RoundMode::Ceil,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((1, 1, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Padding counts towards the input size when deciding whether the
+            // kernel fits.
+            Case {
+                in_size: (2, 2),
+                kernel_size: (5, 5),
+                strides: (5, 5),
+                padding: [1, 1, 1, 1].into(),
+                round_mode: RoundMode::Ceil,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((1, 1, [1, 1, 1, 1])),
+                ..Default::default()
+            },
+            // Empty input. Every kernel is larger than it, so the output is
+            // empty too.
+            Case {
+                in_size: (0, 0),
+                kernel_size: (3, 3),
+                strides: (3, 3),
+                round_mode: RoundMode::Ceil,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((0, 0, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Empty input, with a kernel small enough that the size formula
+            // would otherwise yield an output position covering no values.
+            Case {
+                in_size: (0, 0),
+                kernel_size: (1, 1),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                oversized_kernel: OversizedKernel::Clip,
+                expected: Ok((0, 0, [0, 0, 0, 0])),
+                ..Default::default()
+            },
         ];
 
         cases.test_each(|case| {
@@ -1185,6 +1452,7 @@ mod tests {
                 strides,
                 padding,
                 round_mode,
+                oversized_kernel,
                 expected,
             } = case;
 
@@ -1196,6 +1464,7 @@ mod tests {
                     padding.clone(),
                     Some(*dilations),
                     *round_mode,
+                    *oversized_kernel,
                 ),
                 expected
             );
