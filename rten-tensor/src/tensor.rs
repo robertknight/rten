@@ -1094,11 +1094,27 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         let new_data_len = new_layout.min_data_len();
         self.layout = new_layout;
 
-        // Safety: The `copy_from` call below will initialize all elements
-        // added to the tensor.
-        assert!(self.data.capacity() >= new_data_len);
-        unsafe {
-            self.data.set_len(new_data_len);
+        // Fast path for the case where we can avoid initializing new elements
+        // before copying the data.
+        if self.layout.is_contiguous() && self.data.len() + other.len() == new_data_len {
+            let added = new_data_len - self.data.len();
+            other.copy_into_slice(&mut self.data.spare_capacity_mut()[..added]);
+
+            // Safety: `copy_into_slice` initialized every element between the
+            // old and new lengths.
+            unsafe {
+                self.data.set_len(new_data_len);
+            }
+
+            return Ok(());
+        }
+
+        // Initialize new capacity if needed.
+        if self.data.len() < new_data_len {
+            // `other` must be non-empty here as otherwise the old/new layouts
+            // would be the same and the `min_data_len` would not have grown.
+            let fill = *other.iter().next().unwrap();
+            self.data.resize(new_data_len, fill);
         }
 
         self.slice_axis_mut(axis, old_size..new_size)

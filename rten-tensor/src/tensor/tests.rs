@@ -38,6 +38,8 @@ impl Alloc for FakeAlloc {
 
 #[test]
 fn test_append() {
+    // Append along an inner axis. This uses the default path which must
+    // initialize new capacity before copying elements.
     let mut tensor = NdTensor::<i32, 2>::with_capacity([3, 3], 1);
     assert_eq!(tensor.shape(), [3, 0]);
 
@@ -60,6 +62,27 @@ fn test_append() {
         tensor.append(1, &NdTensor::from([[10], [11], [12]])),
         Err(ExpandError::InsufficientCapacity)
     );
+
+    // Append along the outermost axis, where the tensor stays contiguous as it
+    // grows. This uses the fast path that avoids initializing new storage
+    // before copying into it.
+    let mut tensor = NdTensor::<i32, 2>::with_capacity([3, 2], 0);
+    assert_eq!(tensor.shape(), [0, 2]);
+
+    tensor.append(0, &NdTensor::from([[1, 2], [3, 4]])).unwrap();
+    assert_eq!(tensor.shape(), [2, 2]);
+
+    tensor.append(0, &NdTensor::from([[5, 6]])).unwrap();
+    assert_eq!(tensor, NdTensor::from([[1, 2], [3, 4], [5, 6]]));
+
+    // Append along an inner axis where the preceding dims all have size one, so
+    // the tensor is still contiguous as it grows. This also uses the fast path.
+    let mut tensor = NdTensor::<i32, 3>::with_capacity([1, 3, 2], 1);
+    tensor
+        .append(1, &NdTensor::from([[[1, 2], [3, 4]]]))
+        .unwrap();
+    tensor.append(1, &NdTensor::from([[[5, 6]]])).unwrap();
+    assert_eq!(tensor, NdTensor::from([[[1, 2], [3, 4], [5, 6]]]));
 
     // Append to an empty tensor
     let mut empty = NdTensor::<i32, 2>::zeros([0, 3]);
