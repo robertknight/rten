@@ -248,11 +248,11 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
         Ok(())
     }
 
-    let mut output = Tensor::uninit_in(pool, indices.shape());
-    if output.is_empty() {
-        // Safety: Output has zero elements, so is fully "initialized".
-        return Ok(unsafe { output.assume_init() });
-    }
+    let output = Tensor::uninit_in(pool, indices.shape());
+    let mut output = match output.init_if_empty() {
+        InitEmpty::Empty(e) => return Ok(e),
+        InitEmpty::NotEmpty(ne) => ne,
+    };
 
     // When gathering from a stride-1 axis in a contiguous tensor, we can get
     // the 1D lanes by just splitting the data into chunks.
