@@ -390,9 +390,12 @@ pub(crate) fn load_constant(
 
     let external_location = match data_location {
         onnx::DataLocation::DEFAULT => None,
-        onnx::DataLocation::EXTERNAL => {
-            Some(external_data_location(name, &initializer.external_data)?)
-        }
+        onnx::DataLocation::EXTERNAL => Some(external_data_location(
+            name,
+            &initializer.external_data,
+            &shape,
+            initializer.data_type,
+        )?),
         _ => {
             return Err(load_error!(GraphError, name, "unsupported data location"));
         }
@@ -532,10 +535,30 @@ pub(crate) fn load_constant(
     Ok(constant)
 }
 
+/// Return the size in bytes of one element of an ONNX data type.
+///
+/// Returns `None` for unsupported types.
+fn dtype_byte_size(dtype: onnx::DataType) -> Option<u64> {
+    // This must cover the same set of types as the initializer conversion in
+    // `load_constant`.
+    match dtype {
+        onnx::DataType::BOOL | onnx::DataType::INT8 | onnx::DataType::UINT8 => Some(1),
+        onnx::DataType::FLOAT16 => Some(2),
+        onnx::DataType::FLOAT | onnx::DataType::INT32 => Some(4),
+        onnx::DataType::DOUBLE | onnx::DataType::INT64 => Some(8),
+        _ => None,
+    }
+}
+
 /// Parse the external location metadata from a `TensorProto.external_data` field.
+///
+/// `shape` and `dtype` are used to derive the length of the data when the
+/// metadata does not specify one.
 fn external_data_location(
     name: Option<&str>,
     metadata: &[onnx::StringStringEntryProto],
+    shape: &[usize],
+    dtype: Option<onnx::DataType>,
 ) -> Result<DataLocation, LoadError> {
     let mut location = None;
     let mut offset = None;
@@ -579,8 +602,41 @@ fn external_data_location(
         location.ok_or_else(|| load_error!(GraphError, name, "missing external data location"))?;
     let offset =
         offset.ok_or_else(|| load_error!(GraphError, name, "missing external data offset"))?;
-    let length =
-        length.ok_or_else(|| load_error!(GraphError, name, "missing external data length"))?;
+
+    // The ONNX external data spec marks `length` optional, but does not say
+    // what a loader should do when it is absent. See
+    // https://github.com/onnx/onnx/blob/main/docs/ExternalData.md. ONNX Runtime
+    // derives the length from the shape and dtype if is unspecified or zero.
+    let length = match length {
+        Some(length) if length != 0 => length,
+        _ => {
+            let elem_size = match dtype {
+                Some(dtype) => dtype_byte_size(dtype).ok_or_else(|| {
+                    load_error!(
+                        GraphError,
+                        name,
+                        "initializer has unsupported data type {}",
+                        dtype
+                    )
+                })?,
+                None => {
+                    return Err(load_error!(
+                        GraphError,
+                        name,
+                        "initializer is missing data type"
+                    ));
+                }
+            };
+            shape
+                .iter()
+                .try_fold(elem_size, |len, &size| {
+                    u64::try_from(size)
+                        .ok()
+                        .and_then(|size| len.checked_mul(size))
+                })
+                .ok_or_else(|| load_error!(GraphError, name, "external data length overflowed"))?
+        }
+    };
 
     Ok(DataLocation {
         path: location.to_string(),
@@ -1439,9 +1495,7 @@ mod tests {
             Case {
                 shape: [2, 3].into(),
                 dtype: onnx::DataType::FLOAT,
-                expected: Err(
-                    "in node \"init\": graph error: length 0 does not match shape [2, 3]".into(),
-                ),
+                expected: Err("file too short. required 24 actual 0".into()),
             },
             // Data types which require copying and converting external data.
             Case {
@@ -1452,9 +1506,12 @@ mod tests {
             Case {
                 shape: [2].into(),
                 dtype: onnx::DataType::INT64,
-                expected: Err(
-                    "in node \"init\": graph error: length 0 does not match shape [2]".into(),
-                ),
+                expected: Err("file too short. required 16 actual 0".into()),
+            },
+            Case {
+                shape: [2].into(),
+                dtype: onnx::DataType::BFLOAT16,
+                expected: Err("initializer has unsupported data type BFLOAT16".into()),
             },
         ];
 
@@ -1488,12 +1545,76 @@ mod tests {
                     };
                     assert_eq!(shape.as_ref(), Some(expected_shape));
                 }
-                (Err(err), Err(expected)) => assert_eq!(&err.to_string(), expected),
+                (Err(err), Err(expected)) => {
+                    let err = err.to_string();
+                    assert!(
+                        err.contains(expected),
+                        "{} does not contain {}",
+                        err,
+                        expected
+                    );
+                }
                 (result, expected) => {
                     panic!("expected {:?} but got {:?}", expected, result.map(|_| ()))
                 }
             }
         })
+    }
+
+    #[test]
+    fn test_initializer_with_derived_external_data_length() {
+        let external_tensor = |name, dtype, shape: &[usize], offset| {
+            create_tensor(
+                name,
+                shape,
+                dtype,
+                TensorData::External(DataLocation {
+                    path: "test.onnx.data".to_string(),
+                    offset,
+                    length: 0,
+                }),
+            )
+        };
+
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(external_tensor(
+                "f32_tensor",
+                onnx::DataType::FLOAT,
+                &[2],
+                0,
+            ))
+            .with_initializer(external_tensor(
+                "i64_tensor",
+                onnx::DataType::INT64,
+                &[2],
+                8,
+            ))
+            .with_initializer(external_tensor(
+                "u8_tensor",
+                onnx::DataType::UINT8,
+                &[1, 3],
+                24,
+            ))
+            .into_model();
+
+        let mut buf = Vec::new();
+        buf.extend((1.0f32).to_le_bytes()); // offset 0
+        buf.extend((2.0f32).to_le_bytes()); // offset 4
+        buf.extend(3i64.to_le_bytes()); // offset 8
+        buf.extend(4i64.to_le_bytes()); // offset 16
+        buf.extend([5u8, 6, 7]); // offset 24
+        let loader = MemLoader::from_entries([("test.onnx.data".to_string(), buf)]);
+
+        let model = load_model(model_proto, Some(&loader)).unwrap();
+
+        let tensor = model.get_tensor_by_name::<f32>("f32_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from([1., 2.]));
+
+        let tensor = model.get_tensor_by_name::<i32>("i64_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from([3, 4]));
+
+        let tensor = model.get_tensor_by_name::<u8>("u8_tensor").unwrap();
+        assert_eq!(tensor, Tensor::from([[5u8, 6, 7]]));
     }
 
     #[test]
