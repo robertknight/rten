@@ -6,7 +6,7 @@ use rten_shape_inference::UnaryOp;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::slice_range::to_slice_items;
-use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorBase, TensorView};
+use rten_tensor::{InitEmpty, NdTensorView, SliceItem, Tensor, TensorBase, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
@@ -360,7 +360,12 @@ pub fn gather_nd<T: Clone + Default>(
     let out_slice_len = out_shape[out_shape.len() - out_slice_ndim..]
         .iter()
         .product();
-    let mut output = Tensor::<T>::uninit_in(pool, &out_shape);
+
+    let output = Tensor::<T>::uninit_in(pool, &out_shape);
+    let mut output = match output.init_if_empty() {
+        InitEmpty::Empty(e) => return Ok(e),
+        InitEmpty::NotEmpty(ne) => ne,
+    };
 
     let output_non_batch_dims = output.ndim() - batch_dims;
     let input_non_batch_dims = input.ndim() - batch_dims;
@@ -1184,6 +1189,30 @@ mod tests {
                 transpose: false,
                 indices: [[0, 0], [1, 2]].into(),
                 expected: Err(OpError::InvalidValue("Invalid index")),
+            },
+            // Input with a zero-size dimension in the gathered slice.
+            Case {
+                batch_dims: 0,
+                data: Tensor::zeros(&[2, 0]),
+                transpose: false,
+                indices: [[0]].into(),
+                expected: Ok(Tensor::zeros(&[1, 0])),
+            },
+            // Empty `indices` combined with a zero-size input dimension.
+            Case {
+                batch_dims: 0,
+                data: Tensor::zeros(&[8, 0]),
+                transpose: false,
+                indices: Tensor::zeros(&[0, 1]),
+                expected: Ok(Tensor::zeros(&[0, 0])),
+            },
+            // Empty `indices` with a non-empty gathered slice.
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: false,
+                indices: Tensor::zeros(&[0, 1]),
+                expected: Ok(Tensor::zeros(&[0, 2])),
             },
             // Transposed input
             Case {
