@@ -1467,7 +1467,17 @@ impl_read_op!(Pad, |attrs: &Attrs| {
         })
         .transpose()?
         .unwrap_or(PadMode::Constant);
-    Ok(ops::Pad { mode })
+
+    // `pads` and `value` were attributes before opset 11.
+    let mut const_inputs = Vec::new();
+    if let Some(pads) = attrs.get("pads") {
+        const_inputs.push((1, ConstInput::Ints(pads.as_ints().to_vec())));
+    }
+    if let Some(value) = attrs.get("value") {
+        const_inputs.push((2, ConstInput::Float(value.as_f32())));
+    }
+
+    Ok(ParsedOp::new(ops::Pad { mode }).with_inputs(const_inputs))
 });
 
 impl_read_op!(Pow);
@@ -2404,6 +2414,22 @@ mod tests {
                     .with_attr("min", -0.5)
                     .with_attr("max", 0.5),
                 expected_inputs: [(1, ConstInput::Float(-0.5)), (2, ConstInput::Float(0.5))].into(),
+            },
+            // Pad op with `pads` and `value` attributes.
+            Case {
+                op: create_node("Pad")
+                    .with_attr("pads", vec![0, 1, 0, 1])
+                    .with_attr("value", 1.5),
+                expected_inputs: [
+                    (1, ConstInput::Ints([0, 1, 0, 1].into())),
+                    (2, ConstInput::Float(1.5)),
+                ]
+                .into(),
+            },
+            // Pad op with `pads` attribute only.
+            Case {
+                op: create_node("Pad").with_attr("pads", vec![1, 1, 1, 1]),
+                expected_inputs: [(1, ConstInput::Ints([1, 1, 1, 1].into()))].into(),
             },
             Case {
                 op: create_node("Squeeze").with_attr("axes", vec![-1]),
