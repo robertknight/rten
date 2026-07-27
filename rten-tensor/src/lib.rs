@@ -90,7 +90,7 @@ pub use layout::{DynLayout, InsertDim, Layout, MatrixLayout, NdLayout, SizeArray
 pub use slice_range::{SliceItem, SliceRange};
 pub use storage::Storage;
 pub use tensor::{
-    ArcNdTensor, ArcTensor, AsView, CowNdTensor, CowTensor, Matrix, MatrixMut, NdTensor,
+    ArcNdTensor, ArcTensor, AsView, CowNdTensor, CowTensor, InitEmpty, Matrix, MatrixMut, NdTensor,
     NdTensorView, NdTensorViewMut, Scalar, Tensor, TensorBase, TensorView, TensorViewMut,
     WeaklyCheckedView,
 };
