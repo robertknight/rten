@@ -389,14 +389,17 @@ pub fn gather_nd<T: Clone + Default>(
             // the gather just amounts to copying chunks of the input to the
             // output.
             for (out_slice, idx) in out_slices.zip(idx_slices) {
-                let offset = idx
+                let offset: usize = idx
                     .iter()
-                    .zip(input.strides())
-                    .map(|(idx, stride)| *idx as usize * stride)
-                    .sum();
-                let in_slice = input_data
-                    .get(offset..offset + out_slice.len())
-                    .ok_or(OpError::InvalidValue("Invalid index"))?;
+                    .zip(input.shape().iter().zip(input.strides()))
+                    .map(|(idx, (size, stride))| {
+                        resolve_index(*size, *idx as isize)
+                            .map(|idx| idx * stride)
+                            .ok_or(OpError::InvalidValue("Invalid index"))
+                    })
+                    .sum::<Result<usize, OpError>>()?;
+
+                let in_slice = &input_data[offset..offset + out_slice.len()];
                 for (out, x) in out_slice.iter_mut().zip(in_slice) {
                     out.write(x.clone());
                 }
@@ -1182,12 +1185,27 @@ mod tests {
                 indices: [[1], [0]].into(),
                 expected: Ok([[2, 3], [4, 5]].into()),
             },
+            // Negative indexes.
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3], [4, 5]].into(),
+                transpose: false,
+                indices: [[-1]].into(),
+                expected: Ok([[4, 5]].into()),
+            },
             // Invalid indexes
             Case {
                 batch_dims: 0,
                 data: [[0, 1], [2, 3]].into(),
                 transpose: false,
                 indices: [[0, 0], [1, 2]].into(),
+                expected: Err(OpError::InvalidValue("Invalid index")),
+            },
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: false,
+                indices: [[-3, 0]].into(),
                 expected: Err(OpError::InvalidValue("Invalid index")),
             },
             // Input with a zero-size dimension in the gathered slice.
@@ -1214,7 +1232,7 @@ mod tests {
                 indices: Tensor::zeros(&[0, 1]),
                 expected: Ok(Tensor::zeros(&[0, 2])),
             },
-            // Transposed input
+            // Transposed (non-contiguous) input.
             Case {
                 batch_dims: 0,
                 data: [[0, 1], [2, 3]].into(),
@@ -1227,6 +1245,21 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: true,
                 indices: [[0, 1], [1, 2]].into(),
+                expected: Err(OpError::InvalidValue("Invalid index")),
+            },
+            // Negative indexes with a transposed (non-contiguous) input.
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: true,
+                indices: [[-1, -1], [-2, -1]].into(),
+                expected: Ok([3, 2].into()),
+            },
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                transpose: true,
+                indices: [[-3, 0]].into(),
                 expected: Err(OpError::InvalidValue("Invalid index")),
             },
         ];
