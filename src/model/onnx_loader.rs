@@ -1116,6 +1116,7 @@ fn add_operator(
 mod tests {
     use rten_onnx::onnx;
     use rten_simd::float16::{f16_to_f32, f32_to_f16};
+    use rten_tensor::prelude::*;
     use rten_tensor::{Tensor, TensorView};
     use rten_testing::TestCases;
 
@@ -1417,6 +1418,82 @@ mod tests {
 
         let tensor = model.get_tensor_by_name::<f32>("f64_tensor").unwrap();
         assert_eq!(tensor, Tensor::from(1.23));
+    }
+
+    #[test]
+    fn test_initializer_with_empty_external_data() {
+        #[derive(Debug)]
+        struct Case {
+            shape: Vec<usize>,
+            dtype: onnx::DataType,
+            expected: Result<Vec<usize>, String>,
+        }
+
+        let cases = [
+            // Data types for which external data can be used without copying.
+            Case {
+                shape: [0].into(),
+                dtype: onnx::DataType::FLOAT,
+                expected: Ok([0].into()),
+            },
+            Case {
+                shape: [2, 3].into(),
+                dtype: onnx::DataType::FLOAT,
+                expected: Err(
+                    "in node \"init\": graph error: length 0 does not match shape [2, 3]".into(),
+                ),
+            },
+            // Data types which require copying and converting external data.
+            Case {
+                shape: [0].into(),
+                dtype: onnx::DataType::INT64,
+                expected: Ok([0].into()),
+            },
+            Case {
+                shape: [2].into(),
+                dtype: onnx::DataType::INT64,
+                expected: Err(
+                    "in node \"init\": graph error: length 0 does not match shape [2]".into(),
+                ),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let tensor = create_tensor(
+                "init",
+                &case.shape,
+                case.dtype,
+                TensorData::External(DataLocation {
+                    path: "test.onnx.data".to_string(),
+                    offset: 0,
+                    length: 0,
+                }),
+            );
+            let model_proto = onnx::GraphProto::default()
+                .with_initializer(tensor)
+                .into_model();
+            let loader = MemLoader::from_entries([("test.onnx.data".to_string(), Vec::new())]);
+
+            let result = load_model(model_proto, Some(&loader));
+
+            match (result, &case.expected) {
+                (Ok(model), Ok(expected_shape)) => {
+                    let shape = match case.dtype {
+                        onnx::DataType::FLOAT => model
+                            .get_tensor_by_name::<f32>("init")
+                            .map(|t| t.shape().to_vec()),
+                        _ => model
+                            .get_tensor_by_name::<i32>("init")
+                            .map(|t| t.shape().to_vec()),
+                    };
+                    assert_eq!(shape.as_ref(), Some(expected_shape));
+                }
+                (Err(err), Err(expected)) => assert_eq!(&err.to_string(), expected),
+                (result, expected) => {
+                    panic!("expected {:?} but got {:?}", expected, result.map(|_| ()))
+                }
+            }
+        })
     }
 
     #[test]

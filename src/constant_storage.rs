@@ -52,7 +52,10 @@ impl ConstantStorage {
     }
 
     /// Return the byte offsets of a sub-slice of this storage as a range, or
-    /// `None` if any part of `data` lies outside storage.
+    /// `None` if any element of `data` lies outside storage.
+    ///
+    /// If the slice is empty, this returns an empty range with a start that
+    /// corresponds to `data.as_ptr()` if inside the storage, or zero otherwise.
     ///
     /// Note this always returns `None` if `T` is a zero-sized type.
     fn byte_range_of<T>(&self, data: &[T]) -> Option<Range<usize>> {
@@ -65,7 +68,7 @@ impl ConstantStorage {
         let data_range = slice_address_range(data);
 
         if !self_range.contains(&data_range.start) || self_range.end < data_range.end {
-            return None;
+            return data.is_empty().then_some(0..0);
         }
 
         let start = data_range.start - self_range.start;
@@ -226,6 +229,10 @@ mod tests {
         // Create a slice referencing data outside the storage.
         let slice_outside = &[1, 2, 3];
         assert!(ArcSlice::new(storage.clone(), slice_outside).is_none());
+
+        // Like above, but the storage is empty.
+        let empty: &[i32] = &[];
+        assert!(ArcSlice::new(storage.clone(), empty).is_some());
 
         // Try with a zero-sized type.
         let zst_slice = &[(), ()];
