@@ -7,7 +7,7 @@ use rten_base::iter::range_chunks;
 use rten_parallel::par_iter::ParIter;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{InitEmpty, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
@@ -380,13 +380,11 @@ fn resize_4d(
 
     let [batch, _chans, _height, _width] = input.shape();
 
-    let mut output = NdTensor::uninit_in(pool, output_size);
-
-    if output.is_empty() {
-        // Safety: Empty output is already initialized.
-        let output = unsafe { output.assume_init() };
-        return Ok(output);
-    }
+    let output = NdTensor::uninit_in(pool, output_size);
+    let mut output = match output.init_if_empty() {
+        InitEmpty::Empty(e) => return Ok(e),
+        InitEmpty::NotEmpty(ne) => ne,
+    };
 
     let n_init = AtomicUsize::new(0);
     for n in 0..batch {

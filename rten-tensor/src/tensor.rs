@@ -1583,6 +1583,14 @@ impl<'a, T, L: Layout> TensorBase<CowData<'a, T>, L> {
     }
 }
 
+/// Result of [`TensorBase::init_if_empty`].
+pub enum InitEmpty<Init: Storage, Uninit: Storage, L: Layout> {
+    /// Empty tensor with initialized storage.
+    Empty(TensorBase<Init, L>),
+    /// Non-empty tensor with uninitialized storage.
+    NotEmpty(TensorBase<Uninit, L>),
+}
+
 impl<T, S: Storage<Elem = MaybeUninit<T>> + AssumeInit, L: Layout + Clone> TensorBase<S, L>
 where
     <S as AssumeInit>::Output: Storage<Elem = T>,
@@ -1600,6 +1608,16 @@ where
         TensorBase {
             layout: self.layout,
             data: unsafe { self.data.assume_init() },
+        }
+    }
+
+    /// Convert `self` to an initialized tensor, if it has no elements.
+    pub fn init_if_empty(self) -> InitEmpty<<S as AssumeInit>::Output, S, L> {
+        if self.is_empty() {
+            // The tensor has no elements, and thus is initialized.
+            InitEmpty::Empty(unsafe { self.assume_init() })
+        } else {
+            InitEmpty::NotEmpty(self)
         }
     }
 

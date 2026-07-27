@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use rten_base::bit_set::BitSet;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{AssumeInit, NdTensorView, Tensor, TensorView};
+use rten_tensor::{AssumeInit, InitEmpty, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -252,19 +252,20 @@ pub fn tile<T: Copy>(
         .zip(repeats.iter())
         .map(|(size, repeat)| size * repeat)
         .collect();
-    let mut output = Tensor::uninit_in(pool, &out_shape);
+    let output = Tensor::uninit_in(pool, &out_shape);
+    let mut output = match output.init_if_empty() {
+        InitEmpty::Empty(e) => return Ok(e),
+        InitEmpty::NotEmpty(ne) => ne,
+    };
 
-    if !output.is_empty() {
-        tile_inner(
-            input.to_contiguous_in(pool).auto_return(pool).data(),
-            output.data_mut().unwrap(),
-            input.shape(),
-            &repeats,
-        );
-    }
+    tile_inner(
+        input.to_contiguous_in(pool).auto_return(pool).data(),
+        output.data_mut().unwrap(),
+        input.shape(),
+        &repeats,
+    );
 
-    // Safety - `tile_inner` initialized all output elements, or the tensor
-    // is empty.
+    // Safety - `tile_inner` initialized all output elements.
     let output = unsafe { output.assume_init() };
 
     Ok(output)

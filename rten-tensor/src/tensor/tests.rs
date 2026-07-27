@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use super::{AsView, InitEmpty, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::errors::{DimensionError, ExpandError, FromDataError};
 use crate::layout::{DynLayout, FromShape, MatrixLayout};
 use crate::prelude::*;
@@ -825,6 +825,15 @@ fn test_index_axis() {
     let mut slice = tensor.index_axis_mut(0, 3);
     assert_eq!(slice.shape(), [2]);
     assert_eq!(slice.data_mut().unwrap(), [6, 7]);
+}
+
+#[test]
+fn test_init_if_empty() {
+    let empty = NdTensor::<f32, 2>::uninit([2, 0]);
+    assert!(matches!(empty.init_if_empty(), InitEmpty::Empty(_)));
+
+    let not_empty = NdTensor::<f32, 2>::uninit([2, 2]);
+    assert!(matches!(not_empty.init_if_empty(), InitEmpty::NotEmpty(_)));
 }
 
 #[test]
