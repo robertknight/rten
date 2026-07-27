@@ -1155,7 +1155,10 @@ impl_read_op!(GreaterOrEqual);
 
 impl_read_op!(GridSample, |attrs: &Attrs| {
     let align_corners = attrs.get_as("align_corners").unwrap_or(false);
-    attrs.check_eq("mode", "bilinear")?;
+
+    // Opset 16 named the interpolation modes "bilinear", "nearest" and
+    // "bicubic". Opset 20 renamed them to "linear", "nearest" and "cubic".
+    attrs.check("mode", |mode: &str| matches!(mode, "bilinear" | "linear"))?;
     attrs.check_eq("padding_mode", "zeros")?;
 
     Ok(ops::GridSample { align_corners })
@@ -1935,7 +1938,7 @@ mod tests {
     #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, Padding, ResizeMode, RotaryEmbedding, Upsample,
+        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding, Upsample,
     };
     #[cfg(feature = "contrib")]
     use crate::ops::{GroupQueryAttention, RotaryEmbeddingMicrosoft};
@@ -2107,6 +2110,65 @@ mod tests {
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
         assert_eq!(argmax_op.keep_dims, true);
+    }
+
+    #[test]
+    fn test_read_grid_sample_mode() {
+        #[derive(Debug)]
+        struct Case {
+            mode: Option<&'static str>,
+            expected: Result<(), &'static str>,
+        }
+
+        let cases = [
+            Case {
+                mode: None,
+                expected: Ok(()),
+            },
+            Case {
+                mode: Some("bilinear"),
+                expected: Ok(()),
+            },
+            Case {
+                mode: Some("linear"),
+                expected: Ok(()),
+            },
+            Case {
+                mode: Some("nearest"),
+                expected: Err("unsupported value"),
+            },
+            Case {
+                mode: Some("cubic"),
+                expected: Err("unsupported value"),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let mut node = create_node("GridSample");
+            if let Some(mode) = case.mode {
+                node = node.with_attr("mode", mode.to_string());
+            }
+
+            let result = reg.read_op(&node, &FakeOpLoadContext::default());
+
+            match (result, case.expected) {
+                (Ok(op), Ok(())) => {
+                    assert!(op.op.downcast_ref::<GridSample>().is_some());
+                }
+                (Err(err), Err(expected)) => {
+                    assert!(
+                        err.to_string().contains(expected),
+                        "{} does not contain {}",
+                        err,
+                        expected
+                    );
+                }
+                (result, expected) => {
+                    panic!("expected {:?} but got {:?}", expected, result.map(|_| ()))
+                }
+            }
+        })
     }
 
     #[test]
