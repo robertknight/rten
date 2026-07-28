@@ -17,8 +17,8 @@
 use std::mem::MaybeUninit;
 
 use crate::elem::Elem;
-use crate::f16;
 use crate::simd::{Mask, Simd};
+use crate::{bf16, f16};
 
 /// Entry point for performing SIMD operations using a particular Instruction
 /// Set Architecture (ISA).
@@ -69,11 +69,15 @@ pub unsafe trait Isa: Copy {
     /// SIMD vector with `f16` elements.
     type F16: Simd<Elem = f16, Isa = Self, Mask = Self::M16>;
 
+    /// SIMD vector with `bf16` elements.
+    type BF16: Simd<Elem = bf16, Isa = Self, Mask = Self::M16>;
+
     /// Operations on SIMD vectors with `f32` elements.
     fn f32(
         self,
     ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
-    + NarrowSaturate<f32, f16, Output = Self::F16>;
+    + NarrowSaturate<f32, f16, Output = Self::F16>
+    + ToBf16<Output = Self::BF16>;
 
     /// Operations on SIMD vectors with `f16` elements.
     ///
@@ -81,6 +85,13 @@ pub unsafe trait Isa: Copy {
     /// [`Extend`]) are supported. Conversion from `f32` is available via the
     /// [`NarrowSaturate`] implementation returned by [`f32`](Isa::f32).
     fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16>;
+
+    /// Operations on SIMD vectors with `bf16` elements.
+    ///
+    /// Only bit-level operations ([`BitOps`]) plus conversion to `f32` (via
+    /// [`Extend`]) are supported. Conversion from `f32` is available via the
+    /// [`ToBf16`] implementation returned by [`f32`](Isa::f32).
+    fn bf16(self) -> impl Extend<bf16, Output = Self::F32, Simd = Self::BF16>;
 
     /// Operations on SIMD vectors with `i32` elements.
     fn i32(
@@ -200,6 +211,7 @@ where
     /// operations on vectors containing elements of type `Self`.
     fn bit_ops<I: Isa>(isa: I) -> impl BitOps<Self, Simd = Self::Simd<I>>;
 }
+impl_get_ops!(GetBitOps, bit_ops, BitOps, bf16);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, f16);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, f32);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, i16);
@@ -225,6 +237,7 @@ macro_rules! impl_getsimd {
         }
     };
 }
+impl_getsimd!(bf16, BF16);
 impl_getsimd!(f16, F16);
 impl_getsimd!(f32, F32);
 impl_getsimd!(i16, I16);
@@ -695,8 +708,8 @@ pub trait SignedIntOps<T: Elem>: IntOps<T> {
 
 /// Widen lanes to a type with twice the width.
 ///
-/// For integer types, the extended type has the same signed-ness. For `f16`,
-/// the extended type is `f32`.
+/// For integer types, the extended type has the same signed-ness. For `f16`
+/// and `bf16`, the extended type is `f32`.
 pub trait Extend<T: Elem>: BitOps<T> {
     /// SIMD vector type with elements that have twice the bit-width of
     /// those in `Self::SIMD`.
@@ -738,6 +751,26 @@ pub trait ToFloat<T: Elem>: NumOps<T> {
     fn to_float(self, x: Self::Simd) -> Self::Output;
 }
 
+/// Narrow `f32` lanes to `bf16`.
+///
+/// This is the counterpart of the [`Extend`] implementation for `bf16`. It is a
+/// separate trait rather than a [`NarrowSaturate`] implementation because a
+/// vector can only have one `NarrowSaturate` implementation per source type,
+/// and for `f32` that is used for conversion to `f16`.
+pub trait ToBf16: NumOps<f32> {
+    /// SIMD vector with `bf16` lanes, and twice as many lanes as `Self::Simd`.
+    type Output: Simd<Elem = bf16>;
+
+    /// Convert each lane in a pair of `f32` vectors to `bf16`.
+    ///
+    /// Values are rounded to nearest, with ties to even. Values whose magnitude
+    /// exceeds the `bf16` range are rounded to infinity.
+    ///
+    /// Returns a vector containing the converted lanes from `low` followed by
+    /// the converted lanes from `high`.
+    fn to_bf16(self, low: Self::Simd, high: Self::Simd) -> Self::Output;
+}
+
 /// Narrow lanes to one with half the bit-width, using truncation.
 ///
 /// For integer types, the narrowed type has the same signed-ness.
@@ -769,12 +802,12 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 #[cfg(test)]
 mod tests {
     use crate::elem::WrappingAdd;
-    use crate::f16;
     use crate::ops::{
         BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
-        SignedIntOps, ToFloat,
+        SignedIntOps, ToBf16, ToFloat,
     };
     use crate::{Isa, Mask, Simd, SimdOp, assert_simd_eq, assert_simd_ne, test_simd_op};
+    use crate::{bf16, f16};
 
     // Generate tests for operations available on all numeric types.
     macro_rules! test_num_ops {
@@ -1657,6 +1690,111 @@ mod tests {
                 .collect();
             assert_eq!(back_lo.to_array().as_ref(), expected_lo.as_slice());
             assert_eq!(back_hi.to_array().as_ref(), expected_hi.as_slice());
+        });
+    }
+
+    #[test]
+    fn test_bf16_bit_ops() {
+        test_simd_op!(isa, {
+            let ops = isa.bf16();
+
+            // Load / store round trip across several vectors.
+            let src: Vec<bf16> = (0..ops.len() * 2)
+                .map(|i| bf16::from_f32(i as f32))
+                .collect();
+            let mut dst = vec![bf16::default(); src.len()];
+            for (s, d) in src.chunks(ops.len()).zip(dst.chunks_mut(ops.len())) {
+                let v = ops.load(s);
+                ops.store(v, d);
+            }
+            assert_eq!(dst, src);
+
+            // Splat
+            let val = bf16::from_f32(2.5);
+            let splatted = ops.splat(val).to_array();
+            assert!(splatted.as_ref().iter().all(|&x| x == val));
+
+            // Bitwise ops
+            let zeros = ops.zero();
+            let ones = ops.not(zeros);
+            assert_eq!(
+                ops.and(ones, zeros).to_array().as_ref(),
+                zeros.to_array().as_ref()
+            );
+            assert_eq!(
+                ops.or(zeros, ones).to_array().as_ref(),
+                ones.to_array().as_ref()
+            );
+            assert_eq!(
+                ops.xor(ones, ones).to_array().as_ref(),
+                zeros.to_array().as_ref()
+            );
+        });
+    }
+
+    #[test]
+    fn test_bf16_f32_conversion() {
+        test_simd_op!(isa, {
+            let f32_ops = isa.f32();
+            let bf16_ops = isa.bf16();
+
+            let n = f32_ops.len() * 2;
+            // Values which exercise rounding up, rounding down and ties, plus
+            // the special cases handled by the conversion.
+            let specials = [
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::MAX,
+                f32::MIN,
+                0.0,
+                -0.0,
+                // NaN with only low mantissa bits set, which the rounding
+                // step would otherwise turn into an infinity.
+                f32::from_bits(0x7F80_0001),
+                // Tie between 1.0 and the next bf16 value.
+                1.0 + 2f32.powi(-8),
+            ];
+            let src: Vec<f32> = (0..n)
+                .map(|i| specials.get(i).copied().unwrap_or((i as f32) * 0.3 - 3.0))
+                .collect();
+
+            // f32 -> bf16
+            let lo = f32_ops.load(&src[..f32_ops.len()]);
+            let hi = f32_ops.load(&src[f32_ops.len()..]);
+            let half = f32_ops.to_bf16(lo, hi);
+
+            let expected: Vec<bf16> = src.iter().map(|&x| bf16::from_f32(x)).collect();
+            assert_eq!(half.to_array().as_ref(), expected.as_slice());
+
+            // bf16 -> f32
+            let back_lo = bf16_ops.extend_low(half);
+            let back_hi = bf16_ops.extend_high(half);
+            let expected_lo: Vec<f32> = expected[..f32_ops.len()]
+                .iter()
+                .map(|h| h.to_f32())
+                .collect();
+            let expected_hi: Vec<f32> = expected[f32_ops.len()..]
+                .iter()
+                .map(|h| h.to_f32())
+                .collect();
+            assert_eq!(
+                back_lo
+                    .to_array()
+                    .as_ref()
+                    .iter()
+                    .map(|x| x.to_bits())
+                    .collect::<Vec<_>>(),
+                expected_lo.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                back_hi
+                    .to_array()
+                    .as_ref()
+                    .iter()
+                    .map(|x| x.to_bits())
+                    .collect::<Vec<_>>(),
+                expected_hi.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+            );
         });
     }
 }

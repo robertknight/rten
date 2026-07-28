@@ -1,39 +1,40 @@
 use std::arch::x86_64::{
     __m128i, __m256, __m256i, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
-    _MM_FROUND_TO_NEAREST_INT, _MM_HINT_ET0, _MM_HINT_T0, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps,
-    _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps, _mm_unpacklo_epi64,
-    _mm256_add_epi8, _mm256_add_epi16, _mm256_add_epi32, _mm256_add_ps, _mm256_and_ps,
-    _mm256_and_si256, _mm256_andnot_ps, _mm256_andnot_si256, _mm256_blendv_epi8, _mm256_blendv_ps,
-    _mm256_castps256_ps128, _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi8,
-    _mm256_cmpeq_epi16, _mm256_cmpeq_epi32, _mm256_cmpgt_epi8, _mm256_cmpgt_epi16,
-    _mm256_cmpgt_epi32, _mm256_cvtepi8_epi16, _mm256_cvtepi16_epi32, _mm256_cvtepi32_ps,
-    _mm256_cvtepu8_epi16, _mm256_cvtph_ps, _mm256_cvtps_epi32, _mm256_cvtps_ph,
+    _CMP_ORD_Q, _MM_FROUND_TO_NEAREST_INT, _MM_HINT_ET0, _MM_HINT_T0, _mm_add_ps, _mm_cvtss_f32,
+    _mm_movehl_ps, _mm_prefetch, _mm_setr_epi8, _mm_shuffle_epi8, _mm_shuffle_ps,
+    _mm_unpacklo_epi64, _mm256_add_epi8, _mm256_add_epi16, _mm256_add_epi32, _mm256_add_ps,
+    _mm256_and_ps, _mm256_and_si256, _mm256_andnot_ps, _mm256_andnot_si256, _mm256_blendv_epi8,
+    _mm256_blendv_ps, _mm256_castps_si256, _mm256_castps256_ps128, _mm256_castsi256_ps,
+    _mm256_castsi256_si128, _mm256_cmp_ps, _mm256_cmpeq_epi8, _mm256_cmpeq_epi16,
+    _mm256_cmpeq_epi32, _mm256_cmpgt_epi8, _mm256_cmpgt_epi16, _mm256_cmpgt_epi32,
+    _mm256_cvtepi8_epi16, _mm256_cvtepi16_epi32, _mm256_cvtepi32_ps, _mm256_cvtepu8_epi16,
+    _mm256_cvtepu16_epi32, _mm256_cvtph_ps, _mm256_cvtps_epi32, _mm256_cvtps_ph,
     _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps, _mm256_extracti128_si256,
     _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_insertf128_si256, _mm256_loadu_ps,
     _mm256_loadu_si256, _mm256_maskload_epi32, _mm256_maskload_ps, _mm256_maskstore_epi32,
     _mm256_maskstore_ps, _mm256_max_ps, _mm256_min_ps, _mm256_movemask_epi8, _mm256_mul_ps,
     _mm256_mullo_epi16, _mm256_mullo_epi32, _mm256_or_ps, _mm256_or_si256, _mm256_packs_epi32,
-    _mm256_packus_epi16, _mm256_permute2x128_si256, _mm256_permute4x64_epi64, _mm256_round_ps,
-    _mm256_set_m128i, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_set1_epi32, _mm256_set1_ps,
-    _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32,
-    _mm256_srai_epi16, _mm256_srai_epi32, _mm256_srli_epi16, _mm256_storeu_ps, _mm256_storeu_si256,
-    _mm256_sub_epi8, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_ps, _mm256_unpackhi_epi8,
-    _mm256_unpackhi_epi16, _mm256_unpacklo_epi8, _mm256_unpacklo_epi16, _mm256_xor_ps,
-    _mm256_xor_si256,
+    _mm256_packus_epi16, _mm256_packus_epi32, _mm256_permute2x128_si256, _mm256_permute4x64_epi64,
+    _mm256_round_ps, _mm256_set_m128i, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_set1_epi32,
+    _mm256_set1_ps, _mm256_setr_m128i, _mm256_setzero_si256, _mm256_slli_epi16, _mm256_slli_epi32,
+    _mm256_srai_epi16, _mm256_srai_epi32, _mm256_srli_epi16, _mm256_srli_epi32, _mm256_storeu_ps,
+    _mm256_storeu_si256, _mm256_sub_epi8, _mm256_sub_epi16, _mm256_sub_epi32, _mm256_sub_ps,
+    _mm256_unpackhi_epi8, _mm256_unpackhi_epi16, _mm256_unpacklo_epi8, _mm256_unpacklo_epi16,
+    _mm256_xor_ps, _mm256_xor_si256,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
-use crate::f16;
 use crate::ops::{
     BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
-    SignedIntOps, ToFloat,
+    SignedIntOps, ToBf16, ToFloat,
 };
-use crate::{Isa, Mask, Simd};
+use crate::{Isa, Mask, Simd, bf16, f16};
 
 simd_type!(F32x8, __m256, f32, M32, Avx2Isa);
 simd_type!(F16x16, __m256i, f16, M16, Avx2Isa);
+simd_type!(BF16x16, __m256i, bf16, M16, Avx2Isa);
 simd_type!(I32x8, __m256i, i32, M32, Avx2Isa);
 simd_type!(I16x16, __m256i, i16, M16, Avx2Isa);
 simd_type!(I8x32, __m256i, i8, M8, Avx2Isa);
@@ -72,16 +73,22 @@ unsafe impl Isa for Avx2Isa {
     type U16 = U16x16;
     type U32 = U32x8;
     type F16 = F16x16;
+    type BF16 = BF16x16;
     type Bits = I32x8;
 
     fn f32(
         self,
     ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
-    + NarrowSaturate<f32, f16, Output = Self::F16> {
+    + NarrowSaturate<f32, f16, Output = Self::F16>
+    + ToBf16<Output = Self::BF16> {
         self
     }
 
     fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16> {
+        self
+    }
+
+    fn bf16(self) -> impl Extend<bf16, Output = Self::F32, Simd = Self::BF16> {
         self
     }
 
@@ -1135,6 +1142,138 @@ impl NarrowSaturate<f32, f16> for Avx2Isa {
             let high_i128 = _mm256_cvtps_ph::<_MM_FROUND_TO_NEAREST_INT>(high.0);
             _mm256_set_m128i(high_i128, low_i128).into()
         }
+    }
+}
+
+unsafe impl BitOps<bf16> for Avx2Isa {
+    simd_ops_common!(BF16x16, M16);
+    simd_int_ops_common!(BF16x16);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> M16 {
+        let mask: [i16; 16] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        M16(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
+    }
+
+    #[inline]
+    fn splat(self, x: bf16) -> BF16x16 {
+        unsafe { _mm256_set1_epi16(x.to_bits() as i16) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const bf16) -> BF16x16 {
+        unsafe { _mm256_loadu_si256(ptr as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: BF16x16, y: BF16x16, mask: M16) -> BF16x16 {
+        unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: BF16x16, ptr: *mut bf16) {
+        unsafe { _mm256_storeu_si256(ptr as *mut __m256i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const bf16, mask: M16) -> BF16x16 {
+        // There is no native masked-load instruction for 16-bit lanes, so fall
+        // back to scalar loads.
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        let xs: [bf16; 16] = std::array::from_fn(|i| {
+            let mask_bit = mask & (1 << (i * 2 + 1));
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) }
+            } else {
+                bf16::default()
+            }
+        });
+        self.load_ptr(xs.as_ptr())
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: BF16x16, ptr: *mut bf16, mask: M16) {
+        // There is no native masked-store instruction for 16-bit lanes, so fall
+        // back to scalar store.
+        let xs = Simd::to_array(x);
+        let mask = _mm256_movemask_epi8(mask.0) as u32;
+        for i in 0..16 {
+            let mask_bit = mask & (1 << (i * 2 + 1));
+            if mask_bit != 0 {
+                // Safety: Caller promises that `ptr.add(i)` is valid if mask[i] is set.
+                unsafe { *ptr.add(i) = xs[i] }
+            }
+        }
+    }
+}
+
+impl Extend<bf16> for Avx2Isa {
+    type Output = F32x8;
+
+    // A `bf16` is the most significant 16 bits of the `f32` with the same
+    // value, so zero-extend each lane and shift it into place.
+
+    #[inline]
+    fn extend_low(self, x: BF16x16) -> F32x8 {
+        unsafe {
+            let low = _mm256_cvtepu16_epi32(_mm256_castsi256_si128(x.0));
+            _mm256_castsi256_ps(_mm256_slli_epi32(low, 16)).into()
+        }
+    }
+
+    #[inline]
+    fn extend_high(self, x: BF16x16) -> F32x8 {
+        unsafe {
+            let high = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(x.0, 1));
+            _mm256_castsi256_ps(_mm256_slli_epi32(high, 16)).into()
+        }
+    }
+}
+
+/// Round `f32` lanes to `bf16` precision, leaving the result in the most
+/// significant 16 bits of each 32-bit lane.
+///
+/// See `rten_simd::bfloat16::f32_to_bf16` for an explanation of the arithmetic.
+#[inline]
+unsafe fn round_to_bf16(x: F32x8) -> __m256i {
+    unsafe {
+        let bits = _mm256_castps_si256(x.0);
+
+        // Round to nearest, with ties to even.
+        let lsb = _mm256_and_si256(_mm256_srli_epi32(bits, 16), _mm256_set1_epi32(1));
+        let bias = _mm256_add_epi32(lsb, _mm256_set1_epi32(0x7FFF));
+        let rounded = _mm256_add_epi32(bits, bias);
+
+        // NaNs are handled separately because the rounding above can turn a NaN
+        // into an infinity. Setting the MSB of the mantissa yields a quiet NaN.
+        let quiet_nan = _mm256_or_si256(bits, _mm256_set1_epi32(0x0040_0000));
+        let not_nan = _mm256_castps_si256(_mm256_cmp_ps(x.0, x.0, _CMP_ORD_Q));
+
+        _mm256_blendv_epi8(quiet_nan, rounded, not_nan)
+    }
+}
+
+impl ToBf16 for Avx2Isa {
+    type Output = BF16x16;
+
+    #[inline]
+    fn to_bf16(self, low: F32x8, high: F32x8) -> BF16x16 {
+        unsafe {
+            // Move the most significant 16 bits of each 32-bit lane into the
+            // low half. The results all fit in a `u16`, so the saturation
+            // performed by `packus` never applies.
+            let low = _mm256_srli_epi32(round_to_bf16(low), 16);
+            let high = _mm256_srli_epi32(round_to_bf16(high), 16);
+
+            // AVX2 pack functions treat each input as 2 128-bit lanes and
+            // interleave narrowed 64-bit blocks from each input. Shuffle the
+            // output to get narrowed lanes from `low` followed by lanes from
+            // `high`.
+            let packed = _mm256_packus_epi32(low, high);
+            _mm256_permute4x64_epi64(packed, _mm_shuffle(3, 1, 2, 0))
+        }
+        .into()
     }
 }
 

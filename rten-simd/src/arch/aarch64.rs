@@ -1,32 +1,39 @@
 use std::arch::aarch64::{
     float16x8_t, float32x4_t, int8x16_t, int16x8_t, int32x4_t, uint8x16_t, uint16x8_t, uint32x4_t,
-    vabsq_f32, vaddq_f32, vaddq_s8, vaddq_s16, vaddq_s32, vaddq_u8, vaddq_u16, vaddvq_f32,
-    vandq_u8, vandq_u16, vandq_u32, vbslq_f32, vbslq_s8, vbslq_s16, vbslq_s32, vbslq_u8, vbslq_u16,
-    vceqq_f32, vceqq_s8, vceqq_s16, vceqq_s32, vceqq_u8, vceqq_u16, vcgeq_f32, vcgeq_s8, vcgeq_s16,
-    vcgeq_s32, vcgeq_u8, vcgeq_u16, vcgtq_f32, vcgtq_s8, vcgtq_s16, vcgtq_s32, vcgtq_u8, vcgtq_u16,
-    vcleq_f32, vcleq_s8, vcleq_s16, vcleq_u8, vcleq_u16, vcltq_f32, vcltq_s8, vcltq_s16, vcltq_u8,
-    vcltq_u16, vcombine_s16, vcombine_s32, vcombine_u8, vcvt_f16_f32, vcvt_f32_f16,
-    vcvt_high_f16_f32, vcvt_high_f32_f16, vcvtnq_s32_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdivq_f32,
-    vdupq_laneq_f32, vdupq_n_f32, vdupq_n_s8, vdupq_n_s16, vdupq_n_s32, vdupq_n_u8, vdupq_n_u16,
-    veorq_u32, vfmaq_f32, vfmsq_f32, vget_high_s32, vget_low_f16, vget_low_s8, vget_low_s16,
-    vget_low_s32, vget_low_u8, vld1q_f32, vld1q_s8, vld1q_s16, vld1q_s32, vld1q_u8, vld1q_u16,
-    vld1q_u32, vmaxq_f32, vmaxvq_u8, vmaxvq_u16, vmaxvq_u32, vminq_f32, vminvq_u8, vminvq_u16,
-    vminvq_u32, vmovl_high_s8, vmovl_high_s16, vmovl_high_u8, vmovl_s8, vmovl_s16, vmovl_u8,
-    vmulq_f32, vmulq_s8, vmulq_s16, vmulq_s32, vmulq_u8, vmulq_u16, vmvnq_u32, vnegq_f32, vnegq_s8,
-    vnegq_s16, vnegq_s32, vorrq_u32, vqmovn_s32, vqmovun_s16, vrndnq_f32, vshlq_n_s8, vshlq_n_s16,
-    vshlq_n_s32, vshlq_n_u8, vshlq_n_u16, vshrq_n_s8, vshrq_n_s16, vshrq_n_s32, vshrq_n_u8,
-    vshrq_n_u16, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8, vst1q_u16, vsubq_f32,
-    vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vzip1q_s8, vzip1q_s16, vzip1q_u8,
-    vzip2q_s8, vzip2q_s16, vzip2q_u8,
+    vabsq_f32, vaddq_f32, vaddq_s8, vaddq_s16, vaddq_s32, vaddq_u8, vaddq_u16, vaddq_u32,
+    vaddvq_f32, vandq_u8, vandq_u16, vandq_u32, vbslq_f32, vbslq_s8, vbslq_s16, vbslq_s32,
+    vbslq_u8, vbslq_u16, vbslq_u32, vceqq_f32, vceqq_s8, vceqq_s16, vceqq_s32, vceqq_u8, vceqq_u16,
+    vcgeq_f32, vcgeq_s8, vcgeq_s16, vcgeq_s32, vcgeq_u8, vcgeq_u16, vcgtq_f32, vcgtq_s8, vcgtq_s16,
+    vcgtq_s32, vcgtq_u8, vcgtq_u16, vcleq_f32, vcleq_s8, vcleq_s16, vcleq_u8, vcleq_u16, vcltq_f32,
+    vcltq_s8, vcltq_s16, vcltq_u8, vcltq_u16, vcombine_s16, vcombine_s32, vcombine_u8,
+    vcvt_f16_f32, vcvt_f32_f16, vcvt_high_f16_f32, vcvt_high_f32_f16, vcvtnq_s32_f32,
+    vcvtq_f32_s32, vcvtq_s32_f32, vdivq_f32, vdupq_laneq_f32, vdupq_n_f32, vdupq_n_s8, vdupq_n_s16,
+    vdupq_n_s32, vdupq_n_u8, vdupq_n_u16, vdupq_n_u32, veorq_u32, vfmaq_f32, vfmsq_f32,
+    vget_high_s32, vget_low_f16, vget_low_s8, vget_low_s16, vget_low_s32, vget_low_u8, vld1q_f32,
+    vld1q_s8, vld1q_s16, vld1q_s32, vld1q_u8, vld1q_u16, vld1q_u32, vmaxq_f32, vmaxvq_u8,
+    vmaxvq_u16, vmaxvq_u32, vminq_f32, vminvq_u8, vminvq_u16, vminvq_u32, vmovl_high_s8,
+    vmovl_high_s16, vmovl_high_u8, vmovl_s8, vmovl_s16, vmovl_u8, vmulq_f32, vmulq_s8, vmulq_s16,
+    vmulq_s32, vmulq_u8, vmulq_u16, vmvnq_u32, vnegq_f32, vnegq_s8, vnegq_s16, vnegq_s32,
+    vorrq_u32, vqmovn_s32, vqmovun_s16, vrndnq_f32, vshlq_n_s8, vshlq_n_s16, vshlq_n_s32,
+    vshlq_n_u8, vshlq_n_u16, vshrq_n_s8, vshrq_n_s16, vshrq_n_s32, vshrq_n_u8, vshrq_n_u16,
+    vshrq_n_u32, vst1q_f32, vst1q_s8, vst1q_s16, vst1q_s32, vst1q_u8, vst1q_u16, vsubq_f32,
+    vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vuzp2q_u16, vzip1q_s8, vzip1q_s16,
+    vzip1q_u8, vzip1q_u16, vzip2q_s8, vzip2q_s16, vzip2q_u8, vzip2q_u16,
 };
 use std::mem::transmute;
 
-use crate::f16;
+use super::simd_type;
 use crate::ops::{
     BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
-    SignedIntOps, ToFloat,
+    SignedIntOps, ToBf16, ToFloat,
 };
-use crate::{Isa, Mask, Simd};
+use crate::{Isa, Mask, Simd, bf16, f16};
+
+// Neon has no native `bf16` vector type available on stable Rust, so use a
+// wrapper around a `u16` vector. Only bitwise operations plus conversion to
+// and from `f32` are supported, and those are all implemented using integer
+// instructions.
+simd_type!(BF16x8, uint16x8_t, bf16, uint16x8_t, ArmNeonIsa);
 
 #[derive(Copy, Clone)]
 pub struct ArmNeonIsa {
@@ -52,16 +59,22 @@ unsafe impl Isa for ArmNeonIsa {
     type U16 = uint16x8_t;
     type U32 = uint32x4_t;
     type F16 = float16x8_t;
+    type BF16 = BF16x8;
     type Bits = int32x4_t;
 
     fn f32(
         self,
     ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
-    + NarrowSaturate<f32, f16, Output = Self::F16> {
+    + NarrowSaturate<f32, f16, Output = Self::F16>
+    + ToBf16<Output = Self::BF16> {
         self
     }
 
     fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16> {
+        self
+    }
+
+    fn bf16(self) -> impl Extend<bf16, Output = Self::F32, Simd = Self::BF16> {
         self
     }
 
@@ -1063,6 +1076,100 @@ impl NarrowSaturate<f32, f16> for ArmNeonIsa {
         unsafe {
             let low = vcvt_f16_f32(low);
             vcvt_high_f16_f32(low, high)
+        }
+    }
+}
+
+unsafe impl BitOps<bf16> for ArmNeonIsa {
+    simd_ops_common!(BF16x8, uint16x8_t);
+
+    #[inline]
+    fn splat(self, x: bf16) -> BF16x8 {
+        BF16x8(unsafe { vdupq_n_u16(x.to_bits()) })
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const bf16) -> BF16x8 {
+        BF16x8(unsafe { vld1q_u16(ptr as *const u16) })
+    }
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> uint16x8_t {
+        let mask: [u16; 8] = std::array::from_fn(|i| if i < n { u16::MAX } else { 0 });
+        unsafe { vld1q_u16(mask.as_ptr()) }
+    }
+
+    #[inline]
+    fn select(self, x: BF16x8, y: BF16x8, mask: <BF16x8 as Simd>::Mask) -> BF16x8 {
+        BF16x8(unsafe { vbslq_u16(mask, x.0, y.0) })
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: BF16x8, ptr: *mut bf16) {
+        unsafe { vst1q_u16(ptr as *mut u16, x.0) }
+    }
+}
+
+impl Extend<bf16> for ArmNeonIsa {
+    type Output = float32x4_t;
+
+    // A `bf16` is the most significant 16 bits of the `f32` with the same
+    // value, so interleaving with zeros converts each lane.
+
+    #[inline]
+    fn extend_low(self, x: BF16x8) -> float32x4_t {
+        unsafe {
+            let zero = vdupq_n_u16(0);
+            transmute::<uint16x8_t, float32x4_t>(vzip1q_u16(zero, x.0))
+        }
+    }
+
+    #[inline]
+    fn extend_high(self, x: BF16x8) -> float32x4_t {
+        unsafe {
+            let zero = vdupq_n_u16(0);
+            transmute::<uint16x8_t, float32x4_t>(vzip2q_u16(zero, x.0))
+        }
+    }
+}
+
+/// Round `f32` lanes to `bf16` precision, leaving the result in the most
+/// significant 16 bits of each 32-bit lane.
+///
+/// See `rten_simd::bfloat16::f32_to_bf16` for an explanation of the arithmetic.
+#[inline]
+unsafe fn round_to_bf16(x: float32x4_t) -> uint32x4_t {
+    unsafe {
+        let bits = transmute::<float32x4_t, uint32x4_t>(x);
+
+        // Round to nearest, with ties to even.
+        let lsb = vandq_u32(vshrq_n_u32::<16>(bits), vdupq_n_u32(1));
+        let bias = vaddq_u32(lsb, vdupq_n_u32(0x7FFF));
+        let rounded = vaddq_u32(bits, bias);
+
+        // NaNs are handled separately because the rounding above can turn a NaN
+        // into an infinity. Setting the MSB of the mantissa yields a quiet NaN.
+        let quiet_nan = vorrq_u32(bits, vdupq_n_u32(0x0040_0000));
+        let not_nan = vceqq_f32(x, x);
+
+        vbslq_u32(not_nan, rounded, quiet_nan)
+    }
+}
+
+impl ToBf16 for ArmNeonIsa {
+    type Output = BF16x8;
+
+    #[inline]
+    fn to_bf16(self, low: float32x4_t, high: float32x4_t) -> BF16x8 {
+        unsafe {
+            let low = round_to_bf16(low);
+            let high = round_to_bf16(high);
+
+            // Gather the most significant 16 bits of each 32-bit lane.
+            BF16x8(vuzp2q_u16(
+                transmute::<uint32x4_t, uint16x8_t>(low),
+                transmute::<uint32x4_t, uint16x8_t>(high),
+            ))
         }
     }
 }

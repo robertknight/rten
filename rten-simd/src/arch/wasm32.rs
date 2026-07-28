@@ -12,8 +12,8 @@ use std::arch::wasm32::{
     u8x16_shr, u8x16_shuffle, u8x16_splat, u8x16_sub, u16x8, u16x8_add, u16x8_eq,
     u16x8_extend_high_u8x16, u16x8_extend_low_u8x16, u16x8_extmul_high_u8x16,
     u16x8_extmul_low_u8x16, u16x8_ge, u16x8_gt, u16x8_mul, u16x8_shl, u16x8_shr, u16x8_splat,
-    u16x8_sub, v128, v128_and, v128_any_true, v128_bitselect, v128_load, v128_not, v128_or,
-    v128_store, v128_xor,
+    u16x8_sub, u32x4_shr, u32x4_splat, v128, v128_and, v128_any_true, v128_bitselect, v128_load,
+    v128_not, v128_or, v128_store, v128_xor,
 };
 use std::mem::transmute;
 
@@ -23,9 +23,9 @@ use std::arch::wasm32::{f32x4_relaxed_madd, f32x4_relaxed_nmadd};
 use super::{lanes, simd_type};
 use crate::ops::{
     BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
-    SignedIntOps, ToFloat,
+    SignedIntOps, ToBf16, ToFloat,
 };
-use crate::{Isa, Mask, Simd, f16};
+use crate::{Isa, Mask, Simd, bf16, f16};
 
 simd_type!(F32x4, v128, f32, M32, Wasm32Isa);
 simd_type!(I32x4, v128, i32, M32, Wasm32Isa);
@@ -35,6 +35,7 @@ simd_type!(U8x16, v128, u8, M8, Wasm32Isa);
 simd_type!(U16x8, v128, u16, M16, Wasm32Isa);
 simd_type!(U32x4, v128, u32, M32, Wasm32Isa);
 simd_type!(F16x8, v128, f16, M16, Wasm32Isa);
+simd_type!(BF16x8, v128, bf16, M16, Wasm32Isa);
 
 #[derive(Copy, Clone)]
 pub struct Wasm32Isa {
@@ -61,16 +62,22 @@ unsafe impl Isa for Wasm32Isa {
     type U16 = U16x8;
     type U32 = U32x4;
     type F16 = F16x8;
+    type BF16 = BF16x8;
     type Bits = I32x4;
 
     fn f32(
         self,
     ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
-    + NarrowSaturate<f32, f16, Output = Self::F16> {
+    + NarrowSaturate<f32, f16, Output = Self::F16>
+    + ToBf16<Output = Self::BF16> {
         self
     }
 
     fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16> {
+        self
+    }
+
+    fn bf16(self) -> impl Extend<bf16, Output = Self::F32, Simd = Self::BF16> {
         self
     }
 
@@ -814,6 +821,69 @@ impl NarrowSaturate<f32, f16> for Wasm32Isa {
             f16::from_f32(high[2]).to_bits(),
             f16::from_f32(high[3]).to_bits(),
         ))
+    }
+}
+
+unsafe impl BitOps<bf16> for Wasm32Isa {
+    simd_ops_common!(BF16x8, M16, u16);
+
+    #[inline]
+    fn splat(self, x: bf16) -> BF16x8 {
+        BF16x8(u16x8_splat(x.to_bits()))
+    }
+}
+
+// Unlike f16, bf16 <-> f32 conversion can be vectorized using integer
+// operations, since a `bf16` is just the most significant 16 bits of the `f32`
+// with the same value.
+impl Extend<bf16> for Wasm32Isa {
+    type Output = F32x4;
+
+    // Interleave with zeros to move each lane into the most significant
+    // 16 bits of a 32-bit lane.
+
+    #[inline]
+    fn extend_low(self, x: BF16x8) -> F32x4 {
+        let zero = u16x8_splat(0);
+        F32x4(i16x8_shuffle::<0, 8, 0, 9, 0, 10, 0, 11>(zero, x.0))
+    }
+
+    #[inline]
+    fn extend_high(self, x: BF16x8) -> F32x4 {
+        let zero = u16x8_splat(0);
+        F32x4(i16x8_shuffle::<0, 12, 0, 13, 0, 14, 0, 15>(zero, x.0))
+    }
+}
+
+/// Round `f32` lanes to `bf16` precision, leaving the result in the most
+/// significant 16 bits of each 32-bit lane.
+///
+/// See `rten_simd::bfloat16::f32_to_bf16` for an explanation of the arithmetic.
+#[inline]
+fn round_to_bf16(x: v128) -> v128 {
+    // Round to nearest, with ties to even.
+    let lsb = v128_and(u32x4_shr(x, 16), u32x4_splat(1));
+    let bias = i32x4_add(lsb, u32x4_splat(0x7FFF));
+    let rounded = i32x4_add(x, bias);
+
+    // NaNs are handled separately because the rounding above can turn a NaN
+    // into an infinity. Setting the MSB of the mantissa yields a quiet NaN.
+    let quiet_nan = v128_or(x, u32x4_splat(0x0040_0000));
+    let not_nan = f32x4_eq(x, x);
+
+    v128_bitselect(rounded, quiet_nan, not_nan)
+}
+
+impl ToBf16 for Wasm32Isa {
+    type Output = BF16x8;
+
+    #[inline]
+    fn to_bf16(self, low: F32x4, high: F32x4) -> BF16x8 {
+        let low = round_to_bf16(low.0);
+        let high = round_to_bf16(high.0);
+
+        // Gather the most significant 16 bits of each 32-bit lane.
+        BF16x8(i16x8_shuffle::<1, 3, 5, 7, 9, 11, 13, 15>(low, high))
     }
 }
 

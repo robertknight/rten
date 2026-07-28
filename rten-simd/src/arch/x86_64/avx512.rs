@@ -1,13 +1,14 @@
 use std::arch::x86_64::{
     __m512, __m512i, __mmask16, __mmask32, __mmask64, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ,
-    _CMP_LE_OQ, _CMP_LT_OQ, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT,
+    _CMP_LE_OQ, _CMP_LT_OQ, _CMP_ORD_Q, _MM_CMPINT_EQ, _MM_CMPINT_NLE, _MM_CMPINT_NLT,
     _MM_FROUND_TO_NEAREST_INT, _MM_HINT_ET0, _MM_HINT_T0, _mm_prefetch, _mm512_add_epi8,
     _mm512_add_epi16, _mm512_add_epi32, _mm512_add_ps, _mm512_and_ps, _mm512_and_si512,
-    _mm512_andnot_ps, _mm512_andnot_si512, _mm512_castsi256_si512, _mm512_castsi512_si256,
-    _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask, _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask,
-    _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask, _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask,
-    _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask, _mm512_cvtepi8_epi16, _mm512_cvtepi16_epi8,
-    _mm512_cvtepi16_epi32, _mm512_cvtepi32_ps, _mm512_cvtepu8_epi16, _mm512_cvtph_ps,
+    _mm512_andnot_ps, _mm512_andnot_si512, _mm512_castps_si512, _mm512_castsi256_si512,
+    _mm512_castsi512_ps, _mm512_castsi512_si256, _mm512_cmp_epi16_mask, _mm512_cmp_epi32_mask,
+    _mm512_cmp_epu16_mask, _mm512_cmp_ps_mask, _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epu8_mask,
+    _mm512_cmpge_epi8_mask, _mm512_cmpge_epu8_mask, _mm512_cmpgt_epi8_mask, _mm512_cmpgt_epu8_mask,
+    _mm512_cvtepi8_epi16, _mm512_cvtepi16_epi8, _mm512_cvtepi16_epi32, _mm512_cvtepi32_epi16,
+    _mm512_cvtepi32_ps, _mm512_cvtepu8_epi16, _mm512_cvtepu16_epi32, _mm512_cvtph_ps,
     _mm512_cvtps_epi32, _mm512_cvtps_ph, _mm512_cvttps_epi32, _mm512_div_ps,
     _mm512_extracti64x4_epi64, _mm512_fmadd_ps, _mm512_fnmadd_ps, _mm512_inserti64x4,
     _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi8, _mm512_mask_blend_epi16,
@@ -19,22 +20,23 @@ use std::arch::x86_64::{
     _mm512_permutexvar_epi64, _mm512_reduce_add_ps, _mm512_roundscale_ps, _mm512_set1_epi8,
     _mm512_set1_epi16, _mm512_set1_epi32, _mm512_set1_ps, _mm512_setr_epi32, _mm512_setr_epi64,
     _mm512_setzero_si512, _mm512_sllv_epi16, _mm512_sllv_epi32, _mm512_srav_epi16,
-    _mm512_srav_epi32, _mm512_srlv_epi16, _mm512_storeu_ps, _mm512_storeu_si512, _mm512_sub_epi8,
-    _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_ps, _mm512_unpackhi_epi8, _mm512_unpackhi_epi16,
-    _mm512_unpacklo_epi8, _mm512_unpacklo_epi16, _mm512_xor_ps, _mm512_xor_si512,
+    _mm512_srav_epi32, _mm512_srlv_epi16, _mm512_srlv_epi32, _mm512_storeu_ps, _mm512_storeu_si512,
+    _mm512_sub_epi8, _mm512_sub_epi16, _mm512_sub_epi32, _mm512_sub_ps, _mm512_unpackhi_epi8,
+    _mm512_unpackhi_epi16, _mm512_unpacklo_epi8, _mm512_unpacklo_epi16, _mm512_xor_ps,
+    _mm512_xor_si512,
 };
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
-use crate::f16;
 use crate::ops::{
     BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
-    SignedIntOps, ToFloat,
+    SignedIntOps, ToBf16, ToFloat,
 };
-use crate::{Isa, Mask, Simd};
+use crate::{Isa, Mask, Simd, bf16, f16};
 
 simd_type!(F32x16, __m512, f32, __mmask16, Avx512Isa);
 simd_type!(F16x32, __m512i, f16, __mmask32, Avx512Isa);
+simd_type!(BF16x32, __m512i, bf16, __mmask32, Avx512Isa);
 simd_type!(I32x16, __m512i, i32, __mmask16, Avx512Isa);
 simd_type!(I16x32, __m512i, i16, __mmask32, Avx512Isa);
 simd_type!(I8x64, __m512i, i8, __mmask64, Avx512Isa);
@@ -70,16 +72,22 @@ unsafe impl Isa for Avx512Isa {
     type U16 = U16x32;
     type U32 = U32x16;
     type F16 = F16x32;
+    type BF16 = BF16x32;
     type Bits = I32x16;
 
     fn f32(
         self,
     ) -> impl FloatOps<f32, Simd = Self::F32, Int = Self::I32>
-    + NarrowSaturate<f32, f16, Output = Self::F16> {
+    + NarrowSaturate<f32, f16, Output = Self::F16>
+    + ToBf16<Output = Self::BF16> {
         self
     }
 
     fn f16(self) -> impl Extend<f16, Output = Self::F32, Simd = Self::F16> {
+        self
+    }
+
+    fn bf16(self) -> impl Extend<bf16, Output = Self::F32, Simd = Self::BF16> {
         self
     }
 
@@ -1100,6 +1108,108 @@ impl NarrowSaturate<f32, f16> for Avx512Isa {
             let low_i256 = _mm512_cvtps_ph::<_MM_FROUND_TO_NEAREST_INT>(low.0);
             let high_i256 = _mm512_cvtps_ph::<_MM_FROUND_TO_NEAREST_INT>(high.0);
             _mm512_inserti64x4(_mm512_castsi256_si512(low_i256), high_i256, 1).into()
+        }
+    }
+}
+
+unsafe impl BitOps<bf16> for Avx512Isa {
+    simd_ops_common!(BF16x32, __mmask32);
+    simd_int_ops_common!(BF16x32);
+
+    #[inline]
+    fn splat(self, x: bf16) -> BF16x32 {
+        unsafe { _mm512_set1_epi16(x.to_bits() as i16) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const bf16) -> BF16x32 {
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: BF16x32, y: BF16x32, mask: <BF16x32 as Simd>::Mask) -> BF16x32 {
+        unsafe { _mm512_mask_blend_epi16(mask, y.0, x.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: BF16x32, ptr: *mut bf16) {
+        unsafe { _mm512_storeu_si512(ptr as *mut __m512i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const bf16, mask: __mmask32) -> BF16x32 {
+        unsafe { _mm512_mask_loadu_epi16(_mm512_set1_epi16(0), mask, ptr as *const i16) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: BF16x32, ptr: *mut bf16, mask: __mmask32) {
+        unsafe { _mm512_mask_storeu_epi16(ptr as *mut i16, mask, x.0) }
+    }
+}
+
+impl Extend<bf16> for Avx512Isa {
+    type Output = F32x16;
+
+    // A `bf16` is the most significant 16 bits of the `f32` with the same
+    // value, so zero-extend each lane and shift it into place.
+
+    #[inline]
+    fn extend_low(self, x: BF16x32) -> F32x16 {
+        unsafe {
+            let shift = _mm512_set1_epi32(16);
+            let low = _mm512_cvtepu16_epi32(_mm512_castsi512_si256(x.0));
+            _mm512_castsi512_ps(_mm512_sllv_epi32(low, shift)).into()
+        }
+    }
+
+    #[inline]
+    fn extend_high(self, x: BF16x32) -> F32x16 {
+        unsafe {
+            let shift = _mm512_set1_epi32(16);
+            let high = _mm512_cvtepu16_epi32(_mm512_extracti64x4_epi64(x.0, 1));
+            _mm512_castsi512_ps(_mm512_sllv_epi32(high, shift)).into()
+        }
+    }
+}
+
+/// Round `f32` lanes to `bf16` precision, leaving the result in the most
+/// significant 16 bits of each 32-bit lane.
+///
+/// See `rten_simd::bfloat16::f32_to_bf16` for an explanation of the arithmetic.
+#[inline]
+unsafe fn round_to_bf16(x: F32x16) -> __m512i {
+    unsafe {
+        let bits = _mm512_castps_si512(x.0);
+
+        // Round to nearest, with ties to even.
+        let lsb = _mm512_and_si512(
+            _mm512_srlv_epi32(bits, _mm512_set1_epi32(16)),
+            _mm512_set1_epi32(1),
+        );
+        let bias = _mm512_add_epi32(lsb, _mm512_set1_epi32(0x7FFF));
+        let rounded = _mm512_add_epi32(bits, bias);
+
+        // NaNs are handled separately because the rounding above can turn a NaN
+        // into an infinity. Setting the MSB of the mantissa yields a quiet NaN.
+        let quiet_nan = _mm512_or_si512(bits, _mm512_set1_epi32(0x0040_0000));
+        let not_nan = _mm512_cmp_ps_mask(x.0, x.0, _CMP_ORD_Q);
+
+        _mm512_mask_blend_epi32(not_nan, quiet_nan, rounded)
+    }
+}
+
+impl ToBf16 for Avx512Isa {
+    type Output = BF16x32;
+
+    #[inline]
+    fn to_bf16(self, low: F32x16, high: F32x16) -> BF16x32 {
+        unsafe {
+            // Move the most significant 16 bits of each 32-bit lane into the
+            // low half, then truncate each lane to 16 bits.
+            let shift = _mm512_set1_epi32(16);
+            let low = _mm512_cvtepi32_epi16(_mm512_srlv_epi32(round_to_bf16(low), shift));
+            let high = _mm512_cvtepi32_epi16(_mm512_srlv_epi32(round_to_bf16(high), shift));
+            _mm512_inserti64x4(_mm512_castsi256_si512(low), high, 1).into()
         }
     }
 }

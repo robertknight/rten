@@ -211,6 +211,7 @@
 //! ```
 
 mod arch;
+pub mod bfloat16;
 mod dispatch;
 mod elem;
 pub mod float16;
@@ -245,6 +246,7 @@ pub mod isa {
     pub use super::arch::wasm32::Wasm32Isa;
 }
 
+pub use bfloat16::bf16;
 pub use dispatch::{SimdOp, SimdUnaryOp};
 pub use elem::Elem;
 pub use float16::f16;
