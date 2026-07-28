@@ -646,9 +646,10 @@ impl<'a> Attr<'a> {
         // The conversions here should match those used when converting
         // initializers and value types in the ONNX model loader.
         match onnx_dtype {
-            onnx::DataType::FLOAT | onnx::DataType::FLOAT16 | onnx::DataType::DOUBLE => {
-                Ok(DataType::Float)
-            }
+            onnx::DataType::FLOAT
+            | onnx::DataType::FLOAT16
+            | onnx::DataType::BFLOAT16
+            | onnx::DataType::DOUBLE => Ok(DataType::Float),
             onnx::DataType::INT32 | onnx::DataType::INT64 | onnx::DataType::BOOL => {
                 Ok(DataType::Int32)
             }
@@ -2075,7 +2076,7 @@ impl_read_op!(Xor);
 #[cfg(test)]
 mod tests {
     use rten_onnx::onnx;
-    use rten_simd::f16;
+    use rten_simd::{bf16, f16};
     use rten_testing::TestCases;
 
     use super::{ConstInput, OnnxOpRegistry, OpLoadContext, ReadOpError};
@@ -2658,11 +2659,19 @@ mod tests {
                     value: Scalar::Float(2.5),
                 }),
             },
-            // f16 values are converted to f32.
+            // f16 and bf16 values are converted to f32.
             Case {
                 dtype: onnx::DataType::FLOAT16,
                 shape: &[],
                 data: TensorData::Raw(f16::from_f32(2.5).to_bits().to_le_bytes().into()),
+                expected: Ok(ConstantOfShape {
+                    value: Scalar::Float(2.5),
+                }),
+            },
+            Case {
+                dtype: onnx::DataType::BFLOAT16,
+                shape: &[],
+                data: TensorData::Raw(bf16::from_f32(2.5).to_bits().to_le_bytes().into()),
                 expected: Ok(ConstantOfShape {
                     value: Scalar::Float(2.5),
                 }),

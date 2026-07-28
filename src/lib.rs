@@ -85,13 +85,14 @@
 //!   tensors, on the assumption that the values in `i64` tensors will be in the
 //!   `i32` range. When preparing model inputs that expect these data types in
 //!   ONNX, you will need to convert them to `i32`.
-//! - `f64` tensors are supported by converting them to `f32`.
+//! - `f64`, `f16` and `bf16` tensors are supported by converting them to `f32`.
 //!
 //! Some operators support a more limited set of data types than described in
 //! the ONNX specification. Please file an issue if you need an operator to
 //! support additional data types.
 //!
-//! Support for additional types (eg. `f16`, `bf16`) is planned for the
+//! Support for evaluating models using `f16` or `bf16` arithmetic, rather than
+//! converting these types to `f32` when the model is loaded, is planned for the
 //! future.
 //!
 //! ## Supported operators
