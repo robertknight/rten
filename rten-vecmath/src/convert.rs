@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
-use rten_simd::ops::{BitOps, Extend, NarrowSaturate};
-use rten_simd::{Isa, SimdOp, SliceWriter, f16};
+use rten_simd::ops::{BitOps, Extend, NarrowSaturate, ToBf16};
+use rten_simd::{Isa, SimdOp, SliceWriter, bf16, f16};
 
 /// Convert a slice of `f16` values to `f32`.
 pub struct F16ToF32<'s, 'd> {
@@ -108,12 +108,117 @@ impl<'d> SimdOp for F32ToF16<'_, 'd> {
     }
 }
 
+/// Convert a slice of `bf16` values to `f32`.
+pub struct BF16ToF32<'s, 'd> {
+    src: &'s [bf16],
+    dest: &'d mut [MaybeUninit<f32>],
+}
+
+impl<'s, 'd> BF16ToF32<'s, 'd> {
+    /// Create a conversion operation which reads from `src` and writes the
+    /// converted values to `dest`.
+    ///
+    /// Panics if `src` and `dest` have different lengths.
+    pub fn new(src: &'s [bf16], dest: &'d mut [MaybeUninit<f32>]) -> Self {
+        assert_eq!(src.len(), dest.len());
+        BF16ToF32 { src, dest }
+    }
+}
+
+impl<'d> SimdOp for BF16ToF32<'_, 'd> {
+    type Output = &'d mut [f32];
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let bf16_ops = isa.bf16();
+        let f32_ops = isa.f32();
+        let bf16_v_len = bf16_ops.len();
+
+        let mut dest_writer = SliceWriter::new(self.dest);
+
+        // Main loop, unrolled by two.
+        let mut chunks = self.src.chunks_exact(bf16_v_len * 2);
+        for chunk in chunks.by_ref() {
+            let xs = bf16_ops.load_many::<2>(chunk);
+            let lo0 = bf16_ops.extend_low(xs[0]);
+            let hi0 = bf16_ops.extend_high(xs[0]);
+            let lo1 = bf16_ops.extend_low(xs[1]);
+            let hi1 = bf16_ops.extend_high(xs[1]);
+            // Store all four f32 vectors with a single bounds check.
+            dest_writer.write_vecs(f32_ops, [lo0, hi0, lo1, hi1]);
+        }
+
+        // Convert a remaining whole `bf16` vector, if any.
+        let mut chunks = chunks.remainder().chunks_exact(bf16_v_len);
+        for chunk in chunks.by_ref() {
+            let x = bf16_ops.load(chunk);
+            let low = bf16_ops.extend_low(x);
+            let high = bf16_ops.extend_high(x);
+            dest_writer.write_vec(f32_ops, low);
+            dest_writer.write_vec(f32_ops, high);
+        }
+
+        // Convert tail elements which don't fill a whole vector.
+        for &x in chunks.remainder() {
+            dest_writer.write_scalar(x.to_f32());
+        }
+
+        dest_writer.into_mut_slice()
+    }
+}
+
+/// Convert a slice of `f32` values to `bf16`.
+///
+/// Values are rounded to the nearest `bf16`, with ties to even. Values whose
+/// magnitude exceeds the `bf16` range are rounded to infinity.
+pub struct F32ToBF16<'s, 'd> {
+    src: &'s [f32],
+    dest: &'d mut [MaybeUninit<bf16>],
+}
+
+impl<'s, 'd> F32ToBF16<'s, 'd> {
+    /// Create a conversion operation which reads from `src` and writes the
+    /// converted values to `dest`.
+    ///
+    /// Panics if `src` and `dest` have different lengths.
+    pub fn new(src: &'s [f32], dest: &'d mut [MaybeUninit<bf16>]) -> Self {
+        assert_eq!(src.len(), dest.len());
+        F32ToBF16 { src, dest }
+    }
+}
+
+impl<'d> SimdOp for F32ToBF16<'_, 'd> {
+    type Output = &'d mut [bf16];
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let f32_ops = isa.f32();
+        let bf16_ops = isa.bf16();
+        let f32_v_len = f32_ops.len();
+
+        let mut src_chunks = self.src.chunks_exact(f32_v_len * 2);
+        let mut dest_writer = SliceWriter::new(self.dest);
+
+        for src_chunk in src_chunks.by_ref() {
+            let xs = f32_ops.load_many::<2>(src_chunk);
+            let half = f32_ops.to_bf16(xs[0], xs[1]);
+            dest_writer.write_vec(bf16_ops, half);
+        }
+
+        for &x in src_chunks.remainder() {
+            dest_writer.write_scalar(bf16::from_f32(x));
+        }
+
+        dest_writer.into_mut_slice()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::ops::BitOps;
-    use rten_simd::{Isa, SimdOp, f16};
+    use rten_simd::{Isa, SimdOp, bf16, f16};
 
-    use super::{F16ToF32, F32ToF16};
+    use super::{BF16ToF32, F16ToF32, F32ToBF16, F32ToF16};
 
     /// Return the number of `f16` lanes in a SIMD vector.
     fn f16_vec_len() -> usize {
@@ -189,6 +294,83 @@ mod tests {
         let back = F16ToF32::new(&half, back_buf.spare_capacity_mut()).dispatch();
 
         let expected: Vec<f32> = src.iter().map(|&x| f16::from_f32(x).to_f32()).collect();
+        assert_eq!(back, expected);
+    }
+
+    /// Return the number of `bf16` lanes in a SIMD vector.
+    fn bf16_vec_len() -> usize {
+        struct BF16VecLen {}
+        impl SimdOp for BF16VecLen {
+            type Output = usize;
+            fn eval<I: Isa>(self, isa: I) -> usize {
+                isa.bf16().len()
+            }
+        }
+        BF16VecLen {}.dispatch()
+    }
+
+    #[test]
+    fn test_bf16_to_f32() {
+        // Length chosen to exercise all three code paths: the main loop
+        // (unrolled by two, so it needs at least two whole vectors), the
+        // single-vector cleanup loop, and the scalar tail.
+        let len = bf16_vec_len() * 3 + 1;
+        let src: Vec<bf16> = (0..len)
+            .map(|i| bf16::from_f32(i as f32 * 0.5 - 3.0))
+            .collect();
+        let expected: Vec<f32> = src.iter().map(|x| x.to_f32()).collect();
+
+        let mut buf = Vec::with_capacity(src.len());
+        let actual = BF16ToF32::new(&src, buf.spare_capacity_mut()).dispatch();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_bf16_to_f32_empty() {
+        let src: Vec<bf16> = Vec::new();
+        let mut buf: Vec<f32> = Vec::new();
+        let actual = BF16ToF32::new(&src, buf.spare_capacity_mut()).dispatch();
+        assert!(actual.is_empty());
+    }
+
+    #[test]
+    fn test_f32_to_bf16() {
+        // Length larger than the max `bf16` vector width, and not an exact
+        // multiple, so we exercise both the vectorized body and the scalar
+        // tail.
+        let len = bf16_vec_len() + 1;
+        let src: Vec<f32> = (0..len).map(|i| i as f32 * 0.3 - 3.0).collect();
+        let expected: Vec<bf16> = src.iter().map(|&x| bf16::from_f32(x)).collect();
+
+        let mut buf = Vec::with_capacity(src.len());
+        let actual = F32ToBF16::new(&src, buf.spare_capacity_mut()).dispatch();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_f32_to_bf16_empty() {
+        let src: Vec<f32> = Vec::new();
+        let mut buf: Vec<bf16> = Vec::new();
+        let actual = F32ToBF16::new(&src, buf.spare_capacity_mut()).dispatch();
+        assert!(actual.is_empty());
+    }
+
+    // Round-trip f32 -> bf16 -> f32 for values exactly representable in bf16.
+    #[test]
+    fn test_bf16_roundtrip() {
+        let len = bf16_vec_len() * 2 + 3;
+        let src: Vec<f32> = (0..len).map(|i| i as f32 * 0.25 - 5.0).collect();
+
+        let mut half_buf = Vec::with_capacity(len);
+        let half = F32ToBF16::new(&src, half_buf.spare_capacity_mut()).dispatch();
+        let half: Vec<bf16> = half.to_vec();
+
+        let mut back_buf = Vec::with_capacity(len);
+        let back = BF16ToF32::new(&half, back_buf.spare_capacity_mut()).dispatch();
+
+        let expected: Vec<f32> = src.iter().map(|&x| bf16::from_f32(x).to_f32()).collect();
         assert_eq!(back, expected);
     }
 }

@@ -129,7 +129,7 @@ pub use softmax::{LogSoftmax, Softmax};
 pub use sum::{Sum, SumAbs, SumExpSub, SumSquare, SumSquareSub};
 
 // Conversion functions.
-pub use convert::{F16ToF32, F32ToF16};
+pub use convert::{BF16ToF32, F16ToF32, F32ToBF16, F32ToF16};
 
 // Utilities
 pub use extend_init::ExtendInit;
