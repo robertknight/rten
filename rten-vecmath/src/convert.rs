@@ -96,7 +96,7 @@ impl<'d> SimdOp for F32ToF16<'_, 'd> {
 
         for src_chunk in src_chunks.by_ref() {
             let xs = f32_ops.load_many::<2>(src_chunk);
-            let half = f32_ops.narrow_saturate(xs[0], xs[1]);
+            let half = NarrowSaturate::<f32, f16>::narrow_saturate(f32_ops, xs[0], xs[1]);
             dest_writer.write_vec(f16_ops, half);
         }
 
