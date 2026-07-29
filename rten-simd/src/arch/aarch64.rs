@@ -571,12 +571,13 @@ impl Extend<i16> for ArmNeonIsa {
     type Output = int32x4_t;
 
     #[inline]
-    fn extend(self, x: int16x8_t) -> (int32x4_t, int32x4_t) {
-        unsafe {
-            let low = vmovl_s16(vget_low_s16(x));
-            let high = vmovl_high_s16(x);
-            (low, high)
-        }
+    fn extend_low(self, x: int16x8_t) -> int32x4_t {
+        unsafe { vmovl_s16(vget_low_s16(x)) }
+    }
+
+    #[inline]
+    fn extend_high(self, x: int16x8_t) -> int32x4_t {
+        unsafe { vmovl_high_s16(x) }
     }
 }
 
@@ -687,12 +688,13 @@ impl Extend<i8> for ArmNeonIsa {
     type Output = int16x8_t;
 
     #[inline]
-    fn extend(self, x: int8x16_t) -> (int16x8_t, int16x8_t) {
-        unsafe {
-            let low = vmovl_s8(vget_low_s8(x));
-            let high = vmovl_high_s8(x);
-            (low, high)
-        }
+    fn extend_low(self, x: int8x16_t) -> int16x8_t {
+        unsafe { vmovl_s8(vget_low_s8(x)) }
+    }
+
+    #[inline]
+    fn extend_high(self, x: int8x16_t) -> int16x8_t {
+        unsafe { vmovl_high_s8(x) }
     }
 }
 
@@ -784,12 +786,13 @@ impl Extend<u8> for ArmNeonIsa {
     type Output = uint16x8_t;
 
     #[inline]
-    fn extend(self, x: uint8x16_t) -> (uint16x8_t, uint16x8_t) {
-        unsafe {
-            let low = vmovl_u8(vget_low_u8(x));
-            let high = vmovl_high_u8(x);
-            (low, high)
-        }
+    fn extend_low(self, x: uint8x16_t) -> uint16x8_t {
+        unsafe { vmovl_u8(vget_low_u8(x)) }
+    }
+
+    #[inline]
+    fn extend_high(self, x: uint8x16_t) -> uint16x8_t {
+        unsafe { vmovl_high_u8(x) }
     }
 }
 
@@ -1042,12 +1045,13 @@ impl Extend<f16> for ArmNeonIsa {
     type Output = float32x4_t;
 
     #[inline]
-    fn extend(self, x: float16x8_t) -> (float32x4_t, float32x4_t) {
-        unsafe {
-            let low = vcvt_f32_f16(vget_low_f16(x));
-            let high = vcvt_high_f32_f16(x);
-            (low, high)
-        }
+    fn extend_low(self, x: float16x8_t) -> float32x4_t {
+        unsafe { vcvt_f32_f16(vget_low_f16(x)) }
+    }
+
+    #[inline]
+    fn extend_high(self, x: float16x8_t) -> float32x4_t {
+        unsafe { vcvt_high_f32_f16(x) }
     }
 }
 

@@ -659,8 +659,10 @@ unsafe impl NumOps<i8> for Avx512Isa {
 
     #[inline]
     fn mul(self, x: I8x64, y: I8x64) -> I8x64 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
-        let (y_lo, y_hi) = Extend::<i8>::extend(self, y);
+        let x_lo = Extend::<i8>::extend_low(self, x);
+        let x_hi = Extend::<i8>::extend_high(self, x);
+        let y_lo = Extend::<i8>::extend_low(self, y);
+        let y_hi = Extend::<i8>::extend_high(self, y);
 
         let i16_ops = self.i16();
         let prod_lo = i16_ops.mul(x_lo, y_lo);
@@ -688,7 +690,8 @@ unsafe impl NumOps<i8> for Avx512Isa {
 impl IntOps<i8> for Avx512Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x64) -> I8x64 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+        let x_lo = Extend::<i8>::extend_low(self, x);
+        let x_hi = Extend::<i8>::extend_high(self, x);
 
         let i16_ops = self.i16();
         let (y_lo, y_hi) = (
@@ -701,7 +704,8 @@ impl IntOps<i8> for Avx512Isa {
 
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: I8x64) -> I8x64 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+        let x_lo = Extend::<i8>::extend_low(self, x);
+        let x_hi = Extend::<i8>::extend_high(self, x);
 
         let i16_ops = self.i16();
         let (y_lo, y_hi) = (
@@ -802,8 +806,10 @@ unsafe impl NumOps<u8> for Avx512Isa {
 
     #[inline]
     fn mul(self, x: U8x64, y: U8x64) -> U8x64 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
-        let (y_lo, y_hi) = Extend::<u8>::extend(self, y);
+        let x_lo = Extend::<u8>::extend_low(self, x);
+        let x_hi = Extend::<u8>::extend_high(self, x);
+        let y_lo = Extend::<u8>::extend_low(self, y);
+        let y_hi = Extend::<u8>::extend_high(self, y);
 
         let u16_ops = self.u16();
         let prod_lo = u16_ops.mul(x_lo, y_lo);
@@ -832,15 +838,13 @@ impl Extend<i16> for Avx512Isa {
     type Output = I32x16;
 
     #[inline]
-    fn extend(self, x: I16x32) -> (Self::Output, Self::Output) {
-        unsafe {
-            let lo = _mm512_extracti64x4_epi64(x.0, 0);
-            let lo = _mm512_cvtepi16_epi32(lo);
+    fn extend_low(self, x: I16x32) -> Self::Output {
+        unsafe { _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64(x.0, 0)).into() }
+    }
 
-            let hi = _mm512_extracti64x4_epi64(x.0, 1);
-            let hi = _mm512_cvtepi16_epi32(hi);
-            (lo.into(), hi.into())
-        }
+    #[inline]
+    fn extend_high(self, x: I16x32) -> Self::Output {
+        unsafe { _mm512_cvtepi16_epi32(_mm512_extracti64x4_epi64(x.0, 1)).into() }
     }
 }
 
@@ -848,15 +852,13 @@ impl Extend<i8> for Avx512Isa {
     type Output = I16x32;
 
     #[inline]
-    fn extend(self, x: I8x64) -> (I16x32, I16x32) {
-        unsafe {
-            let lo = _mm512_extracti64x4_epi64(x.0, 0);
-            let lo = _mm512_cvtepi8_epi16(lo);
+    fn extend_low(self, x: I8x64) -> I16x32 {
+        unsafe { _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x.0, 0)).into() }
+    }
 
-            let hi = _mm512_extracti64x4_epi64(x.0, 1);
-            let hi = _mm512_cvtepi8_epi16(hi);
-            (lo.into(), hi.into())
-        }
+    #[inline]
+    fn extend_high(self, x: I8x64) -> I16x32 {
+        unsafe { _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x.0, 1)).into() }
     }
 }
 
@@ -864,22 +866,21 @@ impl Extend<u8> for Avx512Isa {
     type Output = U16x32;
 
     #[inline]
-    fn extend(self, x: U8x64) -> (U16x32, U16x32) {
-        unsafe {
-            let lo = _mm512_extracti64x4_epi64(x.0, 0);
-            let lo = _mm512_cvtepu8_epi16(lo);
+    fn extend_low(self, x: U8x64) -> U16x32 {
+        unsafe { _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(x.0, 0)).into() }
+    }
 
-            let hi = _mm512_extracti64x4_epi64(x.0, 1);
-            let hi = _mm512_cvtepu8_epi16(hi);
-            (lo.into(), hi.into())
-        }
+    #[inline]
+    fn extend_high(self, x: U8x64) -> U16x32 {
+        unsafe { _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(x.0, 1)).into() }
     }
 }
 
 impl IntOps<u8> for Avx512Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: U8x64) -> U8x64 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+        let x_lo = Extend::<u8>::extend_low(self, x);
+        let x_hi = Extend::<u8>::extend_high(self, x);
 
         let u16_ops = self.u16();
         let (y_lo, y_hi) = (
@@ -892,7 +893,8 @@ impl IntOps<u8> for Avx512Isa {
 
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: U8x64) -> U8x64 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+        let x_lo = Extend::<u8>::extend_low(self, x);
+        let x_hi = Extend::<u8>::extend_high(self, x);
 
         let u16_ops = self.u16();
         let (y_lo, y_hi) = (
@@ -1079,12 +1081,13 @@ impl Extend<f16> for Avx512Isa {
     type Output = F32x16;
 
     #[inline]
-    fn extend(self, x: F16x32) -> (F32x16, F32x16) {
-        unsafe {
-            let low = _mm512_castsi512_si256(x.0);
-            let high = _mm512_extracti64x4_epi64(x.0, 1);
-            (_mm512_cvtph_ps(low).into(), _mm512_cvtph_ps(high).into())
-        }
+    fn extend_low(self, x: F16x32) -> F32x16 {
+        unsafe { _mm512_cvtph_ps(_mm512_castsi512_si256(x.0)).into() }
+    }
+
+    #[inline]
+    fn extend_high(self, x: F16x32) -> F32x16 {
+        unsafe { _mm512_cvtph_ps(_mm512_extracti64x4_epi64(x.0, 1)).into() }
     }
 }
 

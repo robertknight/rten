@@ -239,12 +239,18 @@ impl<'a> VecDotMatrix<'a> {
                 let hi = i8_ops.sub(hi, zero_point);
 
                 // Widen to i32
-                let (a_i16, b_i16) = i8_ops.extend(lo);
-                let (c_i16, d_i16) = i8_ops.extend(hi);
-                let (a_i32, b_i32) = i16_ops.extend(a_i16);
-                let (c_i32, d_i32) = i16_ops.extend(b_i16);
-                let (e_i32, f_i32) = i16_ops.extend(c_i16);
-                let (g_i32, h_i32) = i16_ops.extend(d_i16);
+                let a_i16 = i8_ops.extend_low(lo);
+                let b_i16 = i8_ops.extend_high(lo);
+                let c_i16 = i8_ops.extend_low(hi);
+                let d_i16 = i8_ops.extend_high(hi);
+                let a_i32 = i16_ops.extend_low(a_i16);
+                let b_i32 = i16_ops.extend_high(a_i16);
+                let c_i32 = i16_ops.extend_low(b_i16);
+                let d_i32 = i16_ops.extend_high(b_i16);
+                let e_i32 = i16_ops.extend_low(c_i16);
+                let f_i32 = i16_ops.extend_high(c_i16);
+                let g_i32 = i16_ops.extend_low(d_i16);
+                let h_i32 = i16_ops.extend_high(d_i16);
                 let rhs_i32 = [a_i32, b_i32, c_i32, d_i32, e_i32, f_i32, g_i32, h_i32];
 
                 // Convert to f32, apply scale and multiply with LHS.

@@ -411,11 +411,16 @@ macro_rules! impl_extend {
         impl Extend<$elem> for GenericIsa {
             type Output = $dst;
 
-            fn extend(self, x: $src) -> ($dst, $dst) {
+            fn extend_low(self, x: $src) -> $dst {
                 let extended = x.0.map(|x| x as <$dst as Simd>::Elem);
                 let low = array::from_fn(|i| extended[i]);
+                low.into()
+            }
+
+            fn extend_high(self, x: $src) -> $dst {
+                let extended = x.0.map(|x| x as <$dst as Simd>::Elem);
                 let high = array::from_fn(|i| extended[i + extended.len() / 2]);
-                (low.into(), high.into())
+                high.into()
             }
         }
     };
@@ -556,12 +561,17 @@ unsafe impl BitOps<f16> for GenericIsa {
 impl Extend<f16> for GenericIsa {
     type Output = F32x4;
 
-    fn extend(self, x: F16x8) -> (F32x4, F32x4) {
+    fn extend_low(self, x: F16x8) -> F32x4 {
+        let vals = x.0.map(|v| v.to_f32());
+        let low = array::from_fn(|i| vals[i]);
+        low.into()
+    }
+
+    fn extend_high(self, x: F16x8) -> F32x4 {
         let vals = x.0.map(|v| v.to_f32());
         let mid = vals.len() / 2;
-        let low = array::from_fn(|i| vals[i]);
         let high = array::from_fn(|i| vals[i + mid]);
-        (low.into(), high.into())
+        high.into()
     }
 }
 

@@ -728,8 +728,10 @@ unsafe impl NumOps<i8> for Avx2Isa {
 
     #[inline]
     fn mul(self, x: I8x32, y: I8x32) -> I8x32 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
-        let (y_lo, y_hi) = Extend::<i8>::extend(self, y);
+        let x_lo = Extend::<i8>::extend_low(self, x);
+        let x_hi = Extend::<i8>::extend_high(self, x);
+        let y_lo = Extend::<i8>::extend_low(self, y);
+        let y_hi = Extend::<i8>::extend_high(self, y);
 
         let i16_ops = self.i16();
         let prod_lo = i16_ops.mul(x_lo, y_lo);
@@ -757,7 +759,8 @@ unsafe impl NumOps<i8> for Avx2Isa {
 impl IntOps<i8> for Avx2Isa {
     #[inline]
     fn shift_left<const SHIFT: i32>(self, x: I8x32) -> I8x32 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+        let x_lo = Extend::<i8>::extend_low(self, x);
+        let x_hi = Extend::<i8>::extend_high(self, x);
 
         let i16_ops = self.i16();
         let y_lo = i16_ops.shift_left::<SHIFT>(x_lo);
@@ -768,7 +771,8 @@ impl IntOps<i8> for Avx2Isa {
 
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: I8x32) -> I8x32 {
-        let (x_lo, x_hi) = Extend::<i8>::extend(self, x);
+        let x_lo = Extend::<i8>::extend_low(self, x);
+        let x_hi = Extend::<i8>::extend_high(self, x);
 
         let i16_ops = self.i16();
         let y_lo = i16_ops.shift_right::<SHIFT>(x_lo);
@@ -893,8 +897,10 @@ unsafe impl NumOps<u8> for Avx2Isa {
 
     #[inline]
     fn mul(self, x: U8x32, y: U8x32) -> U8x32 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
-        let (y_lo, y_hi) = Extend::<u8>::extend(self, y);
+        let x_lo = Extend::<u8>::extend_low(self, x);
+        let x_hi = Extend::<u8>::extend_high(self, x);
+        let y_lo = Extend::<u8>::extend_low(self, y);
+        let y_hi = Extend::<u8>::extend_high(self, y);
 
         let u16_ops = self.u16();
         let prod_lo = u16_ops.mul(x_lo, y_lo);
@@ -1109,12 +1115,13 @@ impl Extend<f16> for Avx2Isa {
     type Output = F32x8;
 
     #[inline]
-    fn extend(self, x: F16x16) -> (F32x8, F32x8) {
-        unsafe {
-            let low = _mm256_castsi256_si128(x.0);
-            let high = _mm256_extracti128_si256(x.0, 1);
-            (_mm256_cvtph_ps(low).into(), _mm256_cvtph_ps(high).into())
-        }
+    fn extend_low(self, x: F16x16) -> F32x8 {
+        unsafe { _mm256_cvtph_ps(_mm256_castsi256_si128(x.0)).into() }
+    }
+
+    #[inline]
+    fn extend_high(self, x: F16x16) -> F32x8 {
+        unsafe { _mm256_cvtph_ps(_mm256_extracti128_si256(x.0, 1)).into() }
     }
 }
 
@@ -1195,15 +1202,13 @@ impl Extend<i16> for Avx2Isa {
     type Output = I32x8;
 
     #[inline]
-    fn extend(self, x: I16x16) -> (Self::Output, Self::Output) {
-        unsafe {
-            let low = _mm256_castsi256_si128(x.0);
-            let high = _mm256_extracti128_si256(x.0, 1);
-            (
-                _mm256_cvtepi16_epi32(low).into(),
-                _mm256_cvtepi16_epi32(high).into(),
-            )
-        }
+    fn extend_low(self, x: I16x16) -> Self::Output {
+        unsafe { _mm256_cvtepi16_epi32(_mm256_castsi256_si128(x.0)).into() }
+    }
+
+    #[inline]
+    fn extend_high(self, x: I16x16) -> Self::Output {
+        unsafe { _mm256_cvtepi16_epi32(_mm256_extracti128_si256(x.0, 1)).into() }
     }
 }
 
@@ -1211,15 +1216,13 @@ impl Extend<i8> for Avx2Isa {
     type Output = I16x16;
 
     #[inline]
-    fn extend(self, x: I8x32) -> (Self::Output, Self::Output) {
-        unsafe {
-            let low = _mm256_castsi256_si128(x.0);
-            let high = _mm256_extracti128_si256(x.0, 1);
-            (
-                _mm256_cvtepi8_epi16(low).into(),
-                _mm256_cvtepi8_epi16(high).into(),
-            )
-        }
+    fn extend_low(self, x: I8x32) -> Self::Output {
+        unsafe { _mm256_cvtepi8_epi16(_mm256_castsi256_si128(x.0)).into() }
+    }
+
+    #[inline]
+    fn extend_high(self, x: I8x32) -> Self::Output {
+        unsafe { _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x.0, 1)).into() }
     }
 }
 
@@ -1227,22 +1230,21 @@ impl Extend<u8> for Avx2Isa {
     type Output = U16x16;
 
     #[inline]
-    fn extend(self, x: U8x32) -> (Self::Output, Self::Output) {
-        unsafe {
-            let low = _mm256_castsi256_si128(x.0);
-            let high = _mm256_extracti128_si256(x.0, 1);
-            (
-                _mm256_cvtepu8_epi16(low).into(),
-                _mm256_cvtepu8_epi16(high).into(),
-            )
-        }
+    fn extend_low(self, x: U8x32) -> Self::Output {
+        unsafe { _mm256_cvtepu8_epi16(_mm256_castsi256_si128(x.0)).into() }
+    }
+
+    #[inline]
+    fn extend_high(self, x: U8x32) -> Self::Output {
+        unsafe { _mm256_cvtepu8_epi16(_mm256_extracti128_si256(x.0, 1)).into() }
     }
 }
 
 impl IntOps<u8> for Avx2Isa {
     #[inline(always)]
     fn shift_left<const SHIFT: i32>(self, x: U8x32) -> U8x32 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+        let x_lo = Extend::<u8>::extend_low(self, x);
+        let x_hi = Extend::<u8>::extend_high(self, x);
 
         let u16_ops = self.u16();
         let y_lo = u16_ops.shift_left::<SHIFT>(x_lo);
@@ -1253,7 +1255,8 @@ impl IntOps<u8> for Avx2Isa {
 
     #[inline(always)]
     fn shift_right<const SHIFT: i32>(self, x: U8x32) -> U8x32 {
-        let (x_lo, x_hi) = Extend::<u8>::extend(self, x);
+        let x_lo = Extend::<u8>::extend_low(self, x);
+        let x_hi = Extend::<u8>::extend_high(self, x);
 
         let u16_ops = self.u16();
         let y_lo = u16_ops.shift_right::<SHIFT>(x_lo);

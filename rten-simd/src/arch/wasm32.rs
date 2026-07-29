@@ -491,10 +491,13 @@ impl Extend<i16> for Wasm32Isa {
     type Output = I32x4;
 
     #[inline]
-    fn extend(self, x: I16x8) -> (I32x4, I32x4) {
-        let low = i32x4_extend_low_i16x8(x.0);
-        let high = i32x4_extend_high_i16x8(x.0);
-        (low.into(), high.into())
+    fn extend_low(self, x: I16x8) -> I32x4 {
+        i32x4_extend_low_i16x8(x.0).into()
+    }
+
+    #[inline]
+    fn extend_high(self, x: I16x8) -> I32x4 {
+        i32x4_extend_high_i16x8(x.0).into()
     }
 }
 
@@ -592,10 +595,13 @@ impl Extend<i8> for Wasm32Isa {
     type Output = I16x8;
 
     #[inline]
-    fn extend(self, x: I8x16) -> (I16x8, I16x8) {
-        let low = i16x8_extend_low_i8x16(x.0);
-        let high = i16x8_extend_high_i8x16(x.0);
-        (low.into(), high.into())
+    fn extend_low(self, x: I8x16) -> I16x8 {
+        i16x8_extend_low_i8x16(x.0).into()
+    }
+
+    #[inline]
+    fn extend_high(self, x: I8x16) -> I16x8 {
+        i16x8_extend_high_i8x16(x.0).into()
     }
 }
 
@@ -719,10 +725,13 @@ impl Extend<u8> for Wasm32Isa {
     type Output = U16x8;
 
     #[inline]
-    fn extend(self, x: U8x16) -> (U16x8, U16x8) {
-        let low = u16x8_extend_low_u8x16(x.0);
-        let high = u16x8_extend_high_u8x16(x.0);
-        (low.into(), high.into())
+    fn extend_low(self, x: U8x16) -> U16x8 {
+        u16x8_extend_low_u8x16(x.0).into()
+    }
+
+    #[inline]
+    fn extend_high(self, x: U8x16) -> U16x8 {
+        u16x8_extend_high_u8x16(x.0).into()
     }
 }
 
@@ -766,21 +775,25 @@ impl Extend<f16> for Wasm32Isa {
     type Output = F32x4;
 
     #[inline]
-    fn extend(self, x: F16x8) -> (F32x4, F32x4) {
+    fn extend_low(self, x: F16x8) -> F32x4 {
         let lanes = x.to_array();
-        let low = F32x4(f32x4(
+        F32x4(f32x4(
             lanes[0].to_f32(),
             lanes[1].to_f32(),
             lanes[2].to_f32(),
             lanes[3].to_f32(),
-        ));
-        let high = F32x4(f32x4(
+        ))
+    }
+
+    #[inline]
+    fn extend_high(self, x: F16x8) -> F32x4 {
+        let lanes = x.to_array();
+        F32x4(f32x4(
             lanes[4].to_f32(),
             lanes[5].to_f32(),
             lanes[6].to_f32(),
             lanes[7].to_f32(),
-        ));
-        (low, high)
+        ))
     }
 }
 

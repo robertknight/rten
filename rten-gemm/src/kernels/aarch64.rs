@@ -535,10 +535,12 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
 
         for k_block in 0..depth_blocks {
             let a_vec = u8_ops.load_ptr(a_data.as_ptr().add(k_block * u8_ops.len()));
-            let (a_lo, a_hi) = u8_ops.extend(a_vec);
+            let a_lo = u8_ops.extend_low(a_vec);
+            let a_hi = u8_ops.extend_high(a_vec);
 
             let b_vec = u8_ops.load_ptr(b.as_ptr().add(k_block * u8_ops.len()));
-            let (b_lo, b_hi) = u8_ops.extend(b_vec);
+            let b_lo = u8_ops.extend_low(b_vec);
+            let b_hi = u8_ops.extend_high(b_vec);
 
             // Compute first outer product update of this block.
             compute_row!(0, a_lo, b_lo);
@@ -581,10 +583,12 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
             });
 
             let a_vec = u8_ops.load_ptr(a_buf.as_ptr());
-            let (a_lo, _a_hi) = u8_ops.extend(a_vec);
+            let a_lo = u8_ops.extend_low(a_vec);
+            let _a_hi = u8_ops.extend_high(a_vec);
 
             let b_vec = u8_ops.load_ptr(b_buf.as_ptr());
-            let (b_lo, _b_hi) = u8_ops.extend(b_vec);
+            let b_lo = u8_ops.extend_low(b_vec);
+            let _b_hi = u8_ops.extend_high(b_vec);
 
             compute_row!(0, a_lo, b_lo);
             compute_row!(1, a_lo, b_lo);
