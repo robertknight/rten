@@ -34,7 +34,7 @@ fn col2im_input_range(
     pad_start: usize,
     kernel_pos: usize,
     stride: usize,
-) -> std::ops::RangeInclusive<usize> {
+) -> std::ops::Range<usize> {
     // Compute with signed values to avoid underflow in subtraction.
     let input_size = input_size as isize;
     let output_size = output_size as isize;
@@ -42,10 +42,23 @@ fn col2im_input_range(
     let kernel_pos = kernel_pos as isize;
     let stride = stride as isize;
 
-    let x_start = div_ceil(pad_start - kernel_pos, stride).clamp(0, input_size - 1);
-    let x_end = ((pad_start + output_size - 1 - kernel_pos) / stride).clamp(0, input_size - 1);
+    // out_x >= pad_start
+    // => in_x * stride + kernel_pos >= pad_start
+    // => in_x * stride >= pad_start - kernel_pos
+    // => in_x >= ⌈(pad_start - kernel_pos) / stride⌉
+    let x_start = div_ceil(pad_start - kernel_pos, stride).max(0);
 
-    x_start as usize..=x_end as usize
+    // out_x < output_size + pad_start
+    // => in_x * stride + kernel_pos < out_size + pad_start
+    // => in_x * stride < out_size + pad_start - kernel_pos
+    // => in_x < ⌈(out_size + pad_start - kernel_pos) / stride⌉
+    let x_end = div_ceil(output_size + pad_start - kernel_pos, stride).min(input_size);
+
+    if x_start > x_end {
+        return 0..0;
+    }
+
+    x_start as usize..x_end as usize
 }
 
 /// Unpack columns of a matrix into an image. This is the inverse of the
@@ -98,11 +111,13 @@ fn col2im(
 
                     for y in y_range {
                         let out_y = y * stride_h + k_y;
-                        debug_assert!(out_y >= pad_top && out_y < out_h + pad_top);
+                        debug_assert!(out_y >= pad_top);
+                        debug_assert!(out_y < out_h + pad_top);
 
                         for x in x_range.clone() {
                             let out_x = x * stride_w + k_x;
-                            debug_assert!(out_x >= pad_left && out_x < out_w + pad_left);
+                            debug_assert!(out_x >= pad_left);
+                            debug_assert!(out_x < out_w + pad_left);
 
                             // Safety: We computed x, y, out_x and out_y such that they are
                             // in-bounds for out_img and in_img.
@@ -476,7 +491,11 @@ mod tests {
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
-                                        if y + pad_top >= k_y && x + pad_left >= k_x {
+                                        if y + pad_top >= k_y
+                                            && x + pad_left >= k_x
+                                            && (y + pad_top - k_y) % stride_h == 0
+                                            && (x + pad_left - k_x) % stride_w == 0
+                                        {
                                             let in_y = (y + pad_top - k_y) / stride_h;
                                             let in_x = (x + pad_left - k_x) / stride_w;
                                             accum += input
@@ -905,6 +924,28 @@ mod tests {
                 input_shape: [1, 4, 5, 5],
                 kernel_shape: [4, 2, 3, 3],
                 groups: 2,
+                ..Default::default()
+            },
+        ]);
+    }
+
+    // Test cases where certain kernel positions have an empty range of input
+    // positions to use.
+    #[test]
+    fn test_conv_transpose_empty_input_range() {
+        test_conv_transpose_cases(&[
+            // Padding at start.
+            ConvTransposeCase {
+                input_shape: [1, 1, 1, 1],
+                kernel_shape: [1, 1, 1, 2],
+                pads: Padding::Fixed([0, 1, 0, 0].into()),
+                ..Default::default()
+            },
+            // Padding at end.
+            ConvTransposeCase {
+                input_shape: [1, 1, 1, 1],
+                kernel_shape: [1, 1, 1, 2],
+                pads: Padding::Fixed([0, 0, 0, 1].into()),
                 ..Default::default()
             },
         ]);
