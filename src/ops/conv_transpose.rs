@@ -476,7 +476,14 @@ mod tests {
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
-                                        if y + pad_top >= k_y && x + pad_left >= k_x {
+                                        // An input position contributes to this
+                                        // output position only if the offset is
+                                        // an exact multiple of the stride.
+                                        if y + pad_top >= k_y
+                                            && x + pad_left >= k_x
+                                            && (y + pad_top - k_y) % stride_h == 0
+                                            && (x + pad_left - k_x) % stride_w == 0
+                                        {
                                             let in_y = (y + pad_top - k_y) / stride_h;
                                             let in_x = (x + pad_left - k_x) / stride_w;
                                             accum += input
@@ -905,6 +912,24 @@ mod tests {
                 input_shape: [1, 4, 5, 5],
                 kernel_shape: [4, 2, 3, 3],
                 groups: 2,
+                ..Default::default()
+            },
+        ]);
+    }
+
+    #[test]
+    fn test_conv_transpose_kernel_overhangs_output_start() {
+        test_conv_transpose_cases(&[
+            ConvTransposeCase {
+                input_shape: [1, 1, 1, 1],
+                kernel_shape: [1, 1, 1, 2],
+                pads: Padding::Fixed([0, 1, 0, 0].into()),
+                ..Default::default()
+            },
+            ConvTransposeCase {
+                input_shape: [1, 1, 1, 1],
+                kernel_shape: [1, 1, 1, 2],
+                pads: Padding::Fixed([0, 0, 0, 1].into()),
                 ..Default::default()
             },
         ]);
