@@ -255,12 +255,12 @@ fn run_model(
         let dim_size = &input_config.dim_sizes[idx];
         let err = if let Some(input_name) = &dim_size.input_name {
             format!(
-                "Input and dim name \"{}.{}\" did not match any inputs",
+                "Input and dim name \"{}.{}\" does not match any inputs",
                 input_name, dim_size.dim_name
             )
         } else {
             format!(
-                "Dim name \"{}\" did not match any inputs",
+                "Dim name \"{}\" does not match any inputs",
                 dim_size.dim_name
             )
         };
@@ -272,7 +272,7 @@ fn run_model(
     if let Some(idx) = unused_ranges.into_iter().next() {
         let range = &input_config.ranges[idx];
         let err = format!(
-            "Input name \"{}\" in value range did not match any generated inputs",
+            "Input name \"{}\" does not match any inputs",
             range.input_name
         );
         return Err(err.into());
