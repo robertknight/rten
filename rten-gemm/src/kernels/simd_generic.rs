@@ -912,9 +912,12 @@ pub fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
 
             // Load one `i8` vec, sign-extend each quarter to give 4 `i32` vecs.
             let b = unsafe { i8_ops.load_ptr(b_ptr.add(k * b_row_stride)) };
-            let (b01, b23) = i8_ops.extend(b);
-            let (b0, b1) = i16_ops.extend(b01);
-            let (b2, b3) = i16_ops.extend(b23);
+            let b01 = i8_ops.extend_low(b);
+            let b23 = i8_ops.extend_high(b);
+            let b0 = i16_ops.extend_low(b01);
+            let b1 = i16_ops.extend_high(b01);
+            let b2 = i16_ops.extend_low(b23);
+            let b3 = i16_ops.extend_high(b23);
             let b_rows = [b0, b1, b2, b3];
 
             for i in 0..4 {
@@ -941,9 +944,12 @@ pub fn simd_int8_gemv<I: Isa, const CAST_B_U8: bool>(
         let b_zero_vec = if let Some(b_zero) = b_zero_points {
             // Load one `i8` vec, sign-extend each quarter to give 4 `i32` vecs.
             let b = unsafe { i8_ops.load_ptr(b_zero.as_ptr().add(col_tile.start)) };
-            let (b01, b23) = i8_ops.extend(b);
-            let (b0, b1) = i16_ops.extend(b01);
-            let (b2, b3) = i16_ops.extend(b23);
+            let b01 = i8_ops.extend_low(b);
+            let b23 = i8_ops.extend_high(b);
+            let b0 = i16_ops.extend_low(b01);
+            let b1 = i16_ops.extend_high(b01);
+            let b2 = i16_ops.extend_low(b23);
+            let b3 = i16_ops.extend_high(b23);
             [b0, b1, b2, b3]
         } else {
             [ops.zero(); 4]

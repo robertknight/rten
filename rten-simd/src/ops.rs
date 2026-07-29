@@ -702,10 +702,13 @@ pub trait Extend<T: Elem>: BitOps<T> {
     /// those in `Self::SIMD`.
     type Output;
 
-    /// Extend each lane to a type with twice the width.
-    ///
-    /// Returns a tuple containing the extended low and high half of the input.
-    fn extend(self, x: Self::Simd) -> (Self::Output, Self::Output);
+    /// Extend each lane in the low half of the input to a type with twice the
+    /// width.
+    fn extend_low(self, x: Self::Simd) -> Self::Output;
+
+    /// Extend each lane in the high half of the input to a type with twice the
+    /// width.
+    fn extend_high(self, x: Self::Simd) -> Self::Output;
 }
 
 /// Interleave elements from the low or high halves of two vectors to form a
@@ -1478,7 +1481,8 @@ mod tests {
                     let expected: Vec<$dest> = src.iter().map(|&x| x as $dest).collect();
 
                     let x = ops.load(&src);
-                    let (y_low, y_high) = ops.extend(x);
+                    let y_low = ops.extend_low(x);
+                    let y_high = ops.extend_high(x);
                     assert_eq!(y_low.to_array().as_ref(), &expected[..dst_ops.len()]);
                     assert_eq!(y_high.to_array().as_ref(), &expected[dst_ops.len()..]);
                 });
@@ -1641,7 +1645,8 @@ mod tests {
             assert_eq!(half.to_array().as_ref(), expected.as_slice());
 
             // f16 -> f32
-            let (back_lo, back_hi) = f16_ops.extend(half);
+            let back_lo = f16_ops.extend_low(half);
+            let back_hi = f16_ops.extend_high(half);
             let expected_lo: Vec<f32> = expected[..f32_ops.len()]
                 .iter()
                 .map(|h| h.to_f32())

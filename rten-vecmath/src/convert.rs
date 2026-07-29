@@ -35,8 +35,10 @@ impl<'d> SimdOp for F16ToF32<'_, 'd> {
         let mut chunks = self.src.chunks_exact(f16_v_len * 2);
         for chunk in chunks.by_ref() {
             let xs = f16_ops.load_many::<2>(chunk);
-            let (lo0, hi0) = f16_ops.extend(xs[0]);
-            let (lo1, hi1) = f16_ops.extend(xs[1]);
+            let lo0 = f16_ops.extend_low(xs[0]);
+            let hi0 = f16_ops.extend_high(xs[0]);
+            let lo1 = f16_ops.extend_low(xs[1]);
+            let hi1 = f16_ops.extend_high(xs[1]);
             // Store all four f32 vectors with a single bounds check.
             dest_writer.write_vecs(f32_ops, [lo0, hi0, lo1, hi1]);
         }
@@ -45,7 +47,8 @@ impl<'d> SimdOp for F16ToF32<'_, 'd> {
         let mut chunks = chunks.remainder().chunks_exact(f16_v_len);
         for chunk in chunks.by_ref() {
             let x = f16_ops.load(chunk);
-            let (low, high) = f16_ops.extend(x);
+            let low = f16_ops.extend_low(x);
+            let high = f16_ops.extend_high(x);
             dest_writer.write_vec(f32_ops, low);
             dest_writer.write_vec(f32_ops, high);
         }
