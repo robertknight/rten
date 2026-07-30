@@ -442,6 +442,10 @@ impl InferShapes for NonMaxSuppression {
 /// See <https://onnx.ai/onnx/operators/onnx__Range.html>.
 pub struct Range;
 
+/// Maximum number of elements of a `Range` output for which the individual
+/// values are computed, rather than just the length.
+const MAX_RANGE_VALUES: i64 = 1024;
+
 impl InferShapes for Range {
     fn infer_shapes(
         &self,
@@ -462,13 +466,32 @@ impl InferShapes for Range {
                 Some(SymExpr::Value(limit)),
                 Some(SymExpr::Value(delta)),
             ) => {
-                let mut values = Vec::new();
-                let mut val = start;
-                while val < limit {
-                    values.push(SymExpr::Value(val));
-                    val += delta;
+                if delta == 0 {
+                    return Err(InferShapesError::InvalidValue);
                 }
-                SymTensor::from_vec(values)
+
+                // Compute the element count as `max(ceil((limit - start) / delta), 0)`,
+                // as specified by the ONNX spec. `i64` arithmetic avoids overflow
+                // when negating `delta` or subtracting `i32` values.
+                let (start, limit, delta) = (start as i64, limit as i64, delta as i64);
+                let (span, step) = if delta > 0 {
+                    (limit - start, delta)
+                } else {
+                    (start - limit, -delta)
+                };
+                let len = ((span + step - 1) / step).max(0);
+
+                if len <= MAX_RANGE_VALUES {
+                    // Values are between `start` and `limit`, so they fit in `i32`.
+                    let values = (0..len)
+                        .map(|i| SymExpr::Value((start + i * delta) as i32))
+                        .collect();
+                    SymTensor::from_vec(values)
+                } else if let Ok(len) = i32::try_from(len) {
+                    SymTensor::from_shape(vec![SymExpr::Value(len)])
+                } else {
+                    SymTensor::from_shape(vec![sym_gen.gen_positive()])
+                }
             }
             // Range(0, limit, 1) has shape [limit]
             (Some(SymExpr::Value(0)), Some(limit), Some(SymExpr::Value(1))) => {
@@ -992,55 +1015,126 @@ mod tests {
 
     #[test]
     fn test_range() {
-        let mut sym_gen = SymbolGen::new();
+        struct Case {
+            start: SymTensor,
+            limit: SymTensor,
+            delta: SymTensor,
+            expected: Result<SymTensor, InferShapesError>,
+        }
 
-        // Range with fixed values
-        let start = sym_vec!(0);
-        let limit = sym_vec!(5);
-        let delta = sym_vec!(1);
-        let result = Range
-            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], sym_vec!(0, 1, 2, 3, 4));
+        let cases = [
+            // Range with fixed values
+            Case {
+                start: sym_vec!(0),
+                limit: sym_vec!(5),
+                delta: sym_vec!(1),
+                expected: Ok(sym_vec!(0, 1, 2, 3, 4)),
+            },
+            // Fixed values with a delta that doesn't evenly divide the range
+            Case {
+                start: sym_vec!(0),
+                limit: sym_vec!(5),
+                delta: sym_vec!(2),
+                expected: Ok(sym_vec!(0, 2, 4)),
+            },
+            // Fixed values with a negative delta
+            Case {
+                start: sym_vec!(15),
+                limit: sym_vec!(-1),
+                delta: sym_vec!(-1),
+                expected: Ok(SymTensor::from_vec(
+                    (0..=15).rev().map(SymExpr::Value).collect(),
+                )),
+            },
+            Case {
+                start: sym_vec!(10),
+                limit: sym_vec!(0),
+                delta: sym_vec!(-3),
+                expected: Ok(sym_vec!(10, 7, 4, 1)),
+            },
+            // Empty ranges
+            Case {
+                start: sym_vec!(5),
+                limit: sym_vec!(5),
+                delta: sym_vec!(1),
+                expected: Ok(sym_vec!()),
+            },
+            Case {
+                start: sym_vec!(0),
+                limit: sym_vec!(5),
+                delta: sym_vec!(-1),
+                expected: Ok(sym_vec!()),
+            },
+            // A zero delta is invalid, as it would produce an infinite range.
+            Case {
+                start: sym_vec!(0),
+                limit: sym_vec!(5),
+                delta: sym_vec!(0),
+                expected: Err(InferShapesError::InvalidValue),
+            },
+            // Ranges longer than `MAX_RANGE_VALUES` have only their length inferred.
+            Case {
+                start: sym_vec!(0),
+                limit: sym_vec!(5000),
+                delta: sym_vec!(1),
+                expected: Ok(sym_shape!(5000)),
+            },
+            Case {
+                start: sym_vec!(5000),
+                limit: sym_vec!(0),
+                delta: sym_vec!(-1),
+                expected: Ok(sym_shape!(5000)),
+            },
+            // A range whose length exceeds `i32::MAX`.
+            Case {
+                start: sym_vec!(i32::MIN),
+                limit: sym_vec!(i32::MAX),
+                delta: sym_vec!(1),
+                expected: Ok(sym_shape!("unknown_1")),
+            },
+            // Range from 0..limit
+            Case {
+                start: sym_vec!(0),
+                limit: sym_vec!("limit"),
+                delta: sym_vec!(1),
+                expected: Ok(sym_shape!("limit")),
+            },
+            // Range from start..(start + limit)
+            Case {
+                start: sym_vec!("start"),
+                limit: sym_vec!(SymExpr::from("start") + SymExpr::from("limit")),
+                delta: sym_vec!(1),
+                expected: Ok(sym_shape!("limit")),
+            },
+            // Range from start..limit
+            Case {
+                start: sym_vec!("start"),
+                limit: sym_vec!("limit"),
+                delta: sym_vec!(1),
+                expected: Ok(sym_shape!(SymExpr::from("limit") - SymExpr::from("start"))),
+            },
+            // Range of unknown size
+            Case {
+                start: sym_vec!("start"),
+                limit: sym_vec!("end"),
+                delta: sym_vec!("delta"),
+                expected: Ok(sym_shape!("unknown_1")),
+            },
+        ];
 
-        // Range from 0..limit
-        let start = sym_vec!(0);
-        let limit = sym_vec!("limit");
-        let delta = sym_vec!(1);
-        let result = Range
-            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], sym_shape!("limit"));
-
-        // Range from start..(start + limit)
-        let start = sym_vec!("start");
-        let limit = sym_vec!(SymExpr::from("start") + SymExpr::from("limit"));
-        let delta = sym_vec!(1);
-        let result = Range
-            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], sym_shape!("limit"));
-
-        // Range from start..limit
-        let start = sym_vec!("start");
-        let limit = sym_vec!("limit");
-        let delta = sym_vec!(1);
-        let result = Range
-            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(
-            result[0],
-            sym_shape!(SymExpr::from("limit") - SymExpr::from("start"))
-        );
-
-        // Range of unknown size
-        let start = sym_vec!("start");
-        let limit = sym_vec!("end");
-        let delta = sym_vec!("delta");
-        let result = Range
-            .infer_shapes([start, limit, delta].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], sym_shape!("unknown_1"));
+        for Case {
+            start,
+            limit,
+            delta,
+            expected,
+        } in cases
+        {
+            let mut sym_gen = SymbolGen::new();
+            let result = Range
+                .infer_shapes([start, limit, delta].into(), &mut sym_gen)
+                .map(|mut outputs| outputs.remove(0));
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]
