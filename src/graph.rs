@@ -1136,7 +1136,7 @@ impl Graph {
                     .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
             };
             let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
-            let mut ctx = OpRunContext::new(pool, &inputs, op_node.output_mask());
+            let mut ctx = OpRunContext::new(pool, &inputs, op_node.output_mask().clone());
             ctx.set_name(op_node.name());
 
             let op_result = if !in_place_taken.is_empty() {

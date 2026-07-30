@@ -116,7 +116,7 @@ impl Operator for TransformInputs {
             };
             transform.transform(input)?;
         }
-        let inner_ctx = OpRunContext::new(ctx.pool(), &inputs, ctx.outputs());
+        let inner_ctx = OpRunContext::new(ctx.pool(), &inputs, ctx.outputs().clone());
         self.inner.run(&inner_ctx)
     }
 
@@ -151,7 +151,7 @@ impl Operator for TransformInputs {
             };
             transform.transform(input)?;
         }
-        let inner_ctx = OpRunContext::new(ctx.pool(), &inputs, ctx.outputs());
+        let inner_ctx = OpRunContext::new(ctx.pool(), &inputs, ctx.outputs().clone());
         self.inner.run_in_place(in_place, &inner_ctx)
     }
 

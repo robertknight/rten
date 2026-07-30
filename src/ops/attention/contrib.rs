@@ -822,7 +822,7 @@ impl_infer_shapes!(
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_simd::SimdOp;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
@@ -923,7 +923,7 @@ mod tests {
         ];
         let input_list = InputList::from_optional(&inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(3));
         op.run(&ctx)
             .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
     }
@@ -1214,12 +1214,12 @@ mod tests {
 
         // When only the first output is requested, the present KV caches are not
         // materialized as outputs.
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::from_indices([0]));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::from_indices(3, [0]));
         let outputs = op.run(&ctx).unwrap();
         assert_eq!(outputs.len(), 1);
 
         // When a KV-cache output is requested, all three outputs are returned.
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::from_indices([0, 1]));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::from_indices(3, [0, 1]));
         let outputs = op.run(&ctx).unwrap();
         assert_eq!(outputs.len(), 3);
     }
@@ -1249,7 +1249,7 @@ mod tests {
             ];
             let input_list = InputList::from_optional(&inputs);
             let pool = BufferPool::new();
-            let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+            let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(3));
             op.run(&ctx)
                 .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
         };
@@ -1358,7 +1358,7 @@ mod tests {
         ];
         let input_list = InputList::from_optional(&inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(1));
 
         let mut outputs = op.run(&ctx).unwrap();
         let result: Tensor = outputs.remove(0).try_into().unwrap();
@@ -1442,7 +1442,7 @@ mod tests {
             ];
             let input_list = InputList::from_optional(&inputs);
             let pool = BufferPool::new();
-            let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
+            let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(1));
             let mut outputs = op.run(&ctx).unwrap();
             outputs.remove(0).try_into().unwrap()
         };

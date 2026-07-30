@@ -1080,13 +1080,9 @@ fn add_operator(
         ));
     }
 
-    // We set a limit of 64 outputs per operator so we can represent the used
-    // positions conveniently in a u64 mask.
-    const MAX_OUTPUTS: usize = u64::BITS as usize;
-
-    let max_outputs = op.max_outputs().unwrap_or(MAX_OUTPUTS).min(MAX_OUTPUTS);
-
-    if outputs.len() > max_outputs {
+    if let Some(max_outputs) = op.max_outputs()
+        && outputs.len() > max_outputs
+    {
         return Err(load_error!(
             OperatorInvalid,
             onnx_op.name.as_deref(),
@@ -1650,7 +1646,7 @@ mod tests {
             "in node \"relu_op\": operator error: operator has 2 outputs but maximum is 1"
         );
 
-        // Test RTen's implementation limit that applies to all op types.
+        // Operators without a limit can have many outputs.
         let mut node = create_node("Split").with_input("x").with_name("split_op");
 
         for i in 0..65 {
@@ -1660,11 +1656,7 @@ mod tests {
         let graph = onnx::GraphProto::default()
             .with_input(create_value_info("x"))
             .with_node(node);
-        let err = load_model(graph.into_model(), None).err().unwrap();
-        assert_eq!(
-            err.to_string(),
-            "in node \"split_op\": operator error: operator has 65 outputs but maximum is 64"
-        );
+        load_model(graph.into_model(), None).unwrap();
     }
 
     #[test]

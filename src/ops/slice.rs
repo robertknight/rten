@@ -173,7 +173,7 @@ impl Operator for Slice {
             }
 
             let input_list = InputList::from(&inputs);
-            let ctx = OpRunContext::new(ctx.pool(), &input_list, ctx.outputs());
+            let ctx = OpRunContext::new(ctx.pool(), &input_list, ctx.outputs().clone());
             return self.run(&ctx);
         }
 

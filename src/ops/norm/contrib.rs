@@ -239,7 +239,7 @@ impl Operator for SkipSimplifiedLayerNormalization {
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
@@ -277,7 +277,7 @@ mod tests {
             beta: Option<TensorView>,
             bias: Option<TensorView>,
             epsilon: f32,
-            outputs: BitSet<u64>,
+            outputs: BitVec,
         ) -> Result<OutputList, OpError> {
             let mut inputs = InputList::new();
             inputs.push(input);
@@ -412,7 +412,7 @@ mod tests {
                     case.beta.as_ref().map(|b| b.view()),
                     case.bias.as_ref().map(|b| b.view()),
                     epsilon,
-                    BitSet::from_indices([0]),
+                    BitVec::from_indices(4, [0]),
                 )
                 .unwrap();
             let result: Tensor = outputs.remove(0).try_into().unwrap();
@@ -468,7 +468,7 @@ mod tests {
                     case.beta.as_ref().map(|b| b.view()),
                     Some(bias.view()),
                     epsilon,
-                    BitSet::from_indices([0, 3]),
+                    BitVec::from_indices(4, [0, 3]),
                 )
                 .unwrap();
             assert_eq!(outputs.len(), 4);
@@ -544,7 +544,7 @@ mod tests {
                 None,
                 None,
                 1e-5,
-                BitSet::from_indices([0]),
+                BitVec::from_indices(4, [0]),
             );
             let err = result.err().expect("expected an error");
             assert_eq!(&err, &case.expected);

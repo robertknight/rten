@@ -603,7 +603,7 @@ impl_infer_shapes!(Upsample, _op, shape_ops::Upsample);
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
@@ -1048,7 +1048,7 @@ mod tests {
                 case.sizes.as_ref().map(|t| t.into()),
             ];
             let inputs = InputList::from_optional(&inputs);
-            let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+            let ctx = OpRunContext::new(&pool, &inputs, BitVec::ones(1));
             let result = op.run(&ctx);
             match (&case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {

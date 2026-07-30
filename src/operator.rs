@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use rten_base::bit_set::BitSet;
+use rten_base::bit_set::{BitSet, BitVec};
 use rten_gemm::PackedBMatrix;
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{Layout, Storage, TensorBase};
@@ -263,7 +263,7 @@ pub(crate) use check_eq;
 pub struct OpRunContext<'a, 'i> {
     pool: &'a BufferPool,
     inputs: &'a InputList<'i>,
-    outputs: BitSet<u64>,
+    outputs: BitVec,
     name: Option<&'a str>,
 }
 
@@ -272,7 +272,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     ///
     /// `outputs` is a mask indicating which of the operator's outputs are
     /// requested.
-    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: BitSet<u64>) -> Self {
+    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: BitVec) -> Self {
         OpRunContext {
             pool,
             inputs,
@@ -288,7 +288,12 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     where
         'a: 'b,
     {
-        OpRunContext { inputs, ..*self }
+        OpRunContext {
+            inputs,
+            pool: self.pool,
+            outputs: self.outputs.clone(),
+            name: self.name,
+        }
     }
 
     /// The pool which should be used to allocate large buffers.
@@ -309,8 +314,8 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// This can be used to skip generating outputs that are unused, or in
     /// the rare cases that the output count cannot be determined from the
     /// operator's inputs and attributes alone.
-    pub fn outputs(&self) -> BitSet<u64> {
-        self.outputs
+    pub fn outputs(&self) -> &BitVec {
+        &self.outputs
     }
 
     /// Set the name of the current node in the graph.
@@ -597,7 +602,7 @@ pub trait OperatorExt: Operator {
     {
         let pool = BufferPool::new();
         let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, BitVec::ones(1));
         let mut outputs = self.run(&ctx)?;
         Ok(outputs.remove(0).try_into()?)
     }
@@ -613,7 +618,7 @@ pub trait OperatorExt: Operator {
     {
         let pool = BufferPool::new();
         let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, BitVec::ones(1));
         let in_place = InPlaceInputs::from((0, mut_input.into()));
         let mut outputs = self.run_in_place(in_place, &ctx)?;
         let typed_output = outputs.remove(0).try_into()?;

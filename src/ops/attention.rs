@@ -980,7 +980,7 @@ mod contrib;
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_gemm::GemmExecutor;
     use rten_simd::SimdOp;
     use rten_tensor::prelude::*;
@@ -1324,7 +1324,7 @@ mod tests {
     fn run_attention(op: &Attention, inputs: &[Option<ValueView>]) -> Result<Vec<Tensor>, OpError> {
         let input_list = InputList::from_optional(inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(3));
         op.run(&ctx)
             .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
     }
@@ -1904,7 +1904,7 @@ mod tests {
 
         // Reference outputs from a normal run with the caches passed as views.
         let input_list = InputList::from_optional(inputs);
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(3));
         let expected: Vec<Tensor> = op
             .run(&ctx)
             .unwrap()
@@ -1937,7 +1937,7 @@ mod tests {
         inputs[past_key_index] = None;
         inputs[past_value_index] = None;
         let input_list = InputList::from_optional(&inputs);
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(3));
         let in_place = InPlaceInputs::from_iter([
             (past_key_index, Value::from(past_key)),
             (past_value_index, Value::from(past_value)),

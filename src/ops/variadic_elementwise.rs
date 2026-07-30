@@ -208,7 +208,7 @@ impl Operator for Sum {
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::eq_with_nans;
     use rten_tensor::{Tensor, TensorView};
@@ -223,7 +223,7 @@ mod tests {
         let inputs: Vec<ValueView> = inputs.iter().cloned().map(|i| i.into()).collect();
         let inputs = InputList::from(inputs.as_slice());
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, BitVec::ones(1));
         let mut outputs = op.run(&ctx).unwrap();
         outputs.remove(0).try_into().unwrap()
     }

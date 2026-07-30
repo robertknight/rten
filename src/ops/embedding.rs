@@ -251,7 +251,7 @@ mod contrib;
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_tensor::{Tensor, test_util::expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
@@ -572,7 +572,7 @@ mod tests {
         input_list.push(sin_cache.view());
 
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &input_list, BitVec::ones(1));
 
         assert!(op.run(&ctx).is_err());
     }

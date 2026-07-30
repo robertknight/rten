@@ -395,7 +395,7 @@ impl_infer_shapes!(Dropout, _op, shape_ops::Dropout);
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
+    use rten_base::bit_set::BitVec;
     use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
     use rten_testing::TestCases;
@@ -783,7 +783,7 @@ mod tests {
                 training_mode_input.as_ref().map(|tm| tm.view().into()),
             ]);
             let pool = BufferPool::new();
-            let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(2));
+            let ctx = OpRunContext::new(&pool, &inputs, BitVec::ones(2));
             let mut outputs = op.run(&ctx).unwrap();
             let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
             assert_eq!(output, data);
@@ -832,7 +832,7 @@ mod tests {
                 Some(training_mode_input.view().into()),
             ]);
             let pool = BufferPool::new();
-            let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(2));
+            let ctx = OpRunContext::new(&pool, &inputs, BitVec::ones(2));
 
             let mut outputs = op.run(&ctx).unwrap();
             let output: Tensor<f32> = outputs.remove(0).try_into().unwrap();
