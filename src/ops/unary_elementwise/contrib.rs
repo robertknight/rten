@@ -1,15 +1,36 @@
 //! ONNX Runtime contrib elementwise operators.
 
+use rten_base::bit_set::BitSet;
 use rten_tensor::{Layout, NdTensorView, TensorView};
 
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::add;
 
-use super::{Gelu, GetKernel, unary_op_in_place};
+use super::{Gelu, GetKernel, unary_op, unary_op_in_place};
+
+/// Compute `Gelu(A + B)`, where `A` is the operator's first input and `B` is
+/// a 1D bias input broadcast against the last dimension of `A`.
+fn bias_gelu(ctx: &OpRunContext, approximate: bool) -> Result<OutputList, OpError> {
+    let inputs = ctx.inputs();
+    let a: TensorView = inputs.require_as(0)?;
+    let b: NdTensorView<_, 1> = inputs.require_as(1)?;
+
+    if a.ndim() == 0 || a.size(a.ndim() - 1) != b.size(0) {
+        return Err(OpError::IncompatibleInputShapes(
+            "bias length does not match last dimension of input",
+        ));
+    }
+
+    let sum = add(ctx.pool(), a, b.as_dyn())?;
+
+    let gelu = Gelu { approximate };
+    let kernel = gelu.get_kernel();
+    unary_op_in_place(ctx.pool(), sum, &kernel).into_op_result()
+}
 
 /// Bias Gelu
 ///
@@ -31,25 +52,92 @@ impl Operator for BiasGelu {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let inputs = ctx.inputs();
-        let a: TensorView = inputs.require_as(0)?;
-        let b: NdTensorView<_, 1> = inputs.require_as(1)?;
-
-        if a.ndim() == 0 || a.size(a.ndim() - 1) != b.size(0) {
-            return Err(OpError::IncompatibleInputShapes(
-                "bias length does not match last dimension of input",
-            ));
-        }
-
-        let sum = add(ctx.pool(), a, b.as_dyn())?;
-
-        let kernel = Gelu { approximate: false }.get_kernel();
-        unary_op_in_place(ctx.pool(), sum, &kernel).into_op_result()
+        bias_gelu(ctx, false /* approximate */)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // The output has the shape of `A + B`. `B` is a 1D bias broadcast
-        // against the last axis of `A`, so this is just the shape of `A`.
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
+/// Fast Gelu
+///
+/// This computes the tanh approximation of [`Gelu`](super::Gelu) over `X + B`,
+/// where `B` is an optional 1D bias tensor broadcast against the last
+/// dimension of `X`. It is the same as [`BiasGelu`] except that the
+/// approximate variant of Gelu is used and the bias is optional.
+///
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.FastGelu>.
+#[derive(Debug)]
+pub struct FastGelu {}
+
+impl Operator for FastGelu {
+    fn name(&self) -> &str {
+        "FastGelu"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(2)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let bias: Option<NdTensorView<f32, 1>> = ctx.inputs().get_as(1)?;
+        if bias.is_some() {
+            bias_gelu(ctx, true /* approximate */)
+        } else {
+            let input: TensorView = ctx.inputs().require_as(0)?;
+            let kernel = Gelu { approximate: true }.get_kernel();
+            unary_op(ctx.pool(), input, &kernel).into_op_result()
+        }
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
+/// Gelu operator in the `com.microsoft` domain.
+///
+/// This is an alias for the standard non-approximate [`Gelu`](super::Gelu).
+///
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.Gelu>.
+#[derive(Debug)]
+pub struct GeluMicrosoft {}
+
+impl Operator for GeluMicrosoft {
+    fn name(&self) -> &str {
+        "com.microsoft.Gelu"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        Gelu { approximate: false }.run(ctx)
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        Gelu { approximate: false }.run_in_place(in_place, ctx)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
         Some(&UnaryOp)
     }
 
@@ -67,9 +155,25 @@ mod tests {
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
 
-    use super::super::tests::reference_gelu;
-    use super::BiasGelu;
+    use super::super::tests::{reference_approx_gelu, reference_gelu};
+    use super::{BiasGelu, FastGelu, GeluMicrosoft};
     use crate::operator::{OpError, OperatorExt};
+
+    fn reference_bias_gelu(
+        input: &Tensor<f32>,
+        bias: &Tensor<f32>,
+        gelu: impl Fn(f32) -> f32,
+    ) -> Tensor<f32> {
+        let last = input.size(input.ndim() - 1);
+        Tensor::from_data(
+            input.shape(),
+            input
+                .iter()
+                .enumerate()
+                .map(|(i, x)| gelu(x + bias[[i % last]]))
+                .collect::<Vec<_>>(),
+        )
+    }
 
     #[test]
     fn test_bias_gelu() -> Result<(), Box<dyn Error>> {
@@ -77,17 +181,7 @@ mod tests {
         let input = Tensor::<f32>::rand(&[3, 4], &mut rng);
         let bias = Tensor::<f32>::rand(&[4], &mut rng);
 
-        // Reference is `Gelu(input + bias)` with `bias` broadcast on the last
-        // axis.
-        let last = input.size(input.ndim() - 1);
-        let expected = Tensor::from_data(
-            input.shape(),
-            input
-                .iter()
-                .enumerate()
-                .map(|(i, x)| reference_gelu(x + bias[[i % last]]))
-                .collect::<Vec<_>>(),
-        );
+        let expected = reference_bias_gelu(&input, &bias, reference_gelu);
 
         let op = BiasGelu {};
         let result: Tensor = op.run_simple((input.view(), bias.view())).unwrap();
@@ -98,9 +192,53 @@ mod tests {
     }
 
     #[test]
-    fn test_bias_gelu_invalid() {
-        let op = BiasGelu {};
+    fn test_fast_gelu() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::<f32>::rand(&[3, 4], &mut rng);
+        let bias = Tensor::<f32>::rand(&[4], &mut rng);
 
+        let expected = reference_bias_gelu(&input, &bias, reference_approx_gelu);
+
+        let op = FastGelu {};
+        let result: Tensor = op.run_simple((input.view(), bias.view())).unwrap();
+
+        expect_equal(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fast_gelu_no_bias() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::<f32>::rand(&[3, 4], &mut rng);
+
+        let expected = input.map(|&x| reference_approx_gelu(x));
+
+        let op = FastGelu {};
+        let result: Tensor = op.run_simple(input.view()).unwrap();
+
+        expect_equal(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gelu_microsoft() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::<f32>::rand(&[3, 4], &mut rng);
+
+        let expected = input.map(|&x| reference_gelu(x));
+
+        let op = GeluMicrosoft {};
+        let result: Tensor = op.run_simple(input.view()).unwrap();
+
+        expect_equal(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bias_gelu_invalid() {
         let cases: [(&[usize], &[usize]); 2] = [
             // Bias length does not match last dimension of input.
             (&[3, 4], &[3]),
@@ -108,16 +246,18 @@ mod tests {
             (&[], &[4]),
         ];
 
-        for (input_shape, bias_shape) in cases {
-            let input = Tensor::<f32>::zeros(input_shape);
-            let bias = Tensor::<f32>::zeros(bias_shape);
-            let result = op.run_simple::<_, Tensor>((input.view(), bias.view()));
-            assert_eq!(
-                result,
-                Err(OpError::IncompatibleInputShapes(
-                    "bias length does not match last dimension of input"
-                ))
-            );
+        for op in [&BiasGelu {} as &dyn crate::operator::Operator, &FastGelu {}] {
+            for (input_shape, bias_shape) in cases {
+                let input = Tensor::<f32>::zeros(input_shape);
+                let bias = Tensor::<f32>::zeros(bias_shape);
+                let result = op.run_simple::<_, Tensor>((input.view(), bias.view()));
+                assert_eq!(
+                    result,
+                    Err(OpError::IncompatibleInputShapes(
+                        "bias length does not match last dimension of input"
+                    ))
+                );
+            }
         }
     }
 }

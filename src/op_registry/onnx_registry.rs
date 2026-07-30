@@ -273,6 +273,8 @@ impl OnnxOpRegistry {
 
         // com.microsoft ops.
         register_op!("com.microsoft", BiasGelu, feature = "contrib");
+        register_op!("com.microsoft", FastGelu, feature = "contrib");
+        register_op!("com.microsoft", "Gelu", GeluMicrosoft, feature = "contrib");
         register_op!("com.microsoft", GroupQueryAttention, feature = "contrib");
         register_op!("com.microsoft", MatMulNBits, feature = "contrib");
         register_op!("com.microsoft", MultiHeadAttention, feature = "contrib");
@@ -835,6 +837,16 @@ impl_read_op!(BatchNormalization, |attrs: &Attrs| {
 #[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", BiasGelu, |_attrs: &Attrs| {
     Ok(ops::BiasGelu {})
+});
+
+#[cfg(feature = "contrib")]
+impl_read_op!("com.microsoft", FastGelu, |_attrs: &Attrs| {
+    Ok(ops::FastGelu {})
+});
+
+#[cfg(feature = "contrib")]
+impl_read_op!("com.microsoft", "Gelu", GeluMicrosoft, |_attrs: &Attrs| {
+    Ok(ops::GeluMicrosoft {})
 });
 
 impl_read_op!(Cast, |attrs: &Attrs| {
