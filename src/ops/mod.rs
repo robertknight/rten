@@ -131,7 +131,7 @@ pub(crate) use {
     norm::{
         SimplifiedLayerNormalization, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
     },
-    unary_elementwise::BiasGelu,
+    unary_elementwise::{BiasGelu, FastGelu, GeluMicrosoft},
 };
 
 // Operators as functions. These are exported for use by pre/post-processing

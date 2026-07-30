@@ -758,7 +758,7 @@ impl_operator_fn!(Tanh, tanh);
 impl_get_kernel!(Tanh, f32, SimdKernel(vecmath::Tanh {}));
 
 #[cfg(feature = "contrib")]
-pub use contrib::BiasGelu;
+pub use contrib::{BiasGelu, FastGelu, GeluMicrosoft};
 
 #[cfg(feature = "contrib")]
 mod contrib;
@@ -1059,7 +1059,7 @@ mod tests {
         0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
     }
 
-    fn reference_approx_gelu(x: f32) -> f32 {
+    pub(super) fn reference_approx_gelu(x: f32) -> f32 {
         let x_cubed = x * x * x;
         let approx_erf = ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x_cubed)).tanh();
         0.5 * x * (1. + approx_erf)
