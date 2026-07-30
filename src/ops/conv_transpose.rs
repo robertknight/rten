@@ -181,7 +181,7 @@ fn conv_transpose_output_size_and_padding(
             let pad_left = pad_w / 2;
             let pad_right = pad_w.div_ceil(2);
 
-            Ok(([out_h, out_w], [pad_top, pad_bottom, pad_left, pad_right]))
+            Ok(([out_h, out_w], [pad_top, pad_left, pad_bottom, pad_right]))
         }
         Padding::Fixed(pads) => match pads.as_slice() {
             &[pad_top, pad_left, pad_bottom, pad_right] => {
@@ -777,6 +777,15 @@ mod tests {
                 padding: Padding::Same,
                 strides: [1, 1],
                 expected: Ok(([5, 5], [1, 1, 1, 1])),
+                ..Default::default()
+            },
+            // Same padding with non-square kernel
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [1, 3],
+                padding: Padding::Same,
+                strides: [1, 1],
+                expected: Ok(([5, 5], [0, 1, 0, 1])),
                 ..Default::default()
             },
             // Same padding. Case where output size is smaller than
