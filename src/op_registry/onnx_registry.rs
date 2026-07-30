@@ -1533,9 +1533,23 @@ impl_read_op!(Multinomial, |attrs: &Attrs| {
     Ok(ops::Multinomial { sample_size, seed })
 });
 
+/// Check that the "dtype" attribute of a `Random*` operator, if set, specifies
+/// a type which RTen maps to f32, as these operators only generate f32 output.
+#[cfg(feature = "random")]
+fn check_random_dtype(attrs: &Attrs) -> Result<(), ReadOpError> {
+    let dtype = attrs.get("dtype").map(|v| v.as_dtype()).transpose()?;
+    match dtype {
+        None | Some(DataType::Float) => Ok(()),
+        Some(_) => Err(ReadOpError::attr_error(
+            "dtype",
+            "only float output types are supported",
+        )),
+    }
+}
+
 #[cfg(feature = "random")]
 impl_read_op!(RandomNormal, |attrs: &Attrs| {
-    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+    check_random_dtype(attrs)?;
 
     let shape = attrs.require("shape")?.cast_ints()?;
     let mean = attrs.get_as("mean").unwrap_or(0.);
@@ -1551,7 +1565,7 @@ impl_read_op!(RandomNormal, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomNormalLike, |attrs: &Attrs| {
-    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+    check_random_dtype(attrs)?;
 
     let mean = attrs.get_as("mean").unwrap_or(0.);
     let scale = attrs.get_as("scale").unwrap_or(1.);
@@ -1561,7 +1575,7 @@ impl_read_op!(RandomNormalLike, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomUniform, |attrs: &Attrs| {
-    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+    check_random_dtype(attrs)?;
 
     let shape = attrs.require("shape")?.cast_ints()?;
     let low = attrs.get_as("low").unwrap_or(0.);
@@ -1577,7 +1591,7 @@ impl_read_op!(RandomUniform, |attrs: &Attrs| {
 
 #[cfg(feature = "random")]
 impl_read_op!(RandomUniformLike, |attrs: &Attrs| {
-    attrs.check_eq("dtype", i64::from(onnx::DataType::FLOAT.0))?;
+    check_random_dtype(attrs)?;
 
     let low = attrs.get_as("low").unwrap_or(0.);
     let high = attrs.get_as("high").unwrap_or(1.);
