@@ -603,7 +603,6 @@ impl_infer_shapes!(Upsample, _op, shape_ops::Upsample);
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
@@ -611,7 +610,7 @@ mod tests {
 
     use crate::buffer_pool::BufferPool;
     use crate::operator::OperatorExt;
-    use crate::operator::{InputList, OpError, OpRunContext, Operator};
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OutputMask};
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
         CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget, Upsample, resize,
@@ -1048,7 +1047,7 @@ mod tests {
                 case.sizes.as_ref().map(|t| t.into()),
             ];
             let inputs = InputList::from_optional(&inputs);
-            let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+            let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
             let result = op.run(&ctx);
             match (&case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {

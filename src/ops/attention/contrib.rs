@@ -289,10 +289,10 @@ impl MultiHeadAttention {
         let output = merge_attention_heads(pool, attn_out);
 
         let mut outputs: OutputList = [output.into()].into();
-        if ctx.outputs().get(1) || ctx.outputs().get(2) {
+        if ctx.outputs().is_used(1) || ctx.outputs().is_used(2) {
             outputs.push(key.take().into_owned_in(pool).into());
         }
-        if ctx.outputs().get(2) {
+        if ctx.outputs().is_used(2) {
             outputs.push(value.take().into_owned_in(pool).into());
         }
         Ok(outputs)
@@ -744,7 +744,7 @@ impl GroupQueryAttention {
         let output = merge_attention_heads(ctx.pool(), attn_out);
 
         let mut outputs: OutputList = [output.into()].into();
-        if ctx.outputs().get(1) || ctx.outputs().get(2) {
+        if ctx.outputs().is_used(1) || ctx.outputs().is_used(2) {
             outputs.push(present_key.into());
             outputs.push(present_value.into());
         }
@@ -834,7 +834,7 @@ mod tests {
     use super::super::tests::check_in_place_kv_cache;
     use super::{GroupQueryAttention, MultiHeadAttention};
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask};
     use crate::value::ValueView;
 
     /// Reference implementation of causal grouped-query attention.
@@ -923,7 +923,7 @@ mod tests {
         ];
         let input_list = InputList::from_optional(&inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(3));
         op.run(&ctx)
             .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
     }
@@ -1214,12 +1214,20 @@ mod tests {
 
         // When only the first output is requested, the present KV caches are not
         // materialized as outputs.
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::from_indices([0]));
+        let ctx = OpRunContext::new(
+            &pool,
+            &input_list,
+            OutputMask::new(BitSet::from_indices([0]), 3),
+        );
         let outputs = op.run(&ctx).unwrap();
         assert_eq!(outputs.len(), 1);
 
         // When a KV-cache output is requested, all three outputs are returned.
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::from_indices([0, 1]));
+        let ctx = OpRunContext::new(
+            &pool,
+            &input_list,
+            OutputMask::new(BitSet::from_indices([0, 1]), 3),
+        );
         let outputs = op.run(&ctx).unwrap();
         assert_eq!(outputs.len(), 3);
     }
@@ -1249,7 +1257,7 @@ mod tests {
             ];
             let input_list = InputList::from_optional(&inputs);
             let pool = BufferPool::new();
-            let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+            let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(3));
             op.run(&ctx)
                 .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
         };
@@ -1358,7 +1366,7 @@ mod tests {
         ];
         let input_list = InputList::from_optional(&inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(1));
 
         let mut outputs = op.run(&ctx).unwrap();
         let result: Tensor = outputs.remove(0).try_into().unwrap();
@@ -1442,7 +1450,7 @@ mod tests {
             ];
             let input_list = InputList::from_optional(&inputs);
             let pool = BufferPool::new();
-            let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(1));
+            let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(1));
             let mut outputs = op.run(&ctx).unwrap();
             outputs.remove(0).try_into().unwrap()
         };

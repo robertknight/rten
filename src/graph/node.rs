@@ -8,7 +8,7 @@ use rten_tensor::{ArcTensor, DynLayout, TensorView};
 
 use super::NodeId;
 use crate::constant_storage::ArcTensorView;
-use crate::operator::Operator;
+use crate::operator::{Operator, OutputMask};
 use crate::value::{DataType, Scalar, ValueType, ValueView};
 
 #[derive(Debug)]
@@ -132,7 +132,7 @@ pub struct OperatorNode {
     outputs: Box<[Option<NodeId>]>,
 
     // Cached mask indicating which positions in `outputs` are set.
-    output_mask: BitSet<u64>,
+    output_mask: OutputMask,
 
     operator: Arc<dyn Operator + Send + Sync>,
 
@@ -157,13 +157,14 @@ impl OperatorNode {
         // Trim trailing empty IDs
         let output_ids = trim_none_suffix(output_ids);
 
-        // Pre-compute mask of used outputs.
-        let mut output_mask = BitSet::<u64>::ones(output_ids.len() as u32);
-        for (i, id) in output_ids.iter().enumerate() {
-            if id.is_none() {
-                output_mask.delete(i as u32);
-            }
-        }
+        // Pre-compute mask of used outputs. Only the first 32 outputs are
+        // tracked individually; outputs beyond that are always treated as used.
+        let used = output_ids
+            .iter()
+            .take(u32::BITS as usize)
+            .enumerate()
+            .filter_map(|(i, id)| id.is_some().then_some(i as u32));
+        let output_mask = OutputMask::new(BitSet::from_indices(used), output_ids.len() as u32);
 
         OperatorNode {
             name: name.map(|s| s.to_owned()),
@@ -188,7 +189,7 @@ impl OperatorNode {
     }
 
     /// Return a bit mask indicating which outputs are used.
-    pub fn output_mask(&self) -> BitSet<u64> {
+    pub fn output_mask(&self) -> OutputMask {
         self.output_mask
     }
 

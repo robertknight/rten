@@ -16,8 +16,8 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputTypeList,
-    OutputTypesContext, PrepackedInput, SubgraphOperator,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputMask,
+    OutputTypeList, OutputTypesContext, PrepackedInput, SubgraphOperator,
 };
 use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
 use crate::timing::Profiler;
@@ -1989,7 +1989,10 @@ fn test_run_context_outputs() {
     g.add_op(
         Some("test_op"),
         Arc::new(RunFn::new(|ctx| {
-            assert_eq!(ctx.outputs(), BitSet::from_indices([0, 3]));
+            assert_eq!(
+                ctx.outputs(),
+                OutputMask::new(BitSet::from_indices([0, 3]), 4)
+            );
             Ok([
                 // Expected output.
                 Tensor::from(1.).into(),
@@ -2010,6 +2013,38 @@ fn test_run_context_outputs() {
     let input = Tensor::from([1, 2, 3]);
     g.run(vec![(input_id, input.into())], &[out_0, out_1], None, None)
         .unwrap();
+}
+
+#[test]
+fn test_operator_with_many_outputs() {
+    // Operators can have more outputs than the mask tracks individually. All
+    // outputs beyond the first 32 are treated as used.
+    let n_outputs = 65;
+
+    let mut g = Graph::new();
+    let input_id = g.add_value(Some("input"), None, None);
+    let output_ids: Vec<_> = (0..n_outputs)
+        .map(|i| Some(g.add_value(Some(&format!("out_{}", i)), None, None)))
+        .collect();
+    g.add_op(
+        Some("test_op"),
+        Arc::new(RunFn::new(move |ctx| {
+            assert_eq!(ctx.outputs(), OutputMask::all_used(n_outputs));
+            Ok((0..n_outputs)
+                .map(|i| Tensor::from(i as i32).into())
+                .collect())
+        })),
+        &[Some(input_id)],
+        &output_ids,
+    );
+
+    let input = Tensor::from([1, 2, 3]);
+    let last_out = output_ids.last().copied().flatten().unwrap();
+    let mut results = g
+        .run(vec![(input_id, input.into())], &[last_out], None, None)
+        .unwrap();
+    let result: Tensor<i32> = results.remove(0).try_into().unwrap();
+    assert_eq!(result, Tensor::from(n_outputs as i32 - 1));
 }
 
 #[test]
