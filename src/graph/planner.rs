@@ -412,6 +412,11 @@ impl<'a> PlanBuilder<'a> {
 
             if let Some((op_node_id, op_node)) = self.graph.get_source_node(*output_id) {
                 self.visit(op_node_id, op_node, &mut active_set)?;
+            } else if self.options.allow_missing_inputs {
+                // The output has no producing operator, so it must be a value
+                // that is supplied at runtime (eg. a graph input which is
+                // passed through directly to the outputs).
+                continue;
             } else {
                 let output_name = self.graph.node_name(*output_id);
                 let msg = format!("Source node not found for output \"{}\"", output_name);

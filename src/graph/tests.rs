@@ -721,6 +721,25 @@ fn test_no_source_for_output() {
 }
 
 #[test]
+fn test_graph_input_as_output() -> Result<(), Box<dyn Error>> {
+    // Graph with a value that is both an input and an output.
+    let mut g = Graph::new();
+    let val = g.add_value(Some("x"), None, None);
+
+    // A partial run with no inputs, as used for constant propagation, should
+    // succeed and produce no values for the pass-through output.
+    let partial_outs = g.partial_run(vec![], &[val], None)?;
+    assert_eq!(partial_outs.len(), 0);
+
+    // A full run providing the input should pass the value through.
+    let input = Tensor::from([1., 2.]);
+    let result = g.run(vec![(val, input.view().into())], &[val], None, None)?;
+    assert_eq!(result, [Value::FloatTensor(input)]);
+
+    Ok(())
+}
+
+#[test]
 fn test_invalid_input_id() {
     let mut g = Graph::new();
 
