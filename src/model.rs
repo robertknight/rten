@@ -1487,6 +1487,7 @@ mod tests {
         });
         add_operator!(ConvTranspose, [input_node, kernel], {
             strides: vec![2, 2],
+            dilations: vec![2, 2],
             padding: [0, 0, 0, 0].into(),
             groups: 1,
             output_padding: None,

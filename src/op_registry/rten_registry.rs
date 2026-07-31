@@ -530,7 +530,10 @@ impl_read_op!(
         let strides = vec_from_attr(attrs.strides(), &[1, 1]);
         let output_padding = opt_vec_from_attr(attrs.output_padding());
         let groups = attrs.groups().as_usize();
+        let dilations =
+            opt_vec_from_attr(attrs.dilations()).unwrap_or_else(|| vec![1; strides.len()]);
         Ok(ops::ConvTranspose {
+            dilations,
             padding,
             strides,
             groups,
