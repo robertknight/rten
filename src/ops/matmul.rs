@@ -820,7 +820,6 @@ mod contrib;
 mod tests {
     use std::error::Error;
 
-    use rten_base::bit_set::BitSet;
     use rten_bench::run_bench;
     use rten_gemm::{
         BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT,
@@ -834,7 +833,7 @@ mod tests {
 
     use crate::buffer_pool::AutoReturn;
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, Operator};
+    use crate::operator::{InputList, Operator, OutputMask};
     use crate::ops::binary_elementwise::broadcast_shapes;
 
     use super::{
@@ -1229,7 +1228,7 @@ mod tests {
                 inputs.push(bias.view());
             }
 
-            let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+            let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
             let mut result = op.run(&ctx).unwrap();
             let result: Tensor<f32> = result.remove(0).try_into().unwrap();
 
@@ -1561,7 +1560,7 @@ mod tests {
         };
         let inputs =
             InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
         let mut result = op.run(&ctx).unwrap();
         let result: Tensor<i32> = result.remove(0).try_into().unwrap();
 

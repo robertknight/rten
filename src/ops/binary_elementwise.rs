@@ -1283,7 +1283,6 @@ impl Operator for Where {
 mod tests {
     use std::error::Error;
 
-    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
     use rten_tensor::{Scalar, Tensor};
@@ -1296,7 +1295,7 @@ mod tests {
         where_op, xor,
     };
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt};
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask};
     use crate::value::Value;
 
     #[test]
@@ -1437,7 +1436,7 @@ mod tests {
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
         let inputs: InputList = (&b).into();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
         let result = op
             .run_in_place((0, Value::FloatTensor(a_copy)).into(), &ctx)
             .unwrap();

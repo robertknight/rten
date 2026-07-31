@@ -258,12 +258,57 @@ macro_rules! check_eq {
 }
 pub(crate) use check_eq;
 
+/// The number of outputs an operator has and which are used.
+///
+/// This contains a mask that tracks which of the first 32 outputs are used,
+/// plus the total number. Outputs beyond the first 32 are always treated as
+/// used.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct OutputMask {
+    /// Mask tracking which of the first 32 outputs are used.
+    mask: BitSet<u32>,
+    /// Total number of outputs.
+    len: u32,
+}
+
+impl OutputMask {
+    /// Return a mask with `len` outputs, where `mask` specifies which of the
+    /// first 32 are used.
+    pub fn new(mask: BitSet<u32>, len: u32) -> Self {
+        Self { mask, len }
+    }
+
+    /// Return a mask with `len` outputs, all used.
+    pub fn all_used(len: usize) -> Self {
+        Self {
+            mask: BitSet::ones(len.min(u32::BITS as usize) as u32),
+            len: len as u32,
+        }
+    }
+
+    /// Return the total number of outputs.
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    /// Return true if the output at position `idx` is used.
+    ///
+    /// Returns false if `idx` is out of bounds.
+    pub fn is_used(&self, idx: usize) -> bool {
+        if idx < u32::BITS as usize {
+            self.mask.get(idx as u32)
+        } else {
+            idx < self.len as usize
+        }
+    }
+}
+
 /// Context passed to [`Operator::run`] containing the information needed for
 /// the operator to execute.
 pub struct OpRunContext<'a, 'i> {
     pool: &'a BufferPool,
     inputs: &'a InputList<'i>,
-    outputs: BitSet<u64>,
+    outputs: OutputMask,
     name: Option<&'a str>,
 }
 
@@ -272,7 +317,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     ///
     /// `outputs` is a mask indicating which of the operator's outputs are
     /// requested.
-    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: BitSet<u64>) -> Self {
+    pub fn new(pool: &'a BufferPool, inputs: &'a InputList<'i>, outputs: OutputMask) -> Self {
         OpRunContext {
             pool,
             inputs,
@@ -309,7 +354,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// This can be used to skip generating outputs that are unused, or in
     /// the rare cases that the output count cannot be determined from the
     /// operator's inputs and attributes alone.
-    pub fn outputs(&self) -> BitSet<u64> {
+    pub fn outputs(&self) -> OutputMask {
         self.outputs
     }
 
@@ -597,7 +642,7 @@ pub trait OperatorExt: Operator {
     {
         let pool = BufferPool::new();
         let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
         let mut outputs = self.run(&ctx)?;
         Ok(outputs.remove(0).try_into()?)
     }
@@ -613,7 +658,7 @@ pub trait OperatorExt: Operator {
     {
         let pool = BufferPool::new();
         let inputs = inputs.into();
-        let ctx = OpRunContext::new(&pool, &inputs, BitSet::ones(1));
+        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
         let in_place = InPlaceInputs::from((0, mut_input.into()));
         let mut outputs = self.run_in_place(in_place, &ctx)?;
         let typed_output = outputs.remove(0).try_into()?;
@@ -882,11 +927,31 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::{Tensor, TensorView};
 
-    use crate::operator::{InputList, OpError, Operator};
+    use crate::operator::{InputList, OpError, Operator, OutputMask};
     use crate::ops::{Add, Sub};
+
+    #[test]
+    fn test_output_mask() {
+        // Lengths below, at and above the number of tracked outputs.
+        for len in [5, 32, 33, 100] {
+            let mask = OutputMask::all_used(len);
+            assert_eq!(mask.len(), len);
+            for i in 0..len + 10 {
+                assert_eq!(mask.is_used(i), i < len);
+            }
+        }
+
+        // Positions beyond the first 32 are always treated as used, even if
+        // not marked as used in the mask.
+        let mask = OutputMask::new(BitSet::from_indices([0, 3]), 100);
+        for i in 0..100 {
+            assert_eq!(mask.is_used(i), i == 0 || i == 3 || i >= 32);
+        }
+    }
 
     #[test]
     fn test_input_list_require_as_error_index() {

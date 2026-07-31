@@ -320,13 +320,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
     use rten_tensor::Tensor;
 
     use crate::buffer_pool::BufferPool;
     use crate::graph::builder::Expr;
     use crate::graph::{CaptureEnv, Graph, RunError, RunErrorKind};
-    use crate::operator::{InputList, OpRunContext, SubgraphOperator};
+    use crate::operator::{InputList, OpRunContext, OutputMask, SubgraphOperator};
     use crate::value::{Scalar, Value, ValueView};
 
     use super::Loop;
@@ -362,8 +361,8 @@ mod tests {
             let pool = BufferPool::new();
             // A `Loop` produces one output per body output, except the first
             // body output which is the loop condition.
-            let num_outputs = self.op.body.output_ids().len().saturating_sub(1) as u32;
-            let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(num_outputs));
+            let num_outputs = self.op.body.output_ids().len().saturating_sub(1);
+            let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(num_outputs));
             let captures = CaptureEnv::empty();
             let weight_caches = None;
             let profiler = None;

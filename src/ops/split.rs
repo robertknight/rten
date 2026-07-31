@@ -125,7 +125,7 @@ impl Operator for Split {
         } else {
             SplitSizes::NumSplits(
                 self.num_outputs
-                    .unwrap_or_else(|| ctx.outputs().count_true()),
+                    .unwrap_or_else(|| ctx.outputs().len() as u32),
             )
         };
 
@@ -158,13 +158,12 @@ impl_infer_shapes!(
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpError, OpRunContext, Operator};
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OutputMask};
 
     use super::{Split, SplitSizes, split};
 
@@ -247,7 +246,10 @@ mod tests {
                 case.splits.as_ref().map(|s| s.view().into()),
             ]);
             let pool = BufferPool::new();
-            let output_mask = case.graph_outputs.map(BitSet::ones).unwrap_or_default();
+            let output_mask = case
+                .graph_outputs
+                .map(|n| OutputMask::all_used(n as usize))
+                .unwrap_or_default();
             let ctx = OpRunContext::new(&pool, &inputs, output_mask);
             let results = split_op.run(&ctx).unwrap();
             let results: Vec<Tensor> = results.into_iter().map(|o| o.try_into().unwrap()).collect();

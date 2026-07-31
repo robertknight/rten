@@ -65,7 +65,7 @@ fn skip_layer_normalization(
     )?;
 
     let mut outputs: OutputList = [output.into()].into();
-    if ctx.outputs().get(3) {
+    if ctx.outputs().is_used(3) {
         // `mean` and `inv_std_var` are used for training. Here we push
         // dummy values.
         outputs.push(Tensor::from(0.).into()); // mean
@@ -248,7 +248,7 @@ mod tests {
 
     use super::{SkipLayerNormalization, SkipSimplifiedLayerNormalization};
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, OpError, OpRunContext, Operator, OutputList};
+    use crate::operator::{InputList, OpError, OpRunContext, Operator, OutputList, OutputMask};
     use crate::ops::tests::expect_eq_1e4;
 
     /// Wrapper around `SkipLayerNormalization` and
@@ -277,7 +277,7 @@ mod tests {
             beta: Option<TensorView>,
             bias: Option<TensorView>,
             epsilon: f32,
-            outputs: BitSet<u64>,
+            outputs: OutputMask,
         ) -> Result<OutputList, OpError> {
             let mut inputs = InputList::new();
             inputs.push(input);
@@ -412,7 +412,7 @@ mod tests {
                     case.beta.as_ref().map(|b| b.view()),
                     case.bias.as_ref().map(|b| b.view()),
                     epsilon,
-                    BitSet::from_indices([0]),
+                    OutputMask::new(BitSet::from_indices([0]), 4),
                 )
                 .unwrap();
             let result: Tensor = outputs.remove(0).try_into().unwrap();
@@ -468,7 +468,7 @@ mod tests {
                     case.beta.as_ref().map(|b| b.view()),
                     Some(bias.view()),
                     epsilon,
-                    BitSet::from_indices([0, 3]),
+                    OutputMask::new(BitSet::from_indices([0, 3]), 4),
                 )
                 .unwrap();
             assert_eq!(outputs.len(), 4);
@@ -544,7 +544,7 @@ mod tests {
                 None,
                 None,
                 1e-5,
-                BitSet::from_indices([0]),
+                OutputMask::new(BitSet::from_indices([0]), 4),
             );
             let err = result.err().expect("expected an error");
             assert_eq!(&err, &case.expected);

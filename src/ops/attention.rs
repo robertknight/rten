@@ -675,7 +675,7 @@ impl Attention {
         // key/value inputs are right-padded.
         let nonpad_kv_seqlen: Option<NdTensorView<i32, 1>> = inputs.get_as(6)?;
 
-        if ctx.outputs().get(3) {
+        if ctx.outputs().is_used(3) {
             return Err(OpError::UnsupportedValue(
                 "qk_matmul_output output is not supported",
             ));
@@ -894,10 +894,10 @@ impl Attention {
         };
 
         let mut outputs: OutputList = [output].into();
-        if ctx.outputs().get(1) || ctx.outputs().get(2) {
+        if ctx.outputs().is_used(1) || ctx.outputs().is_used(2) {
             outputs.push(key.take().into_owned_in(pool).into());
         }
-        if ctx.outputs().get(2) {
+        if ctx.outputs().is_used(2) {
             outputs.push(value.take().into_owned_in(pool).into());
         }
         Ok(outputs)
@@ -980,7 +980,6 @@ mod contrib;
 
 #[cfg(test)]
 mod tests {
-    use rten_base::bit_set::BitSet;
     use rten_gemm::GemmExecutor;
     use rten_simd::SimdOp;
     use rten_tensor::prelude::*;
@@ -995,7 +994,9 @@ mod tests {
         RepeatInterleave, apply_softcap, sdpa_head,
     };
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InPlaceInputs, InputList, OpError, OpRunContext, Operator, OperatorExt};
+    use crate::operator::{
+        InPlaceInputs, InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask,
+    };
     use crate::ops::{Add, Softmax};
     use crate::value::{Value, ValueView};
 
@@ -1324,7 +1325,7 @@ mod tests {
     fn run_attention(op: &Attention, inputs: &[Option<ValueView>]) -> Result<Vec<Tensor>, OpError> {
         let input_list = InputList::from_optional(inputs);
         let pool = BufferPool::new();
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(3));
         op.run(&ctx)
             .map(|outputs| outputs.into_iter().map(|o| o.try_into().unwrap()).collect())
     }
@@ -1904,7 +1905,7 @@ mod tests {
 
         // Reference outputs from a normal run with the caches passed as views.
         let input_list = InputList::from_optional(inputs);
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(3));
         let expected: Vec<Tensor> = op
             .run(&ctx)
             .unwrap()
@@ -1937,7 +1938,7 @@ mod tests {
         inputs[past_key_index] = None;
         inputs[past_value_index] = None;
         let input_list = InputList::from_optional(&inputs);
-        let ctx = OpRunContext::new(&pool, &input_list, BitSet::ones(3));
+        let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(3));
         let in_place = InPlaceInputs::from_iter([
             (past_key_index, Value::from(past_key)),
             (past_value_index, Value::from(past_value)),
