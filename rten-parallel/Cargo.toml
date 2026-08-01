@@ -1,6 +1,6 @@
 [package]
 name = "rten-parallel"
-version = "0.24.0"
+version = "0.25.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Parallel processing utilities for RTen crates"
@@ -10,7 +10,7 @@ repository = "https://github.com/robertknight/rten"
 
 [dependencies]
 rayon = { workspace = true }
-rten-base = { version = "0.24.0", path = "../rten-base" }
+rten-base = { version = "0.25.0", path = "../rten-base" }
 
 [lib]
 crate-type = ["lib"]
