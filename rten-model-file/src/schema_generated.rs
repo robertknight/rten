@@ -4731,6 +4731,7 @@ impl<'a> ::flatbuffers::Follow<'a> for CumSumAttrs<'a> {
 
 impl<'a> CumSumAttrs<'a> {
     pub const VT_EXCLUSIVE: ::flatbuffers::VOffsetT = 4;
+    pub const VT_REVERSE: ::flatbuffers::VOffsetT = 6;
 
     #[inline]
     pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -4747,6 +4748,7 @@ impl<'a> CumSumAttrs<'a> {
         args: &'args CumSumAttrsArgs,
     ) -> ::flatbuffers::WIPOffset<CumSumAttrs<'bldr>> {
         let mut builder = CumSumAttrsBuilder::new(_fbb);
+        builder.add_reverse(args.reverse);
         builder.add_exclusive(args.exclusive);
         builder.finish()
     }
@@ -4762,6 +4764,17 @@ impl<'a> CumSumAttrs<'a> {
                 .unwrap()
         }
     }
+    #[inline]
+    pub fn reverse(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(CumSumAttrs::VT_REVERSE, Some(false))
+                .unwrap()
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for CumSumAttrs<'_> {
@@ -4772,17 +4785,22 @@ impl ::flatbuffers::Verifiable for CumSumAttrs<'_> {
     ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
         v.visit_table(pos)?
             .visit_field::<bool>("exclusive", Self::VT_EXCLUSIVE, false)?
+            .visit_field::<bool>("reverse", Self::VT_REVERSE, false)?
             .finish();
         Ok(())
     }
 }
 pub struct CumSumAttrsArgs {
     pub exclusive: bool,
+    pub reverse: bool,
 }
 impl<'a> Default for CumSumAttrsArgs {
     #[inline]
     fn default() -> Self {
-        CumSumAttrsArgs { exclusive: false }
+        CumSumAttrsArgs {
+            exclusive: false,
+            reverse: false,
+        }
     }
 }
 
@@ -4795,6 +4813,11 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CumSumAttrsBuilder<'a, 'b, A>
     pub fn add_exclusive(&mut self, exclusive: bool) {
         self.fbb_
             .push_slot::<bool>(CumSumAttrs::VT_EXCLUSIVE, exclusive, false);
+    }
+    #[inline]
+    pub fn add_reverse(&mut self, reverse: bool) {
+        self.fbb_
+            .push_slot::<bool>(CumSumAttrs::VT_REVERSE, reverse, false);
     }
     #[inline]
     pub fn new(
@@ -4817,6 +4840,7 @@ impl ::core::fmt::Debug for CumSumAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("CumSumAttrs");
         ds.field("exclusive", &self.exclusive());
+        ds.field("reverse", &self.reverse());
         ds.finish()
     }
 }

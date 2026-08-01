@@ -553,7 +553,8 @@ impl ReadOp for ops::CumSum {
         // CumSum attributes are optional for backwards compatibility.
         let attrs = op.attrs_as_cum_sum_attrs();
         let exclusive = attrs.map(|a| a.exclusive()).unwrap_or(false);
-        Ok(ops::CumSum { exclusive })
+        let reverse = attrs.map(|a| a.reverse()).unwrap_or(false);
+        Ok(ops::CumSum { exclusive, reverse })
     }
 }
 

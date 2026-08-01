@@ -212,28 +212,40 @@ impl_infer_shapes_for_arg_op!(ArgMin);
 /// Compute the cumulative sum of `input` along `axis`.
 ///
 /// If `exclusive` is true, each output element is the sum of the elements
-/// which precede it along `axis`, excluding the element itself.
+/// which precede it along `axis`, excluding the element itself. If `reverse`
+/// is true, the sum is accumulated from the end of the axis towards the start.
 pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
     exclusive: bool,
+    reverse: bool,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
     let mut output = Tensor::uninit_in(pool, input.shape());
 
     let mut n_init = 0;
     if !input.is_empty() {
-        for (in_slice, out_slice) in input
+        for (in_lane, out_lane) in input
             .lanes(resolved_axis)
             .zip(output.lanes_mut(resolved_axis))
         {
             let mut cum_sum = T::zero();
-            for (x, y) in in_slice.zip(out_slice) {
-                let prev_sum = cum_sum;
-                cum_sum += *x;
-                y.write(if exclusive { prev_sum } else { cum_sum });
-                n_init += 1;
+
+            if reverse {
+                for (x, y) in in_lane.rev().zip(out_lane.rev()) {
+                    let prev_sum = cum_sum;
+                    cum_sum += *x;
+                    y.write(if exclusive { prev_sum } else { cum_sum });
+                    n_init += 1;
+                }
+            } else {
+                for (x, y) in in_lane.zip(out_lane) {
+                    let prev_sum = cum_sum;
+                    cum_sum += *x;
+                    y.write(if exclusive { prev_sum } else { cum_sum });
+                    n_init += 1;
+                }
             }
         }
     }
@@ -247,6 +259,7 @@ pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
 #[derive(Debug)]
 pub struct CumSum {
     pub exclusive: bool,
+    pub reverse: bool,
 }
 
 impl Operator for CumSum {
@@ -263,7 +276,14 @@ impl Operator for CumSum {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as(1)?;
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
-            cum_sum(ctx.pool(), input, axis as isize, self.exclusive).into_op_result()
+            cum_sum(
+                ctx.pool(),
+                input,
+                axis as isize,
+                self.exclusive,
+                self.reverse,
+            )
+            .into_op_result()
         })
     }
 
@@ -1359,61 +1379,94 @@ mod tests {
             input: Tensor<f32>,
             axis: isize,
             exclusive: bool,
+            reverse: bool,
             expected: Result<Tensor<f32>, OpError>,
+        }
+
+        impl Default for Case {
+            fn default() -> Case {
+                Case {
+                    input: Tensor::from([0.; 0]),
+                    axis: 0,
+                    exclusive: false,
+                    reverse: false,
+                    expected: Ok(Tensor::from([0.; 0])),
+                }
+            }
         }
 
         let cases = [
             // Simple 1D case
             Case {
                 input: Tensor::from([0., 1., 2., 3., 4., 5.]),
-                axis: 0,
-                exclusive: false,
                 expected: Ok(Tensor::from([0., 1., 3., 6., 10., 15.])),
+                ..Default::default()
             },
             // 3D tensor, cumsum along axis 1
             Case {
                 input: Tensor::from_data(&[1, 4, 4], vec![1.; 16]),
                 axis: 1,
-                exclusive: false,
                 expected: Ok(Tensor::from_data(
                     &[1, 4, 4],
                     vec![
                         1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3., 4., 4., 4., 4.,
                     ],
                 )),
+                ..Default::default()
             },
             // Same 3D tensor, cumsum along last axis (-1)
             Case {
                 input: Tensor::from_data(&[1, 4, 4], vec![1.; 16]),
                 axis: -1,
-                exclusive: false,
                 expected: Ok(Tensor::from_data(
                     &[1, 4, 4],
                     vec![
                         1., 2., 3., 4., 1., 2., 3., 4., 1., 2., 3., 4., 1., 2., 3., 4.,
                     ],
                 )),
+                ..Default::default()
             },
             // Empty tensor
             Case {
                 input: Tensor::from([0.; 0]),
-                axis: 0,
-                exclusive: false,
                 expected: Ok(Tensor::from([0.; 0])),
+                ..Default::default()
             },
             // Exclusive sum along a 1D tensor
             Case {
                 input: Tensor::from([0., 1., 2., 3., 4., 5.]),
-                axis: 0,
                 exclusive: true,
                 expected: Ok(Tensor::from([0., 0., 1., 3., 6., 10.])),
+                ..Default::default()
             },
             // Exclusive sum over an empty tensor
             Case {
                 input: Tensor::from([0.; 0]),
-                axis: 0,
                 exclusive: true,
                 expected: Ok(Tensor::from([0.; 0])),
+                ..Default::default()
+            },
+            // Reverse sum along a 1D tensor
+            Case {
+                input: Tensor::from([0., 1., 2., 3., 4., 5.]),
+                reverse: true,
+                expected: Ok(Tensor::from([15., 15., 14., 12., 9., 5.])),
+                ..Default::default()
+            },
+            // Reverse exclusive sum along a 1D tensor
+            Case {
+                input: Tensor::from([0., 1., 2., 3., 4., 5.]),
+                exclusive: true,
+                reverse: true,
+                expected: Ok(Tensor::from([15., 14., 12., 9., 5., 0.])),
+                ..Default::default()
+            },
+            // Reverse sum over an empty tensor
+            Case {
+                input: Tensor::from([0.; 0]),
+                reverse: true,
+                expected: Ok(Tensor::from([0.; 0])),
+                ..Default::default()
             },
         ];
 
@@ -1422,11 +1475,12 @@ mod tests {
                 input,
                 axis,
                 exclusive,
+                reverse,
                 expected,
             } = case;
 
             let pool = BufferPool::new();
-            let result = cum_sum(&pool, input.view(), *axis, *exclusive);
+            let result = cum_sum(&pool, input.view(), *axis, *exclusive, *reverse);
 
             assert_eq!(result, *expected);
         });

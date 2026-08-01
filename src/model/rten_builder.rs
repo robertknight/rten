@@ -580,6 +580,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 CumSumAttrs,
                 sg::CumSumAttrsArgs {
                     exclusive: args.exclusive,
+                    reverse: args.reverse,
                 }
             ),
             OpType::DequantizeLinear(args) => op_with_attrs!(

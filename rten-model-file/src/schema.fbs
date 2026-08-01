@@ -377,6 +377,7 @@ table ConvTransposeAttrs {
 // Attributes are optional for backwards compatibility.
 table CumSumAttrs {
   exclusive:bool;
+  reverse:bool;
 }
 
 table DequantizeLinearAttrs {

@@ -2434,11 +2434,21 @@ class CumSumAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
+    # CumSumAttrs
+    def Reverse(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 def CumSumAttrsStart(builder):
-    builder.StartObject(1)
+    builder.StartObject(2)
 
 def CumSumAttrsAddExclusive(builder, exclusive):
     builder.PrependBoolSlot(0, exclusive, 0)
+
+def CumSumAttrsAddReverse(builder, reverse):
+    builder.PrependBoolSlot(1, reverse, 0)
 
 def CumSumAttrsEnd(builder):
     return builder.EndObject()
@@ -2451,8 +2461,10 @@ class CumSumAttrsT(object):
     def __init__(
         self,
         exclusive = False,
+        reverse = False,
     ):
         self.exclusive = exclusive  # type: bool
+        self.reverse = reverse  # type: bool
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2476,11 +2488,13 @@ class CumSumAttrsT(object):
         if cumSumAttrs is None:
             return
         self.exclusive = cumSumAttrs.Exclusive()
+        self.reverse = cumSumAttrs.Reverse()
 
     # CumSumAttrsT
     def Pack(self, builder):
         CumSumAttrsStart(builder)
         CumSumAttrsAddExclusive(builder, self.exclusive)
+        CumSumAttrsAddReverse(builder, self.reverse)
         cumSumAttrs = CumSumAttrsEnd(builder)
         return cumSumAttrs
 
