@@ -2,8 +2,11 @@
 name = "rten-serialize"
 version = "0.1.0"
 edition = "2024"
+authors = ["Robert Knight"]
 description = "Tensor serialization and deserialization library"
 license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
 
 [features]
 default = []
