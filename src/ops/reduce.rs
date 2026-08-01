@@ -209,10 +209,15 @@ impl Operator for ArgMin {
 
 impl_infer_shapes_for_arg_op!(ArgMin);
 
+/// Compute the cumulative sum of `input` along `axis`.
+///
+/// If `exclusive` is true, each output element is the sum of the elements
+/// which precede it along `axis`, excluding the element itself.
 pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
+    exclusive: bool,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
     let mut output = Tensor::uninit_in(pool, input.shape());
@@ -225,8 +230,9 @@ pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
         {
             let mut cum_sum = T::zero();
             for (x, y) in in_slice.zip(out_slice) {
+                let prev_sum = cum_sum;
                 cum_sum += *x;
-                y.write(cum_sum);
+                y.write(if exclusive { prev_sum } else { cum_sum });
                 n_init += 1;
             }
         }
@@ -239,7 +245,9 @@ pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
 }
 
 #[derive(Debug)]
-pub struct CumSum {}
+pub struct CumSum {
+    pub exclusive: bool,
+}
 
 impl Operator for CumSum {
     fn name(&self) -> &str {
@@ -255,7 +263,7 @@ impl Operator for CumSum {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as(1)?;
         map_value_view!(input, input, [FloatTensor, Int32Tensor], {
-            cum_sum(ctx.pool(), input, axis as isize).into_op_result()
+            cum_sum(ctx.pool(), input, axis as isize, self.exclusive).into_op_result()
         })
     }
 
@@ -1350,6 +1358,7 @@ mod tests {
         struct Case {
             input: Tensor<f32>,
             axis: isize,
+            exclusive: bool,
             expected: Result<Tensor<f32>, OpError>,
         }
 
@@ -1358,12 +1367,14 @@ mod tests {
             Case {
                 input: Tensor::from([0., 1., 2., 3., 4., 5.]),
                 axis: 0,
+                exclusive: false,
                 expected: Ok(Tensor::from([0., 1., 3., 6., 10., 15.])),
             },
             // 3D tensor, cumsum along axis 1
             Case {
                 input: Tensor::from_data(&[1, 4, 4], vec![1.; 16]),
                 axis: 1,
+                exclusive: false,
                 expected: Ok(Tensor::from_data(
                     &[1, 4, 4],
                     vec![
@@ -1375,6 +1386,7 @@ mod tests {
             Case {
                 input: Tensor::from_data(&[1, 4, 4], vec![1.; 16]),
                 axis: -1,
+                exclusive: false,
                 expected: Ok(Tensor::from_data(
                     &[1, 4, 4],
                     vec![
@@ -1386,6 +1398,21 @@ mod tests {
             Case {
                 input: Tensor::from([0.; 0]),
                 axis: 0,
+                exclusive: false,
+                expected: Ok(Tensor::from([0.; 0])),
+            },
+            // Exclusive sum along a 1D tensor
+            Case {
+                input: Tensor::from([0., 1., 2., 3., 4., 5.]),
+                axis: 0,
+                exclusive: true,
+                expected: Ok(Tensor::from([0., 0., 1., 3., 6., 10.])),
+            },
+            // Exclusive sum over an empty tensor
+            Case {
+                input: Tensor::from([0.; 0]),
+                axis: 0,
+                exclusive: true,
                 expected: Ok(Tensor::from([0.; 0])),
             },
         ];
@@ -1394,11 +1421,12 @@ mod tests {
             let Case {
                 input,
                 axis,
+                exclusive,
                 expected,
             } = case;
 
             let pool = BufferPool::new();
-            let result = cum_sum(&pool, input.view(), *axis);
+            let result = cum_sum(&pool, input.view(), *axis, *exclusive);
 
             assert_eq!(result, *expected);
         });

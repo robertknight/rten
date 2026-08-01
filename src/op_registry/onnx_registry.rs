@@ -1031,9 +1031,9 @@ impl_read_op!(ConvTranspose, |attrs: &Attrs| {
 impl_read_op!(Cos);
 impl_read_op!(Cosh);
 impl_read_op!(CumSum, |attrs: &Attrs| {
-    attrs.check_eq("exclusive", 0)?;
+    let exclusive = attrs.get_as("exclusive").unwrap_or(false);
     attrs.check_eq("reverse", 0)?;
-    Ok(ops::CumSum {})
+    Ok(ops::CumSum { exclusive })
 });
 
 #[cfg(feature = "fft")]

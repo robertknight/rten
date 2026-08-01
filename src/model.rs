@@ -1495,6 +1495,9 @@ mod tests {
         add_operator!(Cos, [input_node]);
         add_operator!(Cosh, [input_node]);
 
+        let cum_sum_axis = graph_builder.add_constant(Tensor::from(0).view());
+        add_operator!(CumSum, [input_node, cum_sum_axis], { exclusive: true });
+
         let const_u8_val = Tensor::from([0u8, 1, 2, 3, 4]);
         let const_u8 = graph_builder.add_constant(const_u8_val.view());
 

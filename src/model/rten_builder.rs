@@ -8,7 +8,7 @@ use rten_tensor::prelude::*;
 use crate::graph::{Dimension, NodeId};
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, CastLike, Concat,
-    ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, DepthToSpace,
+    ConstantOfShape, Conv, ConvInteger, ConvTranspose, CoordTransformMode, CumSum, DepthToSpace,
     DepthToSpaceMode, DequantizeLinear, Einsum, Elu, EyeLike, Flatten, Gather, GatherElements,
     GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
     LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, QuantizeLinear,
@@ -56,6 +56,7 @@ pub enum OpType<'a> {
     ConvTranspose(ConvTranspose),
     Cos,
     Cosh,
+    CumSum(CumSum),
     DequantizeLinear(DequantizeLinear),
     DepthToSpace(DepthToSpace),
     Div,
@@ -574,6 +575,13 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             }),
             OpType::Cos => op!(Cos),
             OpType::Cosh => op!(Cosh),
+            OpType::CumSum(args) => op_with_attrs!(
+                CumSum,
+                CumSumAttrs,
+                sg::CumSumAttrsArgs {
+                    exclusive: args.exclusive,
+                }
+            ),
             OpType::DequantizeLinear(args) => op_with_attrs!(
                 DequantizeLinear,
                 DequantizeLinearAttrs,

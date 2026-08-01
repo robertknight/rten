@@ -250,6 +250,7 @@ class OperatorAttrs(object):
     UpsampleAttrs = 58
     RotaryEmbeddingAttrs = 59
     AttentionAttrs = 60
+    CumSumAttrs = 61
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -375,6 +376,8 @@ def OperatorAttrsCreator(unionType, table):
         return RotaryEmbeddingAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs.AttentionAttrs:
         return AttentionAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs.CumSumAttrs:
+        return CumSumAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2400,6 +2403,86 @@ class ConvTransposeAttrsT(object):
             ConvTransposeAttrsAddDilations(builder, dilations)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
+
+
+class CumSumAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = CumSumAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsCumSumAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def CumSumAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # CumSumAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # CumSumAttrs
+    def Exclusive(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def CumSumAttrsStart(builder):
+    builder.StartObject(1)
+
+def CumSumAttrsAddExclusive(builder, exclusive):
+    builder.PrependBoolSlot(0, exclusive, 0)
+
+def CumSumAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class CumSumAttrsT(object):
+
+    # CumSumAttrsT
+    def __init__(
+        self,
+        exclusive = False,
+    ):
+        self.exclusive = exclusive  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        cumSumAttrs = CumSumAttrs()
+        cumSumAttrs.Init(buf, pos)
+        return cls.InitFromObj(cumSumAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, cumSumAttrs):
+        x = CumSumAttrsT()
+        x._UnPack(cumSumAttrs)
+        return x
+
+    # CumSumAttrsT
+    def _UnPack(self, cumSumAttrs):
+        if cumSumAttrs is None:
+            return
+        self.exclusive = cumSumAttrs.Exclusive()
+
+    # CumSumAttrsT
+    def Pack(self, builder):
+        CumSumAttrsStart(builder)
+        CumSumAttrsAddExclusive(builder, self.exclusive)
+        cumSumAttrs = CumSumAttrsEnd(builder)
+        return cumSumAttrs
 
 
 class DequantizeLinearAttrs(object):
@@ -7180,7 +7263,7 @@ class OperatorNodeT(object):
     ):
         self.type = type  # type: int
         self.attrsType = attrsType  # type: int
-        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT']
+        self.attrs = attrs  # type: Union[None, 'ArgMaxAttrsT', 'AveragePoolAttrsT', 'BatchNormalizationAttrsT', 'CastAttrsT', 'ConcatAttrsT', 'ConstantOfShapeAttrsT', 'ConvAttrsT', 'ConvTransposeAttrsT', 'FlattenAttrsT', 'GatherAttrsT', 'GemmAttrsT', 'GRUAttrsT', 'LeakyReluAttrsT', 'LSTMAttrsT', 'MaxPoolAttrsT', 'ReduceMeanAttrsT', 'ReshapeAttrsT', 'ResizeAttrsT', 'SplitAttrsT', 'SoftmaxAttrsT', 'TransposeAttrsT', 'ModAttrsT', 'ScatterElementsAttrsT', 'OneHotAttrsT', 'TopKAttrsT', 'HardSigmoidAttrsT', 'TriluAttrsT', 'ScatterNDAttrsT', 'NonMaxSuppressionAttrsT', 'LayerNormalizationAttrsT', 'RandomUniformAttrsT', 'EluAttrsT', 'RandomUniformLikeAttrsT', 'RandomNormalAttrsT', 'RandomNormalLikeAttrsT', 'GatherNDAttrsT', 'GeluAttrsT', 'EinsumAttrsT', 'IfAttrsT', 'PadAttrsT', 'DequantizeLinearAttrsT', 'QuantizeLinearAttrsT', 'DepthToSpaceAttrsT', 'CastLikeAttrsT', 'ShapeAttrsT', 'DropoutAttrsT', 'EyeLikeAttrsT', 'IsInfAttrsT', 'LoopAttrsT', 'SequenceEmptyAttrsT', 'ConcatFromSequenceAttrsT', 'SplitToSequenceAttrsT', 'GridSampleAttrsT', 'STFTAttrsT', 'MultinomialAttrsT', 'ReverseSequenceAttrsT', 'DFTAttrsT', 'UpsampleAttrsT', 'RotaryEmbeddingAttrsT', 'AttentionAttrsT', 'CumSumAttrsT']
         self.inputs = inputs  # type: Optional[List[int]]
         self.outputs = outputs  # type: Optional[List[int]]
 

@@ -267,6 +267,7 @@ union OperatorAttrs {
   UpsampleAttrs,
   RotaryEmbeddingAttrs,
   AttentionAttrs,
+  CumSumAttrs,
 }
 
 table ArgMaxAttrs {
@@ -371,6 +372,11 @@ table ConvTransposeAttrs {
 
   output_padding:[uint];
   dilations:[uint];
+}
+
+// Attributes are optional for backwards compatibility.
+table CumSumAttrs {
+  exclusive:bool;
 }
 
 table DequantizeLinearAttrs {
