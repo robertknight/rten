@@ -1236,13 +1236,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 60;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 61;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 61] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 62] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1304,6 +1304,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 61] = [
     OperatorAttrs::UpsampleAttrs,
     OperatorAttrs::RotaryEmbeddingAttrs,
     OperatorAttrs::AttentionAttrs,
+    OperatorAttrs::CumSumAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1372,9 +1373,10 @@ impl OperatorAttrs {
     pub const UpsampleAttrs: Self = Self(58);
     pub const RotaryEmbeddingAttrs: Self = Self(59);
     pub const AttentionAttrs: Self = Self(60);
+    pub const CumSumAttrs: Self = Self(61);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 60;
+    pub const ENUM_MAX: u8 = 61;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1437,6 +1439,7 @@ impl OperatorAttrs {
         Self::UpsampleAttrs,
         Self::RotaryEmbeddingAttrs,
         Self::AttentionAttrs,
+        Self::CumSumAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1502,6 +1505,7 @@ impl OperatorAttrs {
             Self::UpsampleAttrs => Some("UpsampleAttrs"),
             Self::RotaryEmbeddingAttrs => Some("RotaryEmbeddingAttrs"),
             Self::AttentionAttrs => Some("AttentionAttrs"),
+            Self::CumSumAttrs => Some("CumSumAttrs"),
             _ => None,
         }
     }
@@ -4705,6 +4709,138 @@ impl ::core::fmt::Debug for ConvTransposeAttrs<'_> {
         ds.field("groups", &self.groups());
         ds.field("output_padding", &self.output_padding());
         ds.field("dilations", &self.dilations());
+        ds.finish()
+    }
+}
+pub enum CumSumAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CumSumAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for CumSumAttrs<'a> {
+    type Inner = CumSumAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> CumSumAttrs<'a> {
+    pub const VT_EXCLUSIVE: ::flatbuffers::VOffsetT = 4;
+    pub const VT_REVERSE: ::flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        CumSumAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args CumSumAttrsArgs,
+    ) -> ::flatbuffers::WIPOffset<CumSumAttrs<'bldr>> {
+        let mut builder = CumSumAttrsBuilder::new(_fbb);
+        builder.add_reverse(args.reverse);
+        builder.add_exclusive(args.exclusive);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn exclusive(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(CumSumAttrs::VT_EXCLUSIVE, Some(false))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn reverse(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(CumSumAttrs::VT_REVERSE, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for CumSumAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+            .visit_field::<bool>("exclusive", Self::VT_EXCLUSIVE, false)?
+            .visit_field::<bool>("reverse", Self::VT_REVERSE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct CumSumAttrsArgs {
+    pub exclusive: bool,
+    pub reverse: bool,
+}
+impl<'a> Default for CumSumAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        CumSumAttrsArgs {
+            exclusive: false,
+            reverse: false,
+        }
+    }
+}
+
+pub struct CumSumAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CumSumAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_exclusive(&mut self, exclusive: bool) {
+        self.fbb_
+            .push_slot::<bool>(CumSumAttrs::VT_EXCLUSIVE, exclusive, false);
+    }
+    #[inline]
+    pub fn add_reverse(&mut self, reverse: bool) {
+        self.fbb_
+            .push_slot::<bool>(CumSumAttrs::VT_REVERSE, reverse, false);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> CumSumAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        CumSumAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<CumSumAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for CumSumAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("CumSumAttrs");
+        ds.field("exclusive", &self.exclusive());
+        ds.field("reverse", &self.reverse());
         ds.finish()
     }
 }
@@ -11766,6 +11902,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_cum_sum_attrs(&self) -> Option<CumSumAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::CumSumAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { CumSumAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -11838,6 +11989,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::UpsampleAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<UpsampleAttrs>>("OperatorAttrs::UpsampleAttrs", pos),
           OperatorAttrs::RotaryEmbeddingAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<RotaryEmbeddingAttrs>>("OperatorAttrs::RotaryEmbeddingAttrs", pos),
           OperatorAttrs::AttentionAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<AttentionAttrs>>("OperatorAttrs::AttentionAttrs", pos),
+          OperatorAttrs::CumSumAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CumSumAttrs>>("OperatorAttrs::CumSumAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -12518,6 +12670,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::AttentionAttrs => {
                 if let Some(x) = self.attrs_as_attention_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::CumSumAttrs => {
+                if let Some(x) = self.attrs_as_cum_sum_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

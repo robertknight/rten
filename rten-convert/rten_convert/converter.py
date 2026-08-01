@@ -467,8 +467,9 @@ def op_node_from_onnx_operator(
             read_pads(attr_reader, attrs)
 
         case "CumSum":
-            attr_reader.check_attr("exclusive", "int", 0)
-            attr_reader.check_attr("reverse", "int", 0)
+            attrs = sg.CumSumAttrsT()
+            attrs.exclusive = attr_reader.get_bool_attr("exclusive", False)
+            attrs.reverse = attr_reader.get_bool_attr("reverse", False)
 
         case "DFT":
             attrs = sg.DFTAttrsT()

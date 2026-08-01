@@ -543,7 +543,21 @@ impl_read_op!(
 );
 impl_read_op!(Cos);
 impl_read_op!(Cosh);
-impl_read_op!(CumSum);
+
+impl ReadOp for ops::CumSum {
+    fn op_type() -> sg::OperatorType {
+        sg::OperatorType::CumSum
+    }
+
+    fn read(op: &sg::OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+        // CumSum attributes are optional for backwards compatibility.
+        let attrs = op.attrs_as_cum_sum_attrs();
+        let exclusive = attrs.map(|a| a.exclusive()).unwrap_or(false);
+        let reverse = attrs.map(|a| a.reverse()).unwrap_or(false);
+        Ok(ops::CumSum { exclusive, reverse })
+    }
+}
+
 #[cfg(feature = "fft")]
 impl_read_op!(DFT, attrs_as_dftattrs, |attrs: sg::DFTAttrs| {
     Ok(ops::DFT {
