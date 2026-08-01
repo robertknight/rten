@@ -124,12 +124,16 @@ pub(crate) fn rotary_embedding(
         "Last dimension of sin cache does not match rotary_embedding_dim/2",
     )?;
 
-    // Make the inputs contiguous so each head vector and cache row is a
-    // contiguous slice that the kernel can index directly.
-    let input_contig = reshaped_input.to_contiguous_in(pool).auto_return(pool);
+    let head_dim = reshaped_input.ndim() - 1;
+    let input_contig = if reshaped_input.stride(head_dim) != 1 {
+        reshaped_input.to_contiguous_in(pool).into_inner()
+    } else {
+        reshaped_input.as_cow()
+    }
+    .auto_return(pool);
+
     let cos_contig = cos_cache.to_contiguous_in(pool).auto_return(pool);
     let sin_contig = sin_cache.to_contiguous_in(pool).auto_return(pool);
-    let in_data = input_contig.data();
     let cos_data = cos_contig.data();
     let sin_data = sin_contig.data();
 
@@ -140,11 +144,15 @@ pub(crate) fn rotary_embedding(
     // For each `(batch, seq, head)` row, apply the rotation to the first
     // `rotary_embedding_dim` elements and copy the remainder.
     let out_uninit = &mut out_data.spare_capacity_mut()[..out_len];
-    in_data
-        .par_chunks(head_size)
+    input_contig
+        .lanes(head_dim)
+        .into_par_iter()
         .zip(out_uninit.par_chunks_mut(head_size))
         .enumerate()
         .for_each(|(row, (x, y))| {
+            // OK because the lanes are contiguous.
+            let x = x.as_slice().unwrap();
+
             let bs = row / num_heads;
             let b = bs / seq_len;
             let s = bs % seq_len;
