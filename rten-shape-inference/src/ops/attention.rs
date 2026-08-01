@@ -140,6 +140,7 @@ impl InferShapes for GroupQueryAttention {
         // Inputs: query (0), key (1), value (2), past_key (3), past_value (4),
         // seqlens_k (5), total_sequence_length (6), ...
         let query = inputs.require(0)?;
+        let key = inputs.get(1);
         let past_key = inputs.get(3);
 
         let Some(query_ndim) = query.ndim() else {
@@ -156,16 +157,23 @@ impl InferShapes for GroupQueryAttention {
             return Ok(unknown_outputs());
         };
 
-        // `q_hidden = num_heads * head_size`, so the per-head size follows from
-        // the query hidden size.
-        let head_size = q_hidden.clone() / num_heads;
+        // If the `key` input is absent, `query` contains Q, K and V packed
+        // along the hidden axis. Otherwise `q_hidden = num_heads * head_size`.
+        // Either way the per-head size follows from the query hidden size.
+        let (head_size, out_hidden) = if key.is_some() {
+            (q_hidden.clone() / num_heads, q_hidden)
+        } else {
+            let head_size = q_hidden / (num_heads.clone() + kv_num_heads.clone() * 2.into());
+            let out_hidden = num_heads * head_size.clone();
+            (head_size, out_hidden)
+        };
 
         // The present KV cache holds the past cache plus the new key/value
         // tokens. New KV length equals the query sequence length.
         let total_seq = total_kv_seq(past_key, seq.clone(), sym_gen);
 
-        // Output 0: attention output `[batch, seq, q_hidden]`.
-        let output = SymTensor::from_shape(vec![batch.clone(), seq, q_hidden]);
+        // Output 0: attention output `[batch, seq, out_hidden]`.
+        let output = SymTensor::from_shape(vec![batch.clone(), seq, out_hidden]);
 
         // Outputs 1 & 2: present key/value
         // `[batch, kv_num_heads, past_seq + seq, head_size]`.
@@ -459,6 +467,29 @@ mod tests {
         let value = sym_shape!("batch", "seq", 256);
         let result = infer_gqa(16, 4, &[query, key, value]);
         assert_eq!(result.len(), 3);
+        assert_eq!(result[0], sym_shape!("batch", "seq", 1024));
+        assert_eq!(result[1], sym_shape!("batch", 4, "seq", 64));
+        assert_eq!(result[2], sym_shape!("batch", 4, "seq", 64));
+    }
+
+    #[test]
+    fn test_gqa_packed_qkv() {
+        // Packed QKV: the key and value inputs are absent and the query holds
+        // 16 + 2 * 4 heads, so the per-head size is 1536 / 24 = 64 and the
+        // output hidden size is 16 * 64 = 1024.
+        let mut sym_gen = SymbolGen::new();
+        let query = sym_shape!("batch", "seq", 1536);
+        let inputs = vec![Some(query), None, None];
+        let op = GroupQueryAttention {
+            num_heads: 16,
+            kv_num_heads: 4,
+        };
+        let result: Vec<_> = op
+            .infer_shapes(inputs.into(), &mut sym_gen)
+            .unwrap()
+            .into_iter()
+            .map(SymTensor::simplify)
+            .collect();
         assert_eq!(result[0], sym_shape!("batch", "seq", 1024));
         assert_eq!(result[1], sym_shape!("batch", 4, "seq", 64));
         assert_eq!(result[2], sym_shape!("batch", 4, "seq", 64));
