@@ -445,9 +445,10 @@ impl GroupQueryAttention {
 
         // (batch, seq, q_hidden)
         let query: NdTensorView<f32, 3> = inputs.require_as(0)?;
-        // (batch, seq, kv_hidden). Packed QKV (key absent) is not supported.
-        let key: NdTensorView<f32, 3> = inputs.require_as(1)?;
-        let value: NdTensorView<f32, 3> = inputs.require_as(2)?;
+        // (batch, seq, kv_hidden). Absent if Q, K and V are packed into
+        // `query`.
+        let key: Option<NdTensorView<f32, 3>> = inputs.get_as(1)?;
+        let value: Option<NdTensorView<f32, 3>> = inputs.get_as(2)?;
 
         // (batch,). Equal to total_sequence_lengths - 1.
         //
@@ -491,38 +492,84 @@ impl GroupQueryAttention {
             ));
         }
 
-        let [batch, seq, q_hidden] = query.shape();
-        if !q_hidden.is_multiple_of(num_heads) {
-            return Err(OpError::IncompatibleInputShapes(
-                "query hidden size must be divisible by num_heads",
-            ));
-        }
-        let head_size = q_hidden / num_heads;
+        // Reshape of `query` used by the packed QKV path. Declared outside the
+        // match so that views of it outlive the arm that creates it.
+        let packed_heads;
 
-        let [key_batch, kv_seq, kv_hidden] = key.shape();
-        let [value_batch, value_seq, value_hidden] = value.shape();
-        if key_batch != batch || value_batch != batch {
-            return Err(OpError::IncompatibleInputShapes(
-                "key and value batch size must match query",
-            ));
-        }
-        if kv_seq != value_seq || kv_hidden != value_hidden {
-            return Err(OpError::IncompatibleInputShapes(
-                "key and value must have the same shape",
-            ));
-        }
-        if kv_hidden != kv_num_heads * head_size {
-            return Err(OpError::IncompatibleInputShapes(
-                "key hidden size must equal kv_num_heads * head_size",
-            ));
-        }
-        // Shared KV buffer mode (kv_seq == 0) and cross attention are not
-        // supported. New key/value sequence length must match the query.
-        if kv_seq != seq {
-            return Err(OpError::UnsupportedValue(
-                "key sequence length must match query sequence length",
-            ));
-        }
+        // Split Q, K and V into per-head views of shape
+        // (batch, seq, heads, head_size).
+        let (query, key, value) = match (key, value) {
+            (Some(key), Some(value)) => {
+                let [batch, seq, q_hidden] = query.shape();
+                if !q_hidden.is_multiple_of(num_heads) {
+                    return Err(OpError::IncompatibleInputShapes(
+                        "query hidden size must be divisible by num_heads",
+                    ));
+                }
+                let head_size = q_hidden / num_heads;
+
+                let [key_batch, kv_seq, kv_hidden] = key.shape();
+                let [value_batch, value_seq, value_hidden] = value.shape();
+                if key_batch != batch || value_batch != batch {
+                    return Err(OpError::IncompatibleInputShapes(
+                        "key and value batch size must match query",
+                    ));
+                }
+                if kv_seq != value_seq || kv_hidden != value_hidden {
+                    return Err(OpError::IncompatibleInputShapes(
+                        "key and value must have the same shape",
+                    ));
+                }
+                if kv_hidden != kv_num_heads * head_size {
+                    return Err(OpError::IncompatibleInputShapes(
+                        "key hidden size must equal kv_num_heads * head_size",
+                    ));
+                }
+                // Shared KV buffer mode (kv_seq == 0) and cross attention are
+                // not supported. New key/value sequence length must match the
+                // query.
+                if kv_seq != seq {
+                    return Err(OpError::UnsupportedValue(
+                        "key sequence length must match query sequence length",
+                    ));
+                }
+
+                (
+                    query.reshaped([batch, seq, num_heads, head_size]),
+                    key.reshaped([batch, seq, kv_num_heads, head_size]),
+                    value.reshaped([batch, seq, kv_num_heads, head_size]),
+                )
+            }
+            // In the packed QKV format the `key` and `value` inputs are absent
+            // and `query` contains the Q, K and V heads concatenated along the
+            // hidden axis.
+            (None, None) => {
+                let [batch, seq, packed_hidden] = query.shape();
+                let total_heads = num_heads + 2 * kv_num_heads;
+                if !packed_hidden.is_multiple_of(total_heads) {
+                    return Err(OpError::IncompatibleInputShapes(
+                        "packed query hidden size must be divisible by num_heads + 2 * kv_num_heads",
+                    ));
+                }
+                let head_size = packed_hidden / total_heads;
+                packed_heads = query.reshaped([batch, seq, total_heads, head_size]);
+                (
+                    packed_heads.slice((.., .., ..num_heads)).as_cow(),
+                    packed_heads
+                        .slice((.., .., num_heads..num_heads + kv_num_heads))
+                        .as_cow(),
+                    packed_heads
+                        .slice((.., .., num_heads + kv_num_heads..))
+                        .as_cow(),
+                )
+            }
+            _ => {
+                return Err(OpError::InvalidValue(
+                    "key and value must both be present or both absent",
+                ));
+            }
+        };
+        let [batch, seq, _, head_size] = query.shape();
 
         // Resolve per-batch sequence lengths.
         if seqlens_k.len() != batch {
@@ -633,11 +680,15 @@ impl GroupQueryAttention {
                 NdTensor::from_fn([batch, seq], |[b, s]| (past_len(b) + s) as i32).into_cow()
             };
 
+            // `rotary_embedding` takes a (batch, heads, seq, head_size) input
+            // when given a 4D tensor, and returns the result in that layout.
+            //
             // TODO - These two calls each gather the cos/sin caches with the
             // same `pos_ids`. Gather once and reuse.
             let q = rotary_embedding(
                 ctx.pool(),
-                query.as_dyn(),
+                // (batch, seq, heads, head_size) => (batch, heads, seq, head_size)
+                query.permuted([0, 2, 1, 3]).as_dyn(),
                 cos.as_dyn(),
                 sin.as_dyn(),
                 Some(pos_ids.view()),
@@ -647,7 +698,8 @@ impl GroupQueryAttention {
             )?;
             let k = rotary_embedding(
                 ctx.pool(),
-                key.as_dyn(),
+                // (batch, seq, heads, head_size) => (batch, heads, seq, head_size)
+                key.permuted([0, 2, 1, 3]).as_dyn(),
                 cos.as_dyn(),
                 sin.as_dyn(),
                 Some(pos_ids.view()),
@@ -660,20 +712,25 @@ impl GroupQueryAttention {
             (None, None)
         };
 
-        // `rotary_q` and `rotary_k` have same rank as `query` and `key`
-        // respectively (ie. 3).
-        let query = rotary_q.as_ref().map(|q| q.nd_view::<3>()).unwrap_or(query);
-        let key = rotary_k.as_ref().map(|k| k.nd_view::<3>()).unwrap_or(key);
+        // Restore the (batch, seq, heads, head_size) layout of the rotated
+        // tensors.
+        let query = rotary_q
+            .as_ref()
+            // (batch, heads, seq, head_size) => (batch, seq, heads, head_size)
+            .map(|q| q.nd_view::<4>().permuted([0, 2, 1, 3]))
+            .unwrap_or(query.view());
+        let key = rotary_k
+            .as_ref()
+            // (batch, heads, seq, head_size) => (batch, seq, heads, head_size)
+            .map(|k| k.nd_view::<4>().permuted([0, 2, 1, 3]))
+            .unwrap_or(key.view());
 
-        // Reshape Q to (batch, num_heads, seq, head_size).
-        let query = query.reshaped([batch, seq, num_heads, head_size]);
+        // (batch, seq, num_heads, head_size) => (batch, num_heads, seq, head_size)
         let query = query.permuted([0, 2, 1, 3]);
 
         // Build the present key/value caches in BNSH layout by concatenating the
         // past cache with the new key/value tokens. When the past caches are
         // owned and have spare capacity, they are extended in place.
-        let key = key.reshaped([batch, seq, kv_num_heads, head_size]);
-        let value = value.reshaped([batch, seq, kv_num_heads, head_size]);
 
         let present_key =
             gqa_present_cache(ctx.pool(), past_key, key.view(), past_len, present_seq);
@@ -1106,6 +1163,59 @@ mod tests {
             present_key.slice((0, 0, 2)).to_vec(),
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
         );
+    }
+
+    #[test]
+    fn test_group_query_attention_packed_qkv() {
+        let (num_heads, kv_num_heads, head_size) = (4u32, 2u32, 8);
+        let (batch, seq) = (1, 3);
+        let q_hidden = num_heads as usize * head_size;
+        let kv_hidden = kv_num_heads as usize * head_size;
+
+        let mut rng = XorShiftRng::new(1234);
+        let packed = NdTensor::<f32, 3>::rand([batch, seq, q_hidden + 2 * kv_hidden], &mut rng);
+
+        // Q, K and V occupy consecutive slices of the hidden axis.
+        let query = packed.slice((.., .., ..q_hidden)).to_tensor();
+        let key = packed
+            .slice((.., .., q_hidden..q_hidden + kv_hidden))
+            .to_tensor();
+        let value = packed.slice((.., .., q_hidden + kv_hidden..)).to_tensor();
+
+        let op = default_gqa(num_heads, kv_num_heads, None);
+        let seqlens_k = NdTensor::<i32, 1>::full([batch], seq as i32 - 1);
+        let total = NdTensor::from_scalar(seq as i32);
+
+        let inputs = [
+            Some(ValueView::from(packed.view())),
+            None, // key
+            None, // value
+            None, // past_key
+            None, // past_value
+            Some(ValueView::from(seqlens_k.view())),
+            Some(ValueView::from(total.view())),
+        ];
+        let input_list = InputList::from_optional(&inputs);
+        let pool = BufferPool::new();
+        let ctx = OpRunContext::new(&pool, &input_list, OutputMask::all_used(3));
+        let packed_outputs: Vec<Tensor> = op
+            .run(&ctx)
+            .unwrap()
+            .into_iter()
+            .map(|o| o.try_into().unwrap())
+            .collect();
+
+        // The packed inputs must produce the same result as the equivalent
+        // separate Q, K and V inputs.
+        let outputs = run_gqa(
+            &op, &query, &key, &value, None, None, &seqlens_k, seq as i32,
+        )
+        .unwrap();
+
+        assert_eq!(packed_outputs[0].shape(), [batch, seq, q_hidden]);
+        for (packed, separate) in packed_outputs.iter().zip(&outputs) {
+            expect_equal(&packed.view(), &separate.view()).unwrap();
+        }
     }
 
     #[test]
