@@ -1014,16 +1014,13 @@ impl_read_op!(ConvTranspose, |attrs: &Attrs| {
         strides,
     } = get_common_conv_attrs(attrs)?;
 
-    if !dilations.iter().all(|d| *d == 1) {
-        return Err(ReadOpError::attr_error("dilations", "unsupported value"));
-    }
-
     let output_padding = attrs
         .get("output_padding")
         .map(|v| v.cast_ints())
         .transpose()?;
 
     Ok(ops::ConvTranspose {
+        dilations,
         padding,
         strides,
         groups,

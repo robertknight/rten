@@ -370,6 +370,7 @@ table ConvTransposeAttrs {
   groups:uint = 1;
 
   output_padding:[uint];
+  dilations:[uint];
 }
 
 table DequantizeLinearAttrs {

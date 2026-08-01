@@ -2213,8 +2213,35 @@ class ConvTransposeAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
+    # ConvTransposeAttrs
+    def Dilations(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ConvTransposeAttrs
+    def DilationsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # ConvTransposeAttrs
+    def DilationsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ConvTransposeAttrs
+    def DilationsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return o == 0
+
 def ConvTransposeAttrsStart(builder):
-    builder.StartObject(5)
+    builder.StartObject(6)
 
 def ConvTransposeAttrsAddStrides(builder, strides):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
@@ -2240,6 +2267,12 @@ def ConvTransposeAttrsAddOutputPadding(builder, outputPadding):
 def ConvTransposeAttrsStartOutputPaddingVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
+def ConvTransposeAttrsAddDilations(builder, dilations):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(dilations), 0)
+
+def ConvTransposeAttrsStartDilationsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
 def ConvTransposeAttrsEnd(builder):
     return builder.EndObject()
 
@@ -2259,12 +2292,14 @@ class ConvTransposeAttrsT(object):
         pads = None,
         groups = 1,
         outputPadding = None,
+        dilations = None,
     ):
         self.strides = strides  # type: Optional[List[int]]
         self.autoPad = autoPad  # type: int
         self.pads = pads  # type: Optional[List[int]]
         self.groups = groups  # type: int
         self.outputPadding = outputPadding  # type: Optional[List[int]]
+        self.dilations = dilations  # type: Optional[List[int]]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2310,6 +2345,13 @@ class ConvTransposeAttrsT(object):
                     self.outputPadding.append(convTransposeAttrs.OutputPadding(i))
             else:
                 self.outputPadding = convTransposeAttrs.OutputPaddingAsNumpy()
+        if not convTransposeAttrs.DilationsIsNone():
+            if np is None:
+                self.dilations = []
+                for i in range(convTransposeAttrs.DilationsLength()):
+                    self.dilations.append(convTransposeAttrs.Dilations(i))
+            else:
+                self.dilations = convTransposeAttrs.DilationsAsNumpy()
 
     # ConvTransposeAttrsT
     def Pack(self, builder):
@@ -2337,6 +2379,14 @@ class ConvTransposeAttrsT(object):
                 for i in reversed(range(len(self.outputPadding))):
                     builder.PrependUint32(self.outputPadding[i])
                 outputPadding = builder.EndVector()
+        if self.dilations is not None:
+            if np is not None and type(self.dilations) is np.ndarray:
+                dilations = builder.CreateNumpyVector(self.dilations)
+            else:
+                ConvTransposeAttrsStartDilationsVector(builder, len(self.dilations))
+                for i in reversed(range(len(self.dilations))):
+                    builder.PrependUint32(self.dilations[i])
+                dilations = builder.EndVector()
         ConvTransposeAttrsStart(builder)
         if self.strides is not None:
             ConvTransposeAttrsAddStrides(builder, strides)
@@ -2346,6 +2396,8 @@ class ConvTransposeAttrsT(object):
         ConvTransposeAttrsAddGroups(builder, self.groups)
         if self.outputPadding is not None:
             ConvTransposeAttrsAddOutputPadding(builder, outputPadding)
+        if self.dilations is not None:
+            ConvTransposeAttrsAddDilations(builder, dilations)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
 

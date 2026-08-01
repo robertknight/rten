@@ -82,9 +82,11 @@ fn col2im(
     columns: &NdTensorView<f32, 5>,
     padding: [usize; 4],
     strides: [usize; 2],
+    dilations: [usize; 2],
     bias: Option<NdTensorView<f32, 1>>,
 ) {
     let [stride_h, stride_w] = strides;
+    let [dilation_h, dilation_w] = dilations;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [col_chans, kernel_h, kernel_w, _img_h, _img_w] = columns.shape();
     let [out_chans, out_h, out_w] = output.shape();
@@ -106,16 +108,18 @@ fn col2im(
                     let in_img = columns.slice([out_c, k_y, k_x]);
                     let [img_h, img_w] = in_img.shape();
 
-                    let y_range = col2im_input_range(img_h, out_h, pad_top, k_y, stride_h);
-                    let x_range = col2im_input_range(img_w, out_w, pad_left, k_x, stride_w);
+                    let y_range =
+                        col2im_input_range(img_h, out_h, pad_top, k_y * dilation_h, stride_h);
+                    let x_range =
+                        col2im_input_range(img_w, out_w, pad_left, k_x * dilation_w, stride_w);
 
                     for y in y_range {
-                        let out_y = y * stride_h + k_y;
+                        let out_y = y * stride_h + k_y * dilation_h;
                         debug_assert!(out_y >= pad_top);
                         debug_assert!(out_y < out_h + pad_top);
 
                         for x in x_range.clone() {
-                            let out_x = x * stride_w + k_x;
+                            let out_x = x * stride_w + k_x * dilation_w;
                             debug_assert!(out_x >= pad_left);
                             debug_assert!(out_x < out_w + pad_left);
 
@@ -142,20 +146,34 @@ fn conv_transpose_output_size_and_padding(
     kernel_shape: [usize; 2],
     padding: Padding,
     strides: [usize; 2],
+    dilations: [usize; 2],
     output_padding: [usize; 2],
 ) -> Result<([usize; 2], [usize; 4]), OpError> {
     let [in_h, in_w] = input_shape;
     let [stride_h, stride_w] = strides;
-    let [k_h, k_w] = kernel_shape;
+    let [dilation_h, dilation_w] = dilations;
     let [out_pad_h, out_pad_w] = output_padding;
 
     if stride_h == 0 || stride_w == 0 {
         return Err(OpError::InvalidValue("Strides must be > 0"));
     }
 
+    if dilation_h == 0 || dilation_w == 0 {
+        return Err(OpError::InvalidValue("Dilations must be > 0"));
+    }
+
+    if kernel_shape.contains(&0) {
+        return Err(OpError::InvalidValue("Kernel size must be > 0"));
+    }
+
     if in_h == 0 || in_w == 0 {
         return Err(OpError::InvalidValue("Input width and height must be > 0"));
     }
+
+    // Effective kernel size after dilation.
+    let effective_kernel_size = |k: usize, dilation: usize| (k - 1) * dilation + 1;
+    let k_h = effective_kernel_size(kernel_shape[0], dilation_h);
+    let k_w = effective_kernel_size(kernel_shape[1], dilation_w);
 
     match padding {
         Padding::Same => {
@@ -213,6 +231,7 @@ pub fn conv_transpose(
     padding: Padding,
     groups: usize,
     strides: &[usize],
+    dilations: &[usize],
     output_padding: Option<&[usize]>,
 ) -> Result<Tensor, OpError> {
     // Handle 1D transposed convolution by expanding to 2D and then removing
@@ -236,6 +255,13 @@ pub fn conv_transpose(
             }
         };
 
+        let dilations_2d = match dilations {
+            &[dilation] => [1, dilation],
+            _ => {
+                return Err(OpError::InvalidValue("expected 1 dilation value"));
+            }
+        };
+
         let output_padding_2d = match output_padding {
             Some(&[pad]) => [0, pad],
             None => [0, 0],
@@ -252,6 +278,7 @@ pub fn conv_transpose(
             padding_2d,
             groups,
             &strides_2d,
+            &dilations_2d,
             Some(&output_padding_2d),
         );
 
@@ -293,6 +320,9 @@ pub fn conv_transpose(
     let &[stride_h, stride_w] = strides else {
         return Err(OpError::InvalidValue("expected 2 stride values"));
     };
+    let &[dilation_h, dilation_w] = dilations else {
+        return Err(OpError::InvalidValue("expected 2 dilation values"));
+    };
     let [out_pad_h, out_pad_w] = match output_padding {
         Some(&[h, w]) => [h, w],
         None => [0, 0],
@@ -306,6 +336,7 @@ pub fn conv_transpose(
         [k_h, k_w],
         padding,
         [stride_h, stride_w],
+        [dilation_h, dilation_w],
         [out_pad_h, out_pad_w],
     )?;
     let [out_h, out_w] = out_shape;
@@ -366,6 +397,7 @@ pub fn conv_transpose(
                     .view(),
                 [pad_top, pad_left, pad_right, pad_bottom],
                 [stride_h, stride_w],
+                [dilation_h, dilation_w],
                 bias,
             );
             n_init += out_img.len();
@@ -380,6 +412,7 @@ pub fn conv_transpose(
 #[derive(Debug)]
 pub struct ConvTranspose {
     pub groups: usize,
+    pub dilations: Vec<usize>,
     pub padding: Padding,
     pub strides: Vec<usize>,
     pub output_padding: Option<Vec<usize>>,
@@ -408,6 +441,7 @@ impl Operator for ConvTranspose {
             self.padding.clone(),
             self.groups,
             &self.strides,
+            &self.dilations,
             self.output_padding.as_deref(),
         )
         .into_op_result()
@@ -422,18 +456,17 @@ impl Operator for ConvTranspose {
     }
 }
 
-impl_infer_shapes!(ConvTranspose, op, {
-    let spatial_dims = op.strides.len().min(2);
+impl_infer_shapes!(
+    ConvTranspose,
+    op,
     shape_ops::ConvTranspose {
         groups: op.groups,
         padding: op.padding.as_shape_inference_padding(),
         strides: &op.strides,
-        // ConvTranspose operator doesn't support dilations yet so we always
-        // pass 1s here.
-        dilations: &[1, 1][..spatial_dims],
+        dilations: &op.dilations,
         output_padding: op.output_padding.as_deref(),
     }
-});
+);
 
 #[cfg(test)]
 mod tests {
@@ -456,6 +489,7 @@ mod tests {
         padding: Padding,
         groups: usize,
         [stride_h, stride_w]: [usize; 2],
+        [dilation_h, dilation_w]: [usize; 2],
         [out_pad_h, out_pad_w]: [usize; 2],
     ) -> Result<Tensor, OpError> {
         let input = input.nd_view::<4>();
@@ -468,6 +502,7 @@ mod tests {
             [k_h, k_w],
             padding,
             [stride_h, stride_w],
+            [dilation_h, dilation_w],
             [out_pad_h, out_pad_w],
         )?;
         let out_c = out_chans_per_group * groups;
@@ -491,13 +526,17 @@ mod tests {
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
-                                        if y + pad_top >= k_y
-                                            && x + pad_left >= k_x
-                                            && (y + pad_top - k_y) % stride_h == 0
-                                            && (x + pad_left - k_x) % stride_w == 0
+                                        // Position of the kernel element in
+                                        // the output, offset by padding.
+                                        let out_k_y = k_y * dilation_h;
+                                        let out_k_x = k_x * dilation_w;
+                                        if y + pad_top >= out_k_y
+                                            && x + pad_left >= out_k_x
+                                            && (y + pad_top - out_k_y) % stride_h == 0
+                                            && (x + pad_left - out_k_x) % stride_w == 0
                                         {
-                                            let in_y = (y + pad_top - k_y) / stride_h;
-                                            let in_x = (x + pad_left - k_x) / stride_w;
+                                            let in_y = (y + pad_top - out_k_y) / stride_h;
+                                            let in_x = (x + pad_left - out_k_x) / stride_w;
                                             accum += input
                                                 .get([n, in_chan, in_y, in_x])
                                                 .copied()
@@ -529,6 +568,7 @@ mod tests {
         pads: Padding,
         groups: usize,
         strides: [usize; 2],
+        dilations: [usize; 2],
         output_padding: [usize; 2],
     ) -> Result<Tensor<f32>, ExpectEqualError> {
         let pool = BufferPool::new();
@@ -540,12 +580,21 @@ mod tests {
             pads.clone(),
             groups,
             &strides,
+            &dilations,
             Some(output_padding.as_slice()),
         )
         .expect("conv operation failed");
-        let reference_result =
-            reference_conv_transpose(input, kernel, bias, pads, groups, strides, output_padding)
-                .unwrap();
+        let reference_result = reference_conv_transpose(
+            input,
+            kernel,
+            bias,
+            pads,
+            groups,
+            strides,
+            dilations,
+            output_padding,
+        )
+        .unwrap();
         expect_equal(&result, &reference_result)?;
         Ok(result)
     }
@@ -567,6 +616,7 @@ mod tests {
 
         let groups = 1;
         let strides = [2, 2];
+        let dilations = [1, 1];
         let output_padding = Some([0, 0].as_slice());
 
         let result = conv_transpose(
@@ -577,6 +627,7 @@ mod tests {
             Padding::zero::<2>(),
             groups,
             &strides,
+            &dilations,
             output_padding,
         )
         .unwrap();
@@ -595,6 +646,7 @@ mod tests {
             Padding::zero::<2>(),
             groups,
             &strides,
+            &dilations,
             output_padding,
         )
         .unwrap();
@@ -612,6 +664,7 @@ mod tests {
         // Expected values computed with `torch.nn.functional.conv_transpose2d`.
         let expected = Tensor::from_data(&[1, 1, 2, 2], vec![0.4, 0.6, 0.6, 0.4]);
         let strides = [2, 2];
+        let dilations = [1, 1];
         let groups = 1;
         let output_padding = Some([0, 0].as_slice());
 
@@ -625,6 +678,7 @@ mod tests {
             Padding::Fixed([1, 1, 1, 1].into()),
             groups,
             &strides,
+            &dilations,
             output_padding,
         )
         .unwrap();
@@ -640,6 +694,7 @@ mod tests {
             Padding::Same,
             groups,
             &strides,
+            &dilations,
             output_padding,
         )
         .unwrap();
@@ -667,6 +722,7 @@ mod tests {
 
         let groups = 1;
         let strides = [2];
+        let dilations = [1];
         let output_padding = Some([0].as_slice());
 
         let result = conv_transpose(
@@ -677,6 +733,7 @@ mod tests {
             Padding::zero::<1>(),
             groups,
             &strides,
+            &dilations,
             output_padding,
         )
         .unwrap();
@@ -692,6 +749,7 @@ mod tests {
             Padding::zero::<1>(),
             groups,
             &strides,
+            &dilations,
             output_padding,
         )
         .unwrap();
@@ -708,6 +766,7 @@ mod tests {
             kernel_shape: [usize; 2],
             padding: Padding,
             strides: [usize; 2],
+            dilations: [usize; 2],
             output_padding: [usize; 2],
             expected: Result<([usize; 2], [usize; 4]), OpError>,
         }
@@ -719,6 +778,7 @@ mod tests {
                     kernel_shape: [1, 1],
                     padding: Padding::zero::<2>(),
                     strides: [1, 1],
+                    dilations: [1, 1],
                     output_padding: [0, 0],
                     expected: Err(OpError::InvalidValue("default value")),
                 }
@@ -807,6 +867,32 @@ mod tests {
                 expected: Err(OpError::InvalidValue("Input is too small")),
                 ..Default::default()
             },
+            // Dilations, stride of 1
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                dilations: [2, 2],
+                expected: Ok(([9, 9], [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Non-uniform dilations with padding
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Fixed([1, 1, 1, 1].into()),
+                dilations: [2, 3],
+                expected: Ok(([7, 9], [1, 1, 1, 1])),
+                ..Default::default()
+            },
+            // Same padding with dilations
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Same,
+                dilations: [2, 2],
+                expected: Ok(([5, 5], [2, 2, 2, 2])),
+                ..Default::default()
+            },
             // Invalid strides
             Case {
                 input_shape: [5, 5],
@@ -814,6 +900,21 @@ mod tests {
                 padding: Padding::zero::<2>(),
                 strides: [0, 0],
                 expected: Err(OpError::InvalidValue("Strides must be > 0")),
+                ..Default::default()
+            },
+            // Invalid dilations
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                dilations: [0, 0],
+                expected: Err(OpError::InvalidValue("Dilations must be > 0")),
+                ..Default::default()
+            },
+            // Empty kernel
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [0, 0],
+                expected: Err(OpError::InvalidValue("Kernel size must be > 0")),
                 ..Default::default()
             },
             // Empty input
@@ -868,6 +969,7 @@ mod tests {
                 case.kernel_shape,
                 case.padding.clone(),
                 case.strides,
+                case.dilations,
                 case.output_padding,
             );
             assert_eq!(result, case.expected);
@@ -881,6 +983,7 @@ mod tests {
         pads: Padding,
         groups: usize,
         strides: [usize; 2],
+        dilations: [usize; 2],
         output_padding: [usize; 2],
     }
 
@@ -892,6 +995,7 @@ mod tests {
                 pads: Padding::zero::<2>(),
                 groups: 1,
                 strides: [1, 1],
+                dilations: [1, 1],
                 output_padding: [0, 0],
             }
         }
@@ -912,6 +1016,7 @@ mod tests {
                 case.pads.clone(),
                 case.groups,
                 case.strides,
+                case.dilations,
                 case.output_padding,
             )
             .unwrap();
@@ -958,6 +1063,66 @@ mod tests {
                 ..Default::default()
             },
         ]);
+    }
+
+    #[test]
+    fn test_conv_transpose_dilations() -> Result<(), Box<dyn Error>> {
+        let pool = BufferPool::new();
+        let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.5, 0.3, 0.4]);
+
+        // Expected values computed with `torch.nn.functional.conv_transpose2d`.
+        let expected = Tensor::from_data(
+            &[1, 1, 4, 4],
+            vec![
+                0.1, 0.2, 0.5, 1.0, 0.3, 0.4, 1.5, 2.0, 0.3, 0.6, 0.4, 0.8, 0.9, 1.2, 1.2, 1.6,
+            ],
+        );
+
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            None,
+            Padding::zero::<2>(),
+            1, /* groups */
+            &[1, 1],
+            &[2, 2],
+            Some([0, 0].as_slice()),
+        )
+        .unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Compare against the reference implementation for various
+        // combinations of dilations with other parameters.
+        test_conv_transpose_cases(&[
+            // Uniform dilations
+            ConvTransposeCase {
+                input_shape: [1, 2, 5, 5],
+                kernel_shape: [2, 3, 3, 3],
+                dilations: [2, 2],
+                ..Default::default()
+            },
+            // Non-uniform dilations with strides and padding
+            ConvTransposeCase {
+                input_shape: [1, 2, 5, 5],
+                kernel_shape: [2, 3, 3, 3],
+                strides: [2, 2],
+                dilations: [2, 3],
+                pads: Padding::Fixed([1, 1, 1, 1].into()),
+                ..Default::default()
+            },
+            // Dilations with groups
+            ConvTransposeCase {
+                input_shape: [1, 4, 5, 5],
+                kernel_shape: [4, 2, 3, 3],
+                groups: 2,
+                dilations: [2, 2],
+                ..Default::default()
+            },
+        ]);
+
+        Ok(())
     }
 
     #[test]
@@ -1011,6 +1176,7 @@ mod tests {
                 &columns.view(),
                 [0, 0, 0, 0], // Padding
                 [stride_y, stride_x],
+                [1, 1], // Dilations
                 None,
             );
         });
@@ -1022,6 +1188,7 @@ mod tests {
                 &columns.view(),
                 [1, 1, 1, 1], // Padding
                 [stride_y, stride_x],
+                [1, 1], // Dilations
                 None,
             );
         });
