@@ -942,7 +942,17 @@ impl<'a, T> LaneMut<'a, T> {
     }
 
     /// Return the entire lane as a mutable 1D tensor view.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the lane has been stepped, as the view would then alias
+    /// references which the iterator has already yielded.
+    #[track_caller]
     pub fn into_view(self) -> NdTensorViewMut<'a, T, 1> {
+        assert!(
+            self.index == 0 && self.end == self.view.size(0),
+            "lane has been stepped"
+        );
         self.view
     }
 }
@@ -967,7 +977,7 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 
     #[inline]
     fn nth(&mut self, nth: usize) -> Option<Self::Item> {
-        self.index = (self.index + nth).min(self.end);
+        self.index = self.index.saturating_add(nth).min(self.end);
         self.next()
     }
 
@@ -1894,6 +1904,46 @@ mod tests {
 
         let tensor = NdTensor::from([[1, 2], [3, 4]]);
         test_mut_iterator(LaneMutTest(tensor), &[&1, &3]);
+    }
+
+    #[test]
+    fn test_lane_mut_nth() {
+        let mut x = NdTensor::from([1, 2, 3]);
+
+        let mut lane = x.lanes_mut(0).next().unwrap();
+        assert_eq!(lane.nth(1), Some(&mut 2));
+        assert_eq!(lane.next(), Some(&mut 3));
+
+        // Skipping past the end must not wrap the cursor around.
+        let mut lane = x.lanes_mut(0).next().unwrap();
+        assert_eq!(lane.next(), Some(&mut 1));
+        assert_eq!(lane.nth(usize::MAX), None);
+        assert_eq!(lane.next(), None);
+    }
+
+    #[test]
+    fn test_lane_mut_into_view() {
+        let mut x = NdTensor::from([1, 2, 3, 4]);
+        let lane = x.lanes_mut(0).next().unwrap();
+        assert_eq!(lane.into_view(), NdTensor::from([1, 2, 3, 4]));
+    }
+
+    #[test]
+    #[should_panic(expected = "lane has been stepped")]
+    fn test_lane_mut_into_view_after_next() {
+        let mut x = NdTensor::from([1, 2, 3, 4]);
+        let mut lane = x.lanes_mut(0).next().unwrap();
+        lane.next();
+        lane.into_view();
+    }
+
+    #[test]
+    #[should_panic(expected = "lane has been stepped")]
+    fn test_lane_mut_into_view_after_next_back() {
+        let mut x = NdTensor::from([1, 2, 3, 4]);
+        let mut lane = x.lanes_mut(0).next().unwrap();
+        lane.next_back();
+        lane.into_view();
     }
 
     #[test]
