@@ -49,6 +49,7 @@ mod random;
 mod reduce;
 mod resize;
 mod rnn;
+mod scatter;
 mod sequence;
 mod slice;
 mod split;
@@ -81,10 +82,7 @@ pub(crate) use {
     convert::{Cast, CastLike},
     einsum::Einsum,
     embedding::RotaryEmbedding,
-    gather::{
-        Gather, GatherElements, GatherND, ReverseSequence, Scatter, ScatterElements, ScatterND,
-        ScatterReduction,
-    },
+    gather::{Gather, GatherElements, GatherND, ReverseSequence},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
     grid_sample::GridSample,
     identity::Identity,
@@ -104,6 +102,7 @@ pub(crate) use {
     },
     resize::{Resize, Upsample},
     rnn::{GRU, LSTM},
+    scatter::{Scatter, ScatterElements, ScatterND, ScatterReduction},
     sequence::{
         ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
         SequenceInsert, SequenceLength, SplitToSequence,
@@ -148,7 +147,7 @@ pub use concat::{concat, tile};
 pub use conv::{conv, conv_integer};
 pub use conv_transpose::conv_transpose;
 pub use einsum::einsum;
-pub use gather::{gather, gather_elements, gather_nd, scatter_elements, scatter_nd};
+pub use gather::{gather, gather_elements, gather_nd};
 pub use generate::{constant_of_shape, onehot, range};
 pub use layout::{DepthToSpaceMode, depth_to_space, expand, flatten, reshape, squeeze};
 pub use matmul::{gemm, matmul};
@@ -160,6 +159,7 @@ pub use norm::{
 pub use pad::{PadMode, pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use quantize::{dequantize_linear, dynamic_quantize_linear, quantize_linear};
+pub use scatter::{scatter_elements, scatter_nd};
 
 #[cfg(feature = "fft")]
 pub use fft::{dft, stft};
