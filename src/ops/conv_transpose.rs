@@ -364,6 +364,7 @@ pub fn conv_transpose(
         let in_group = input.slice((.., in_chans.clone()));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
         let kernel_mat = kernel_mat.slice((.., in_chans.clone()));
+        let bias = bias.map(|b| b.slice(out_chans.clone()));
 
         for n in 0..batch {
             let input_mat = in_group
@@ -1041,6 +1042,26 @@ mod tests {
                 ..Default::default()
             },
         ]);
+    }
+
+    #[test]
+    fn test_conv_transpose_groups_bias() {
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::rand(&[1, 4, 5, 5], &mut rng);
+        let kernel = Tensor::rand(&[4, 2, 3, 3], &mut rng);
+        let bias = NdTensor::rand([4], &mut rng);
+
+        check_conv_transpose(
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
+            Padding::zero::<2>(),
+            2, /* groups */
+            [1, 1],
+            [1, 1],
+            [0, 0],
+        )
+        .unwrap();
     }
 
     // Test cases where certain kernel positions have an empty range of input
