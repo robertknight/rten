@@ -51,6 +51,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
+- Fixed a planning error during constant propagation in models where a graph
+  output is also a graph input
+  (https://github.com/robertknight/rten/pull/1405)
+
+- Added `Gelu` and `FastGelu` contrib operators
+  (https://github.com/robertknight/rten/pull/1401)
+
+- Fixed `Range` shape inference for zero and negative deltas, and limited the
+  number of values inferred for long ranges
+  (https://github.com/robertknight/rten/pull/1400)
+
+- Fixed an out-of-bounds write in `ConvTranspose` for certain combinations of
+  input size and attributes, and fixed the order of padding sizes computed for
+  "same" padding (https://github.com/robertknight/rten/pull/1398,
+  https://github.com/robertknight/rten/pull/1399)
+
+- Accept the opset 20 "linear" spelling of `GridSample`'s bilinear mode
+  (https://github.com/robertknight/rten/pull/1393)
+
+- Support reading `pads` and `value` from attributes in `Pad`, as used by
+  models targeting opsets before 11
+  (https://github.com/robertknight/rten/pull/1392)
+
+- Fixed a panic when the output of `GatherND` is empty, and incorrect handling
+  of negative indices in a fast path
+  (https://github.com/robertknight/rten/pull/1389,
+  https://github.com/robertknight/rten/pull/1390)
+
+- Support upper-case letters as dimension labels in `Einsum` equations, matching
+  `numpy.einsum` and ONNX Runtime
+  (https://github.com/robertknight/rten/pull/1387)
+
+- Fixed a bug where the optimizer could replace float values with integer
+  constants inferred by shape inference
+  (https://github.com/robertknight/rten/pull/1382)
+
+- Support all tensor data types and data sources in the `value` attribute of
+  `ConstantOfShape` (https://github.com/robertknight/rten/pull/1380)
+
+- Fixed a panic in the `Conv` pointwise fast path when the input and kernel
+  channel counts do not match
+  (https://github.com/robertknight/rten/pull/1378)
+
+- Added a `ConvIntegerToFloat` fusion for quantized models which convert the
+  output of `ConvInteger` back to float
+  (https://github.com/robertknight/rten/pull/1377)
+
 - Fixed several panics and incorrect outputs in the `Einsum` operator,
   including bugs in broadcasting, equations with three or more terms containing
   repeated labels or ellipses, and equations with an empty left-hand side
@@ -88,7 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `Unsqueeze` shape inference when there are multiple axes
   (https://github.com/robertknight/rten/pull/1339)
 
-- Support loading f16 and f64 tensors from external data files
+- Support loading f64 tensors from external data files
   (https://github.com/robertknight/rten/pull/1338)
 
 - Added `BiasGelu` contrib operator
@@ -215,7 +262,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Support f16 ONNX models by up-converting to f32 in the loader
   (https://github.com/robertknight/rten/pull/1171,
-  https://github.com/robertknight/rten/pull/1351)
+  https://github.com/robertknight/rten/pull/1338,
+  https://github.com/robertknight/rten/pull/1351,
+  https://github.com/robertknight/rten/pull/1383,
+  https://github.com/robertknight/rten/pull/1391,
+  https://github.com/robertknight/rten/pull/1402)
 
 - Support all int8/uint8 input combinations in `MatMulInteger`
   (https://github.com/robertknight/rten/pull/1208)
@@ -242,6 +293,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   initializer loader (https://github.com/robertknight/rten/pull/1181)
 
 ### rten-tensor
+
+- Added `TensorBase::init_if_empty` method
+  (https://github.com/robertknight/rten/pull/1389)
+
+- Fixed `TensorBase::append` marking uninitialized elements as initialized when
+  appending along an axis other than zero
+  (https://github.com/robertknight/rten/pull/1384)
+
+- Fixed a false-positive internal-overlap panic for tensors with 1-sized
+  dimensions (https://github.com/robertknight/rten/pull/1375)
 
 - Refactored tensor layouts to use separate types for tensor indices, shapes
   and strides (https://github.com/robertknight/rten/pull/1340,
@@ -278,6 +339,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten-simd
 
+- Split `Extend::extend` into `extend_low` and `extend_high` methods which each
+  return a single vector, for compatibility with scalable vector ISAs
+  (https://github.com/robertknight/rten/pull/1397)
+
 - Added basic f16 vector support
   (https://github.com/robertknight/rten/pull/1350)
 
@@ -294,6 +359,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   https://github.com/robertknight/rten/pull/1314)
 
 ### rten-cli
+
+- Generate the `use_cache_branch` input using the shape declared by the model
+  (https://github.com/robertknight/rten/pull/1379)
+
+- Added a `--range` option to set the range of randomly generated values for a
+  named input (https://github.com/robertknight/rten/pull/1376,
+  https://github.com/robertknight/rten/pull/1395)
 
 - Avoid copying inputs on each iteration of the timing loop, which distorted
   timings for models with large inputs
