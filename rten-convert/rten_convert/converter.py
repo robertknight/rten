@@ -592,7 +592,7 @@ def op_node_from_onnx_operator(
 
         case "LogSoftmax":
             attrs = sg.SoftmaxAttrsT()
-            attrs.axis = attr_reader.get_attr("axis", "int", 0)
+            attrs.axis = attr_reader.get_attr("axis", "int", -1)
 
         case "Loop":
             attrs = sg.LoopAttrsT()
@@ -794,7 +794,7 @@ def op_node_from_onnx_operator(
 
         case "Softmax":
             attrs = sg.SoftmaxAttrsT()
-            attrs.axis = attr_reader.get_attr("axis", "int", 0)
+            attrs.axis = attr_reader.get_attr("axis", "int", -1)
 
         case "Split":
             attrs = sg.SplitAttrsT()
