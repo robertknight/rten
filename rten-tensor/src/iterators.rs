@@ -653,13 +653,18 @@ pub struct Lanes<'a, T> {
 #[derive(Clone, Debug)]
 pub struct Lane<'a, T> {
     view: NdTensorView<'a, T, 1>,
+
+    /// Index of the next item yielded from the front of the lane.
     index: usize,
+
+    /// Index one past the next item yielded from the back of the lane.
+    end: usize,
 }
 
 impl<'a, T> Lane<'a, T> {
     /// Return the remaining part of the lane as a slice, if it is contiguous.
     pub fn as_slice(&self) -> Option<&'a [T]> {
-        self.view.data().map(|data| &data[self.index..])
+        self.view.data().map(|data| &data[self.index..self.end])
     }
 
     /// Return the item at a given index in this lane.
@@ -676,8 +681,9 @@ impl<'a, T> Lane<'a, T> {
 impl<'a, T> From<NdTensorView<'a, T, 1>> for Lane<'a, T> {
     fn from(val: NdTensorView<'a, T, 1>) -> Self {
         Lane {
-            view: val,
             index: 0,
+            end: val.size(0),
+            view: val,
         }
     }
 }
@@ -687,7 +693,7 @@ impl<'a, T> Iterator for Lane<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.view.len() {
+        if self.index < self.end {
             let index = self.index;
             self.index += 1;
 
@@ -699,8 +705,22 @@ impl<'a, T> Iterator for Lane<'a, T> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.view.size(0);
-        (size, Some(size))
+        let len = self.end - self.index;
+        (len, Some(len))
+    }
+}
+
+impl<T> DoubleEndedIterator for Lane<'_, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index < self.end {
+            self.end -= 1;
+
+            // Safety: Index is in bounds for axis 0.
+            Some(unsafe { self.view.get_unchecked([self.end]) })
+        } else {
+            None
+        }
     }
 }
 
@@ -710,13 +730,13 @@ impl<T> FusedIterator for Lane<'_, T> {}
 
 impl<T: PartialEq> PartialEq<Lane<'_, T>> for Lane<'_, T> {
     fn eq(&self, other: &Lane<'_, T>) -> bool {
-        self.view.slice(self.index..) == other.view.slice(other.index..)
+        self.view.slice(self.index..self.end) == other.view.slice(other.index..other.end)
     }
 }
 
 impl<T: PartialEq> PartialEq<Lane<'_, T>> for LaneMut<'_, T> {
     fn eq(&self, other: &Lane<'_, T>) -> bool {
-        self.view.slice(self.index..) == other.view.slice(other.index..)
+        self.view.slice(self.index..self.end) == other.view.slice(other.index..other.end)
     }
 }
 
@@ -746,7 +766,11 @@ fn lane_for_offset_range<T>(
     offsets: Range<usize>,
 ) -> Lane<T> {
     let view = NdTensorView::from_storage_and_layout(data.slice(offsets), layout);
-    Lane { view, index: 0 }
+    Lane {
+        index: 0,
+        end: view.size(0),
+        view,
+    }
 }
 
 impl<'a, T> Iterator for Lanes<'a, T> {
@@ -882,7 +906,12 @@ impl<'a, T> DoubleEndedIterator for LanesMut<'a, T> {
 #[derive(Debug)]
 pub struct LaneMut<'a, T> {
     view: NdTensorViewMut<'a, T, 1>,
+
+    /// Index of the next item yielded from the front of the lane.
     index: usize,
+
+    /// Index one past the next item yielded from the back of the lane.
+    end: usize,
 }
 
 impl<'a, T> LaneMut<'a, T> {
@@ -899,12 +928,17 @@ impl<'a, T> LaneMut<'a, T> {
             // lane's size and stride.
             NdTensorViewMut::from_storage_and_layout_unchecked(data, layout)
         };
-        LaneMut { view, index: 0 }
+        LaneMut {
+            index: 0,
+            end: view.size(0),
+            view,
+        }
     }
 
     /// Return the remaining part of the lane as a slice, if it is contiguous.
     pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
-        self.view.data_mut().map(|data| &mut data[self.index..])
+        let (index, end) = (self.index, self.end);
+        self.view.data_mut().map(|data| &mut data[index..end])
     }
 
     /// Return the entire lane as a mutable 1D tensor view.
@@ -918,7 +952,7 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.view.size(0) {
+        if self.index < self.end {
             let index = self.index;
             self.index += 1;
             let item = unsafe { self.view.get_unchecked_mut([index]) };
@@ -933,13 +967,29 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 
     #[inline]
     fn nth(&mut self, nth: usize) -> Option<Self::Item> {
-        self.index = (self.index + nth).min(self.view.size(0));
+        self.index = (self.index + nth).min(self.end);
         self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.view.size(0);
-        (size, Some(size))
+        let len = self.end - self.index;
+        (len, Some(len))
+    }
+}
+
+impl<T> DoubleEndedIterator for LaneMut<'_, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index < self.end {
+            self.end -= 1;
+            let item = unsafe { self.view.get_unchecked_mut([self.end]) };
+
+            // Transmute to preserve lifetime of data. This is safe as we
+            // yield each element only once.
+            Some(unsafe { transmute::<&mut T, Self::Item>(item) })
+        } else {
+            None
+        }
     }
 }
 
@@ -947,7 +997,7 @@ impl<T> ExactSizeIterator for LaneMut<'_, T> {}
 
 impl<T: PartialEq> PartialEq<LaneMut<'_, T>> for LaneMut<'_, T> {
     fn eq(&self, other: &LaneMut<'_, T>) -> bool {
-        self.view.slice(self.index..) == other.view.slice(other.index..)
+        self.view.slice(self.index..self.end) == other.view.slice(other.index..other.end)
     }
 }
 
@@ -1821,6 +1871,29 @@ mod tests {
                 Lane::from(tensor.slice((.., 1))),
             ],
         );
+    }
+
+    #[test]
+    fn test_lane() {
+        let x = NdTensor::from([[1, 2], [3, 4]]);
+        test_iterator(|| x.lanes(0).next().unwrap(), &[&1, &3]);
+        test_iterator(|| x.lanes(1).next().unwrap(), &[&1, &2]);
+    }
+
+    #[test]
+    fn test_lane_mut() {
+        struct LaneMutTest(NdTensor<i32, 2>);
+
+        impl MutIterable for LaneMutTest {
+            type Iter<'a> = super::LaneMut<'a, i32>;
+
+            fn iter_mut(&mut self) -> Self::Iter<'_> {
+                self.0.lanes_mut(0).next().unwrap()
+            }
+        }
+
+        let tensor = NdTensor::from([[1, 2], [3, 4]]);
+        test_mut_iterator(LaneMutTest(tensor), &[&1, &3]);
     }
 
     #[test]
