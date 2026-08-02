@@ -246,12 +246,16 @@ macro_rules! static_dims {
 pub(crate) use static_dims;
 
 /// Check that two input dimension sizes are equal.
+///
+/// The error message defaults to the stringified comparison, but can be given
+/// explicitly as a third argument.
 macro_rules! check_eq {
-    ($actual:expr, $expected:expr) => {{
+    ($actual:expr, $expected:expr) => {
+        check_eq!($actual, $expected, stringify!($actual != $expected))
+    };
+    ($actual:expr, $expected:expr, $msg:expr) => {{
         if $actual != $expected {
-            return Err(OpError::IncompatibleInputShapes(stringify!(
-                $actual != $expected
-            )));
+            return Err(OpError::IncompatibleInputShapes($msg));
         }
         Ok::<_, OpError>(())
     }};

@@ -11,7 +11,7 @@ use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{InferShapes, UnaryOp};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    OutputTypesContext, check_eq,
 };
 use crate::ops::{map_value_view, resolve_axis};
 use crate::value::{DataType, Value, ValueType, ValueView};
@@ -56,13 +56,21 @@ pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar>(
     match scale.ndim() {
         0 => {
             let scale = scale.item().unwrap();
-            let zero_point = zero_point.and_then(|z| z.item()).unwrap();
+            let zero_point = zero_point
+                .and_then(|z| z.item())
+                .copied()
+                .unwrap_or_default();
 
-            Ok(input.map_in(pool, |x| x.dequantize(*scale, *zero_point)))
+            Ok(input.map_in(pool, |x| x.dequantize(*scale, zero_point)))
         }
         1 => {
             let axis = resolve_axis(input.ndim(), axis)?;
             let scale: NdTensorView<f32, 1> = scale.try_into().unwrap();
+            check_eq!(
+                scale.size(0),
+                input.size(axis),
+                "scale length does not match size of quantization axis"
+            )?;
             let zero = NdTensor::from(T::default());
             let zero_point: NdTensorView<T, 1> = zero_point
                 .map(|zp| {
@@ -208,7 +216,10 @@ where
     match scale.ndim() {
         0 => {
             let inv_scale = 1. / *scale.item().unwrap();
-            let zero_point = *zero_point.and_then(|z| z.item()).unwrap();
+            let zero_point = zero_point
+                .and_then(|z| z.item())
+                .copied()
+                .unwrap_or_default();
 
             if let Some(data) = input.data() {
                 let mut buf = pool.alloc(data.len());
@@ -234,6 +245,11 @@ where
         1 => {
             let axis = resolve_axis(input.ndim(), axis)?;
             let scale: NdTensorView<f32, 1> = scale.try_into().unwrap();
+            check_eq!(
+                scale.size(0),
+                input.size(axis),
+                "scale length does not match size of quantization axis"
+            )?;
             let zero = NdTensor::from(T::default());
             let zero_point: NdTensorView<T, 1> = zero_point
                 .map(|zp| {
@@ -522,6 +538,22 @@ mod tests {
                 zero_point: Some(Tensor::from([10u8, 20]).into()),
                 expected: Ok(Tensor::from([[0., 5.], [20., 40.]])),
             },
+            // Per-tensor dequantization with no zero point
+            Case {
+                axis: 1,
+                input: Tensor::from([20u8, 30, 40]).into(),
+                scale: Tensor::from(0.5),
+                zero_point: None,
+                expected: Ok(Tensor::from([10., 15., 20.])),
+            },
+            // Per-axis dequantization with no zero point
+            Case {
+                axis: 0,
+                input: Tensor::from([[10u8, 20], [30, 40]]).into(),
+                scale: Tensor::from([0.5, 2.]),
+                zero_point: None,
+                expected: Ok(Tensor::from([[5., 10.], [60., 80.]])),
+            },
             // Mismatched scale and zero-point shape
             Case {
                 axis: 0,
@@ -530,6 +562,26 @@ mod tests {
                 zero_point: Some(Tensor::from([1u8, 2, 3]).into()),
                 expected: Err(OpError::InvalidValue(
                     "scale and zero_point must have same shape",
+                )),
+            },
+            // Scale shorter than the quantization axis
+            Case {
+                axis: 0,
+                input: Tensor::from([[10u8, 20], [30, 40]]).into(),
+                scale: Tensor::from([0.5]),
+                zero_point: None,
+                expected: Err(OpError::IncompatibleInputShapes(
+                    "scale length does not match size of quantization axis",
+                )),
+            },
+            // Scale longer than the quantization axis
+            Case {
+                axis: 0,
+                input: Tensor::from([[10u8, 20], [30, 40]]).into(),
+                scale: Tensor::from([0.5, 2., 4.]),
+                zero_point: None,
+                expected: Err(OpError::IncompatibleInputShapes(
+                    "scale length does not match size of quantization axis",
                 )),
             },
             // Blocked dequantization
