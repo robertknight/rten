@@ -17,6 +17,7 @@ fn output_size(
     stride: usize,
     dilation: usize,
     padding: DimPadding,
+    ceil_mode: bool,
 ) -> SymExpr {
     let stride = SymExpr::from(stride as i32);
 
@@ -27,10 +28,20 @@ fn output_size(
         } => {
             let dilation = SymExpr::from(dilation as i32);
             let one = SymExpr::from(1);
+            let pad_start = SymExpr::from(pad_start as i32);
             let padded_in_size =
-                in_size + SymExpr::from(pad_start as i32) + SymExpr::from(pad_end as i32);
-            (padded_in_size - dilation * (kernel_size - one.clone()) - one.clone()) / stride
-                + one.clone()
+                in_size.clone() + pad_start.clone() + SymExpr::from(pad_end as i32);
+            let windowed_in_size =
+                padded_in_size - dilation * (kernel_size - one.clone()) - one.clone();
+
+            if !ceil_mode {
+                return windowed_in_size / stride + one;
+            }
+
+            // Rounding up can produce a final window which starts beyond the
+            // end of the input. Exclude those positions.
+            let max_size = (in_size + pad_start - one.clone()) / stride.clone() + one.clone();
+            (windowed_in_size.div_ceil(&stride) + one).min(&max_size)
         }
         DimPadding::Same => in_size.div_ceil(&stride),
     }
@@ -125,6 +136,7 @@ impl InferShapes for Conv<'_> {
                 .first()
                 .ok_or(InferShapesError::InvalidValue)?,
             pad_h,
+            false,
         );
 
         let mut out_shape = Vec::with_capacity(data_shape.len());
@@ -148,6 +160,7 @@ impl InferShapes for Conv<'_> {
                     .get(1)
                     .ok_or(InferShapesError::InvalidValue)?,
                 pad_w,
+                false,
             );
             out_shape.push(out_w);
         }
@@ -269,6 +282,9 @@ pub struct Pool<'a> {
     pub kernel_size: &'a [usize],
     pub padding: Padding<'a>,
     pub strides: &'a [usize],
+
+    /// Round the output size up rather than down.
+    pub ceil_mode: bool,
 }
 
 impl InferShapes for Pool<'_> {
@@ -308,6 +324,7 @@ impl InferShapes for Pool<'_> {
                 .first()
                 .ok_or(InferShapesError::InvalidValue)?,
             pad_h,
+            self.ceil_mode,
         );
 
         let mut out_shape = Vec::with_capacity(data_shape.len());
@@ -334,6 +351,7 @@ impl InferShapes for Pool<'_> {
                     .get(1)
                     .ok_or(InferShapesError::InvalidValue)?,
                 pad_w,
+                self.ceil_mode,
             );
             out_shape.push(out_w);
         }
@@ -370,6 +388,8 @@ impl InferShapes for GlobalPool {
 
 #[cfg(test)]
 mod tests {
+    use rten_testing::TestCases;
+
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
@@ -460,6 +480,7 @@ mod tests {
         // 1D pool
         let data = sym_shape!("batch", "in_c", "seq");
         let op = Pool {
+            ceil_mode: false,
             kernel_size: &[32],
             padding: Padding::Fixed(&[0, 2]),
             dilations: &[4],
@@ -483,6 +504,7 @@ mod tests {
 
         // 1D pool with "same" padding
         let op = Pool {
+            ceil_mode: false,
             kernel_size: &[32],
             padding: Padding::Same,
             dilations: &[4],
@@ -501,6 +523,7 @@ mod tests {
         // 2D pool
         let data = sym_shape!("batch", "in_c", "height", "width");
         let op = Pool {
+            ceil_mode: false,
             kernel_size: &[32, 32],
             padding: Padding::Fixed(&[0, 1, 2, 3]),
             dilations: &[4, 5],
@@ -524,6 +547,78 @@ mod tests {
                     + SymExpr::from(1),
             )
         );
+    }
+
+    #[test]
+    fn test_pool_ceil_mode() {
+        #[derive(Debug)]
+        struct Case {
+            in_size: i32,
+            kernel_size: usize,
+            stride: usize,
+            padding: [usize; 2],
+            expected_ceil: i32,
+            expected_floor: i32,
+        }
+
+        let cases = [
+            // Rounding up adds an output position.
+            Case {
+                in_size: 10,
+                kernel_size: 3,
+                stride: 2,
+                padding: [0, 0],
+                expected_ceil: 5,
+                expected_floor: 4,
+            },
+            // Rounding up does not add one, as the division is exact.
+            Case {
+                in_size: 9,
+                kernel_size: 3,
+                stride: 2,
+                padding: [0, 0],
+                expected_ceil: 4,
+                expected_floor: 4,
+            },
+            // Padding is included in the division.
+            Case {
+                in_size: 9,
+                kernel_size: 3,
+                stride: 2,
+                padding: [1, 1],
+                expected_ceil: 5,
+                expected_floor: 5,
+            },
+            // The final window would start beyond the end of the input.
+            Case {
+                in_size: 12,
+                kernel_size: 1,
+                stride: 2,
+                padding: [0, 0],
+                expected_ceil: 6,
+                expected_floor: 6,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut sym_gen = SymbolGen::new();
+            let data = sym_shape!(1, 1, case.in_size);
+
+            for (ceil_mode, expected) in [(true, case.expected_ceil), (false, case.expected_floor)]
+            {
+                let op = Pool {
+                    ceil_mode,
+                    kernel_size: &[case.kernel_size],
+                    padding: Padding::Fixed(&case.padding),
+                    dilations: &[1],
+                    strides: &[case.stride],
+                };
+                let result = op
+                    .infer_shapes([data.clone()].into(), &mut sym_gen)
+                    .unwrap();
+                assert_eq!(result[0].clone().simplify(), sym_shape!(1, 1, expected));
+            }
+        })
     }
 
     #[test]

@@ -470,6 +470,7 @@ impl_infer_shapes!(
         dilations: &[1, 1],
         kernel_size: &op.kernel_size,
         padding: op.padding.as_shape_inference_padding(),
+        ceil_mode: op.ceil_mode,
     }
 );
 
@@ -655,6 +656,7 @@ impl_infer_shapes!(
         dilations: &[1, 1],
         kernel_size: &op.kernel_size,
         padding: op.padding.as_shape_inference_padding(),
+        ceil_mode: op.ceil_mode,
     }
 );
 
