@@ -591,6 +591,91 @@ impl Operator for RMSNormalization {
     }
 }
 
+/// Normalize lanes of `input` along `axis` by their L1 or L2 norm.
+pub fn lp_normalization(
+    pool: &BufferPool,
+    input: TensorView,
+    axis: isize,
+    p: u32,
+) -> Result<Tensor, OpError> {
+    let mut output = input.to_tensor_in(pool);
+    lp_normalization_in_place(&mut output, axis, p)?;
+    Ok(output)
+}
+
+pub fn lp_normalization_in_place(output: &mut Tensor, axis: isize, p: u32) -> Result<(), OpError> {
+    fn scale_by_norm(lane: &mut [f32], norm: f32) {
+        // ONNX specifies a zero output, rather than NaN, for zero norms.
+        if norm == 0. {
+            lane.fill(0.);
+            return;
+        }
+        let norm_recip = norm.recip();
+        for x in lane {
+            *x *= norm_recip;
+        }
+    }
+
+    let normalize: fn(&mut [f32]) = match p {
+        1 => |lane: &mut [f32]| {
+            let norm = vecmath::SumAbs::new(lane).dispatch();
+            scale_by_norm(lane, norm);
+        },
+        2 => |lane: &mut [f32]| {
+            let norm = vecmath::SumSquare::new(lane).dispatch().sqrt();
+            scale_by_norm(lane, norm);
+        },
+        _ => {
+            return Err(OpError::UnsupportedValue("`p` must be 1 or 2"));
+        }
+    };
+
+    normalize_lanes(output, axis, normalize)
+}
+
+#[derive(Debug)]
+pub struct LpNormalization {
+    pub axis: isize,
+    pub p: u32,
+}
+
+impl Operator for LpNormalization {
+    fn name(&self) -> &str {
+        "LpNormalization"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require_as(0)?;
+        lp_normalization(ctx.pool(), input, self.axis, self.p).into_op_result()
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let mut output: Tensor = in_place.into_single().try_into()?;
+        lp_normalization_in_place(&mut output, self.axis, self.p)?;
+        output.into_op_result()
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+}
+
 pub fn log_softmax(pool: &BufferPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor_in(pool);
     log_softmax_in_place(&mut output, axis)?;
@@ -817,10 +902,11 @@ mod tests {
 
     use super::NORMALIZE_GRAIN_SIZE;
     use super::{
-        NanHandling, batch_norm, batch_norm_in_place, instance_normalization, layer_normalization,
-        log_softmax, rms_normalization, softmax,
+        LpNormalization, NanHandling, batch_norm, batch_norm_in_place, instance_normalization,
+        layer_normalization, log_softmax, lp_normalization, rms_normalization, softmax,
     };
     use crate::buffer_pool::BufferPool;
+    use crate::operator::{InputList, OperatorExt};
     use crate::ops::OpError;
     use crate::ops::tests::expect_eq_1e4;
 
@@ -1117,6 +1203,46 @@ mod tests {
 
         let expected = reference_rms(input.nd_view(), scale.nd_view()).into_dyn();
         expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_lp_normalization() -> Result<(), Box<dyn Error>> {
+        let pool = BufferPool::new();
+        let input = Tensor::from([[3., 4.], [1., -1.]]);
+
+        // L2 normalization along the last axis.
+        let result = lp_normalization(&pool, input.view(), -1, 2).unwrap();
+        let norm_1 = 2f32.sqrt();
+        let expected = Tensor::from([[3. / 5., 4. / 5.], [1. / norm_1, -1. / norm_1]]);
+        expect_equal(&result, &expected)?;
+
+        // L1 normalization along axis 0.
+        let result = lp_normalization(&pool, input.view(), 0, 1).unwrap();
+        let expected = Tensor::from([[3. / 4., 4. / 5.], [1. / 4., -1. / 5.]]);
+        expect_equal(&result, &expected)?;
+
+        // Lanes with a zero norm are set to zero rather than NaN.
+        let zero_input = Tensor::from([[0., 0.], [3., 4.]]);
+        let result = lp_normalization(&pool, zero_input.view(), -1, 2).unwrap();
+        let expected = Tensor::from([[0., 0.], [3. / 5., 4. / 5.]]);
+        expect_equal(&result, &expected)?;
+
+        // Normalization applied in-place.
+        let op = LpNormalization { axis: -1, p: 2 };
+        let result: Tensor = op
+            .run_simple_in_place(input.clone(), InputList::new())
+            .unwrap();
+        let expected = Tensor::from([[3. / 5., 4. / 5.], [1. / norm_1, -1. / norm_1]]);
+        expect_equal(&result, &expected)?;
+
+        // Unsupported p value.
+        let result = lp_normalization(&pool, input.view(), 0, 3);
+        assert_eq!(
+            result.err(),
+            Some(OpError::UnsupportedValue("`p` must be 1 or 2"))
+        );
 
         Ok(())
     }
