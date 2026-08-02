@@ -103,15 +103,10 @@ fn output_size_and_padding_for_axis(
 
             // Compute output size. The PyTorch docs provide the clearest
             // formulae for this: https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html.
+            let windowed_in_size = padded_in_size - dilation * (kernel_size - 1) - 1;
             let mut out_size = match round_mode {
-                RoundMode::Floor => {
-                    (padded_in_size - dilation * (kernel_size - 1) - 1) / stride + 1
-                }
-                RoundMode::Ceil => {
-                    (padded_in_size - dilation * (kernel_size - 1) - 1 + stride - 1)
-                        .div_ceil(stride)
-                        + 1
-                }
+                RoundMode::Floor => windowed_in_size / stride + 1,
+                RoundMode::Ceil => windowed_in_size.div_ceil(stride) + 1,
             };
 
             // In ceil mode, it is possible that the input for the last output
@@ -1104,6 +1099,22 @@ mod tests {
                 strides: (2, 2),
                 round_mode: RoundMode::Floor,
                 expected: Ok((3, 3, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // Ceil mode test cases that produced an incorrect result prior to a
+            // ceiling division fix.
+            Case {
+                in_size: (9, 9),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                expected: Ok((4, 4, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            Case {
+                in_size: (11, 11),
+                strides: (2, 2),
+                round_mode: RoundMode::Ceil,
+                expected: Ok((5, 5, [0, 0, 0, 0])),
                 ..Default::default()
             },
             // Floor vs ceil round mode with "same" padding. It is intentional
