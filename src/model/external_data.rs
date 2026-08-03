@@ -483,7 +483,7 @@ impl DataLoader for MemLoader {
                 ),
             ));
         };
-        let end_offset = location.offset + location.length;
+        let end_offset = location.offset.saturating_add(location.length);
         if end_offset > storage.data().len() as u64 {
             return Err(make_err(ExternalDataErrorKind::TooShort {
                 required_len: end_offset as usize,
@@ -671,5 +671,20 @@ mod tests {
             map.insert("test_mem_loader.onnx.data".to_string(), storage);
             Ok(MemLoader::new(map))
         })
+    }
+
+    #[test]
+    fn test_mem_loader_offset_length_overflow() {
+        let loader = MemLoader::from_entries([("model.onnx.data".to_string(), (0..32).collect())]);
+
+        let err = loader
+            .load(&DataLocation {
+                path: "model.onnx.data".to_string(),
+                offset: u64::MAX,
+                length: 8,
+            })
+            .expect_err("should not load");
+
+        assert!(err.to_string().contains("file too short"));
     }
 }
