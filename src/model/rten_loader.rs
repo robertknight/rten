@@ -324,7 +324,12 @@ fn add_graph_constant(
         let Some(tensor_data_offset) = tensor_data_offset else {
             return Err(load_error!(GraphError, name, "tensor data section missing"));
         };
-        let data_offset = (tensor_data_offset + data_offset) as usize;
+        let Some(data_offset) = tensor_data_offset
+            .checked_add(data_offset)
+            .and_then(|offset| usize::try_from(offset).ok())
+        else {
+            return Err(load_error!(GraphError, name, "invalid tensor data offset"));
+        };
 
         let graph_node = match constant.dtype() {
             Some(sg::ConstantDataType::Int32) => {
