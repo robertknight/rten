@@ -107,7 +107,11 @@ fn expand_output_shape(
     input_shape: &[usize],
     shape: &NdTensorView<i32, 1>,
 ) -> Result<SmallVec<[usize; 4]>, OpError> {
-    let shape_vec: SmallVec<[usize; 4]> = shape.iter().map(|el| *el as usize).collect();
+    let shape_vec: SmallVec<[usize; 4]> = shape
+        .iter()
+        .map(|el| usize::try_from(*el))
+        .collect::<Result<_, _>>()
+        .map_err(|_| OpError::InvalidValue("Target shape contains negative values"))?;
     broadcast_shapes(input_shape, &shape_vec).ok_or(OpError::IncompatibleInputShapes(
         "Cannot broadcast input with target shape",
     ))
@@ -931,6 +935,14 @@ mod tests {
                 shape: vec![2, 2],
                 expected: Err(OpError::IncompatibleInputShapes(
                     "Cannot broadcast input with target shape",
+                )),
+            },
+            // Negative size
+            Case {
+                input: make_tensor([1]),
+                shape: vec![-1],
+                expected: Err(OpError::InvalidValue(
+                    "Target shape contains negative values",
                 )),
             },
         ];
