@@ -301,6 +301,8 @@ pub mod op_types {
     declare_op!(Range);
     declare_op!(Reciprocal);
     declare_op!(ReduceL2);
+    declare_op!(ReduceLogSum);
+    declare_op!(ReduceLogSumExp);
     declare_op!(ReduceMax);
     declare_op!(ReduceMean);
     declare_op!(ReduceMin);
