@@ -91,8 +91,13 @@ impl InferShapes for ConstantOfShape {
             } else {
                 SymTensor::from_shape(values.to_vec())
             }
-        } else if let Some(dims) = shape.shape() {
-            let out_shape = (0..dims.len()).map(|_| sym_gen.gen_positive()).collect();
+        } else if let Some(mut dims) = shape.shape()
+            && dims.len() == 1
+            && let Some(SymExpr::Value(out_ndim)) = dims.next()
+            && let Ok(out_ndim) = usize::try_from(out_ndim)
+        {
+            // The rank is known, but not the shape.
+            let out_shape = (0..out_ndim).map(|_| sym_gen.gen_positive()).collect();
             SymTensor::from_shape(out_shape)
         } else {
             SymTensor::unknown("unknown shape")
@@ -687,6 +692,25 @@ mod tests {
         let op = ConstantOfShape { value: Some(1) };
         let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0], sym_shape!(2, 2));
+
+        // Shape with unknown values but a known length.
+        let mut sym_gen = SymbolGen::new();
+        let shape = sym_shape!(3);
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
+        assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
+
+        // Shape with unknown values and a symbolic length.
+        let shape = sym_shape!("n");
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
+        assert_eq!(result[0].ndim(), None);
+
+        // Unknown shape input.
+        let shape = SymTensor::unknown("unknown");
+        let op = ConstantOfShape { value: Some(1) };
+        let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
+        assert_eq!(result[0].ndim(), None);
     }
 
     #[test]
