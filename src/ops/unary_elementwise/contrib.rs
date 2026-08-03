@@ -10,7 +10,7 @@ use crate::operator::{
 };
 use crate::ops::add;
 
-use super::{Gelu, GetKernel, unary_op, unary_op_in_place};
+use super::{Gelu, GetKernel, Swish, unary_op, unary_op_in_place};
 
 /// Compute `Gelu(A + B)`, where `A` is the operator's first input and `B` is
 /// a 1D bias input broadcast against the last dimension of `A`.
@@ -146,6 +146,52 @@ impl Operator for GeluMicrosoft {
     }
 }
 
+/// Quick Gelu
+///
+/// This computes `x * sigmoid(alpha * x)`, the sigmoid approximation of Gelu
+/// used by CLIP. It is the same function as [`Swish`](super::Swish), which
+/// differs only in defaulting `alpha` to 1.0 rather than 1.702.
+///
+/// See <https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.QuickGelu>.
+#[derive(Debug)]
+pub struct QuickGelu {
+    pub alpha: f32,
+}
+
+impl Operator for QuickGelu {
+    fn name(&self) -> &str {
+        "QuickGelu"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        Swish { alpha: self.alpha }.run(ctx)
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        Swish { alpha: self.alpha }.run_in_place(in_place, ctx)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -154,9 +200,10 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
+    use rten_testing::TestCases;
 
     use super::super::tests::{reference_approx_gelu, reference_gelu};
-    use super::{BiasGelu, FastGelu, GeluMicrosoft};
+    use super::{BiasGelu, FastGelu, GeluMicrosoft, QuickGelu};
     use crate::operator::{OpError, OperatorExt};
 
     fn reference_bias_gelu(
@@ -233,6 +280,31 @@ mod tests {
         let result: Tensor = op.run_simple(input.view()).unwrap();
 
         expect_equal(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quick_gelu() -> Result<(), Box<dyn Error>> {
+        #[derive(Debug)]
+        struct Case {
+            alpha: f32,
+        }
+
+        let cases = [Case { alpha: 1.702 }, Case { alpha: 1.0 }];
+
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::<f32>::rand(&[3, 4], &mut rng);
+
+        cases.test_each(|Case { alpha }| {
+            let alpha = *alpha;
+            let expected = input.map(|&x| x / (1. + (-alpha * x).exp()));
+
+            let op = QuickGelu { alpha };
+            let result: Tensor = op.run_simple(input.view()).unwrap();
+
+            expect_equal(&result, &expected).unwrap();
+        });
 
         Ok(())
     }
