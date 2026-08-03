@@ -380,6 +380,12 @@ impl Model {
     /// [`load_file`](Self::load_mmap) or memory-mapping if the model is loaded
     /// with [`load_mmap`](Self::load_mmap).
     ///
+    /// The data file must be located in the same directory as the model. If the
+    /// model path is a symlink, the data file may be in the directory
+    /// containing either the symlink or its target. This supports loading
+    /// models from caches such as the Hugging Face hub cache, where the model
+    /// and data files are symlinks to entries in a shared directory.
+    ///
     /// # Safety
     ///
     /// This method is marked unsafe because undefined behavior can be caused if

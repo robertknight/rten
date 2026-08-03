@@ -159,6 +159,9 @@ pub trait DataLoader {
 ///    ("data", "onnx_data", "onnx_data_N" etc.)
 ///  - The file must be a relative path with only a filename component (ie. it
 ///    must be located in the same directory as the model)
+///
+/// See also [`DataDirs::resolve`], which applies a further restriction on the
+/// location of the data file after resolving symlinks.
 fn is_allowed_external_data_path(path: &Path) -> bool {
     // Data file path must be relative and consist only of a filename.
     let mut components = path.components();
@@ -181,8 +184,8 @@ fn is_allowed_external_data_path(path: &Path) -> bool {
 
 /// External data loader that uses standard file IO.
 pub struct FileLoader {
-    /// Path to directory containing external data.
-    dir_path: PathBuf,
+    /// Directories containing external data.
+    dirs: DataDirs,
 
     /// Map of external data file name to (resolved file path, open file).
     files: RefCell<HashMap<PathBuf, (PathBuf, File)>>,
@@ -195,10 +198,10 @@ impl FileLoader {
     /// Data file paths will be resolved relative to the directory containing
     /// `model_path`.
     pub fn new(model_path: &Path) -> Result<Self, ExternalDataError> {
-        let dir_path = dir_path_from_model_path(model_path)?;
+        let dirs = DataDirs::from_model_path(model_path)?;
 
         Ok(Self {
-            dir_path,
+            dirs,
             files: HashMap::new().into(),
         })
     }
@@ -220,7 +223,7 @@ impl FileLoader {
 
         let mut files = self.files.borrow_mut();
         let (file_path, file) =
-            get_or_open_file(&mut files, &self.dir_path, Path::new(&location.path))?;
+            get_or_open_file(&mut files, &self.dirs, Path::new(&location.path))?;
 
         // Subsequent errors refer to the resolved data file path.
         let make_err = |kind| ExternalDataError::new(file_path, kind);
@@ -288,21 +291,12 @@ impl DataLoader for FileLoader {
 
 fn get_or_open_file<'a>(
     files: &'a mut HashMap<PathBuf, (PathBuf, File)>,
-    dir_path: &Path,
+    dirs: &DataDirs,
     data_path: &Path,
 ) -> Result<&'a mut (PathBuf, File), ExternalDataError> {
-    let data_path = Path::new(data_path);
-    if !is_allowed_external_data_path(data_path) {
-        return Err(ExternalDataError::new(
-            data_path,
-            ExternalDataErrorKind::DisallowedPath,
-        ));
-    }
-
     // Check if we already opened the file.
     if files.get(data_path).is_none() {
-        let mut file_path = dir_path.to_path_buf();
-        file_path.push(data_path);
+        let file_path = dirs.resolve(data_path)?;
         let file = File::open(&file_path)
             .map_err(|err| ExternalDataError::from_io_error(&file_path, err))?;
         files.insert(data_path.into(), (file_path, file));
@@ -311,31 +305,105 @@ fn get_or_open_file<'a>(
     Ok(files.get_mut(data_path).unwrap())
 }
 
-fn dir_path_from_model_path(model_path: &Path) -> Result<PathBuf, ExternalDataError> {
-    // Resolve the path now to avoid the possibility of loading data from
-    // an unexpected location if `model_path` is relative and the current
-    // working directory changes before a data file is loaded.
-    let model_path = if !cfg!(target_arch = "wasm32") {
-        model_path
-            .canonicalize()
-            .map_err(|err| ExternalDataError::from_io_error(model_path, err))?
-    } else {
-        // On WASM / WASI `Path::canonicalize` is not available.
-        model_path.to_path_buf()
-    };
-
-    if !model_path.is_file() {
-        return Err(ExternalDataError::new(
-            &model_path,
-            ExternalDataErrorKind::InvalidPath,
-        ));
+/// Get the directory containing `path`, using "." if the path has no directory
+/// component.
+fn parent_dir(path: &Path) -> &Path {
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
     }
-    let dir_path = model_path
-        .parent()
-        // Since `model_path` is a file path, it cannot be the root ("/").
-        .expect("should have parent dir")
-        .to_path_buf();
-    Ok(dir_path)
+}
+
+/// Directories used to locate external data files for a model.
+///
+/// Data file paths are resolved relative to the directory containing the model
+/// file. If the model path is a symlink, there are two candidate directories:
+/// the one containing the symlink and the one containing its target. Data files
+/// may be located in either of them. This is needed to support model
+/// repositories such as the Hugging Face hub cache, where the `.onnx` and
+/// `.onnx_data` files are symlinks to blobs in a shared directory.
+struct DataDirs {
+    /// Directory containing the model file, without resolving a symlink for the
+    /// model file itself.
+    link_dir: PathBuf,
+
+    /// Directory containing the model file after resolving symlinks.
+    target_dir: PathBuf,
+}
+
+impl DataDirs {
+    fn from_model_path(model_path: &Path) -> Result<Self, ExternalDataError> {
+        // Resolve the paths now to avoid the possibility of loading data from
+        // an unexpected location if `model_path` is relative and the current
+        // working directory changes before a data file is loaded.
+        //
+        // On WASM / WASI `Path::canonicalize` is not available, so paths are
+        // used as-is.
+        let can_resolve = !cfg!(target_arch = "wasm32");
+
+        let link_dir = if can_resolve {
+            let model_dir = parent_dir(model_path);
+            model_dir
+                .canonicalize()
+                .map_err(|err| ExternalDataError::from_io_error(model_dir, err))?
+        } else {
+            parent_dir(model_path).to_path_buf()
+        };
+
+        let resolved_model_path = if can_resolve {
+            model_path
+                .canonicalize()
+                .map_err(|err| ExternalDataError::from_io_error(model_path, err))?
+        } else {
+            model_path.to_path_buf()
+        };
+
+        if !resolved_model_path.is_file() {
+            return Err(ExternalDataError::new(
+                &resolved_model_path,
+                ExternalDataErrorKind::InvalidPath,
+            ));
+        }
+        let target_dir = parent_dir(&resolved_model_path).to_path_buf();
+
+        Ok(DataDirs {
+            link_dir,
+            target_dir,
+        })
+    }
+
+    /// Resolve the path of an external data file specified in a model.
+    ///
+    /// The returned path has symlinks resolved. An error is returned if the
+    /// resolved path is not in one of the directories associated with the
+    /// model. Without this check, a symlink in the model's directory could be
+    /// used to read data from an arbitrary file.
+    fn resolve(&self, data_path: &Path) -> Result<PathBuf, ExternalDataError> {
+        if !is_allowed_external_data_path(data_path) {
+            return Err(ExternalDataError::new(
+                data_path,
+                ExternalDataErrorKind::DisallowedPath,
+            ));
+        }
+
+        let file_path = self.link_dir.join(data_path);
+        if cfg!(target_arch = "wasm32") {
+            return Ok(file_path);
+        }
+
+        let resolved = file_path
+            .canonicalize()
+            .map_err(|err| ExternalDataError::from_io_error(&file_path, err))?;
+        let resolved_dir = parent_dir(&resolved);
+        if resolved_dir != self.link_dir && resolved_dir != self.target_dir {
+            return Err(ExternalDataError::new(
+                &resolved,
+                ExternalDataErrorKind::DisallowedPath,
+            ));
+        }
+
+        Ok(resolved)
+    }
 }
 
 /// External data loader that uses memory mapping.
@@ -351,8 +419,8 @@ fn dir_path_from_model_path(model_path: &Path) -> Result<PathBuf, ExternalDataEr
 /// then share the memory mapping.
 #[cfg(feature = "mmap")]
 pub struct MmapLoader {
-    /// Path to directory containing external data.
-    dir_path: PathBuf,
+    /// Directories containing external data.
+    dirs: DataDirs,
 
     /// Map of filename to (resolved path, open mmap-ed content).
     mmaps: RefCell<HashMap<PathBuf, (PathBuf, Arc<ConstantStorage>)>>,
@@ -374,10 +442,10 @@ impl MmapLoader {
     /// must decide this is an acceptable risk for their use. See the notes for
     /// [`Model::load_mmap`](crate::model::Model::load_mmap).
     pub unsafe fn new(model_path: &Path) -> Result<Self, ExternalDataError> {
-        let dir_path = dir_path_from_model_path(model_path)?;
+        let dirs = DataDirs::from_model_path(model_path)?;
 
         Ok(Self {
-            dir_path,
+            dirs,
             mmaps: HashMap::new().into(),
         })
     }
@@ -387,18 +455,9 @@ impl MmapLoader {
         mmaps: &'a mut HashMap<PathBuf, (PathBuf, Arc<ConstantStorage>)>,
         data_path: &Path,
     ) -> Result<&'a (PathBuf, Arc<ConstantStorage>), ExternalDataError> {
-        let data_path = Path::new(data_path);
-        if !is_allowed_external_data_path(data_path) {
-            return Err(ExternalDataError::new(
-                data_path,
-                ExternalDataErrorKind::DisallowedPath,
-            ));
-        }
-
         // Check if we already opened the file.
         if mmaps.get(data_path).is_none() {
-            let mut file_path = self.dir_path.to_path_buf();
-            file_path.push(data_path);
+            let file_path = self.dirs.resolve(data_path)?;
 
             let make_io_err = |err| ExternalDataError::from_io_error(&file_path, err);
             let file = File::open(&file_path).map_err(make_io_err)?;
@@ -648,9 +707,129 @@ mod tests {
         });
     }
 
+    /// Directory which is removed, along with its contents, when dropped.
+    #[cfg(unix)]
+    struct TempTree {
+        path: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl TempTree {
+        fn new(path: PathBuf) -> std::io::Result<Self> {
+            // Remove any leftovers from a previous run.
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path)?;
+            Ok(Self { path })
+        }
+
+        fn create_dir(&self, name: &str) -> std::io::Result<PathBuf> {
+            let path = self.path.join(name);
+            std::fs::create_dir(&path)?;
+            Ok(path)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.path).expect("should remove dir");
+        }
+    }
+
+    /// Test loading data for a model whose path is a symlink to a file in a
+    /// different directory. This mirrors the layout of the Hugging Face hub
+    /// cache, where both the model and data files are symlinks into a shared
+    /// directory of content-addressed blobs.
+    ///
+    /// This is Unix-only because creating symlinks on Windows usually requires
+    /// elevated privileges.
+    #[cfg(unix)]
+    fn test_loader_symlinked_model<L: DataLoader>(
+        base_name: &str,
+        make_loader: impl Fn(&Path) -> Result<L, ExternalDataError> + RefUnwindSafe,
+    ) {
+        use std::os::unix::fs::symlink;
+
+        let bytes: Vec<u8> = (0..32).collect();
+
+        let tree = TempTree::new(temp_dir().join(base_name)).unwrap();
+        let blob_dir = tree.create_dir("blobs").unwrap();
+        let snapshot_dir = tree.create_dir("snapshot").unwrap();
+
+        std::fs::write(blob_dir.join("model_blob"), []).unwrap();
+        std::fs::write(blob_dir.join("data_blob"), &bytes).unwrap();
+
+        // Data file in the same directory as the model symlink, rather than
+        // the same directory as its target.
+        std::fs::write(snapshot_dir.join("local.onnx_data"), &bytes).unwrap();
+
+        // Data file outside either of the model's directories.
+        std::fs::write(tree.path.join("outside.onnx_data"), &bytes).unwrap();
+
+        let model_path = snapshot_dir.join("model.onnx");
+        symlink("../blobs/model_blob", &model_path).unwrap();
+        symlink("../blobs/data_blob", snapshot_dir.join("blob.onnx_data")).unwrap();
+        symlink(
+            "../outside.onnx_data",
+            snapshot_dir.join("outside.onnx_data"),
+        )
+        .unwrap();
+
+        #[derive(Debug)]
+        struct Case {
+            /// Data file path, as specified in the model.
+            path: &'static str,
+            expected: Result<(), String>,
+        }
+
+        let cases = [
+            // Symlink to a file in the same directory as the model's target.
+            Case {
+                path: "blob.onnx_data",
+                expected: Ok(()),
+            },
+            // Regular file in the same directory as the model symlink.
+            Case {
+                path: "local.onnx_data",
+                expected: Ok(()),
+            },
+            // Symlink to a file outside the model's directories.
+            Case {
+                path: "outside.onnx_data",
+                expected: Err("disallowed path".into()),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let loader = make_loader(&model_path).unwrap();
+            let location = DataLocation {
+                path: case.path.to_string(),
+                offset: 0,
+                length: bytes.len() as u64,
+            };
+            let data = loader.load(&location).map_err(|e| e.to_string());
+            match (&data, &case.expected) {
+                (Ok(actual), Ok(())) => assert_eq!(actual.data(), bytes),
+                (Err(actual), Err(expected)) => assert!(
+                    actual.contains(expected),
+                    "{} does not contain {}",
+                    actual,
+                    expected
+                ),
+                (actual, expected) => assert_eq!(actual.is_ok(), expected.is_ok()),
+            }
+        });
+    }
+
     #[test]
     fn test_file_loader() {
         test_loader("test_file_loader", FileLoader::new)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_file_loader_symlinked_model() {
+        test_loader_symlinked_model("test_file_loader_symlinked_model", FileLoader::new)
     }
 
     #[cfg(feature = "mmap")]
@@ -658,6 +837,15 @@ mod tests {
     fn test_mmap_loader() {
         use super::MmapLoader;
         test_loader("test_mmap_loader", |model_path| unsafe {
+            MmapLoader::new(model_path)
+        })
+    }
+
+    #[cfg(all(unix, feature = "mmap"))]
+    #[test]
+    fn test_mmap_loader_symlinked_model() {
+        use super::MmapLoader;
+        test_loader_symlinked_model("test_mmap_loader_symlinked_model", |model_path| unsafe {
             MmapLoader::new(model_path)
         })
     }
