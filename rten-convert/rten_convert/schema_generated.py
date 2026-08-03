@@ -150,6 +150,7 @@ class OperatorType(object):
     RotaryEmbedding = 140
     Attention = 141
     LpNormalization = 142
+    ReduceLogSum = 143
 
 
 class RNNDirection(object):

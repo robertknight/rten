@@ -690,6 +690,7 @@ def op_node_from_onnx_operator(
         case (
             "ReduceL1"
             | "ReduceL2"
+            | "ReduceLogSum"
             | "ReduceMax"
             | "ReduceMean"
             | "ReduceMin"

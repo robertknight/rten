@@ -156,6 +156,7 @@ enum OperatorType: ubyte {
   RotaryEmbedding,
   Attention,
   LpNormalization,
+  ReduceLogSum,
 }
 
 enum RNNDirection: ubyte {
