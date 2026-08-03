@@ -151,6 +151,7 @@ class OperatorType(object):
     Attention = 141
     LpNormalization = 142
     ReduceLogSum = 143
+    ReduceLogSumExp = 144
 
 
 class RNNDirection(object):

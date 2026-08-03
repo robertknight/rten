@@ -157,6 +157,7 @@ enum OperatorType: ubyte {
   Attention,
   LpNormalization,
   ReduceLogSum,
+  ReduceLogSumExp,
 }
 
 enum RNNDirection: ubyte {
