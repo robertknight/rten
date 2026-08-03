@@ -758,7 +758,7 @@ impl_operator_fn!(Tanh, tanh);
 impl_get_kernel!(Tanh, f32, SimdKernel(vecmath::Tanh {}));
 
 #[cfg(feature = "contrib")]
-pub use contrib::{BiasGelu, FastGelu, GeluMicrosoft};
+pub use contrib::{BiasGelu, FastGelu, GeluMicrosoft, QuickGelu};
 
 #[cfg(feature = "contrib")]
 mod contrib;

@@ -279,6 +279,7 @@ impl OnnxOpRegistry {
         register_op!("com.microsoft", GroupQueryAttention, feature = "contrib");
         register_op!("com.microsoft", MatMulNBits, feature = "contrib");
         register_op!("com.microsoft", MultiHeadAttention, feature = "contrib");
+        register_op!("com.microsoft", QuickGelu, feature = "contrib");
         register_op!("com.microsoft", SkipLayerNormalization, feature = "contrib");
         register_op!(
             "com.microsoft",
@@ -848,6 +849,12 @@ impl_read_op!("com.microsoft", FastGelu, |_attrs: &Attrs| {
 #[cfg(feature = "contrib")]
 impl_read_op!("com.microsoft", "Gelu", GeluMicrosoft, |_attrs: &Attrs| {
     Ok(ops::GeluMicrosoft {})
+});
+
+#[cfg(feature = "contrib")]
+impl_read_op!("com.microsoft", QuickGelu, |attrs: &Attrs| {
+    let alpha = attrs.get_as("alpha").unwrap_or(1.702);
+    Ok(ops::QuickGelu { alpha })
 });
 
 impl_read_op!(Cast, |attrs: &Attrs| {
