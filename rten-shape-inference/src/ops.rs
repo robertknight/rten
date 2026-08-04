@@ -3,7 +3,7 @@
 //! See the [ONNX operator reference](https://onnx.ai/onnx/operators/index.html)
 //! for operator details.
 
-use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
 
