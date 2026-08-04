@@ -348,10 +348,8 @@ impl InferredShapes {
                     .map(|input_id| input_id.and_then(|id| env.lookup_value(id))),
             );
 
-            let out_shapes = infer.infer_shapes(
-                InferShapesContext::new(&self.input_shapes),
-                &mut self.symbol_gen,
-            );
+            let out_shapes =
+                infer.infer_shapes(InferShapesContext::new(&input_shapes), &mut self.symbol_gen);
 
             self.input_shapes = input_shapes;
 
