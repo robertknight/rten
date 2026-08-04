@@ -4,7 +4,6 @@
 //! for operator details.
 
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
-use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
 
@@ -20,6 +19,7 @@ mod grid_sample;
 mod identity;
 mod layout;
 mod matmul;
+mod non_max_suppression;
 mod norm;
 mod pad;
 mod quantize;
@@ -45,6 +45,7 @@ pub use layout::{
     DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
 };
 pub use matmul::{Gemm, MatMul, MatMulNBits};
+pub use non_max_suppression::NonMaxSuppression;
 pub use norm::SkipLayerNormalization;
 pub use pad::Pad;
 pub use quantize::DynamicQuantizeLinear;
@@ -71,23 +72,6 @@ impl InferShapes for FixedShape<'_> {
     }
 }
 
-/// NonMaxSuppression operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__NonMaxSuppression.html>.
-pub struct NonMaxSuppression;
-
-impl InferShapes for NonMaxSuppression {
-    fn infer_shapes(
-        &self,
-        _inputs: InferShapesContext,
-        sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        // Output is `(num_selected, 3)`. `num_selected` is data-dependent.
-        let out_shape = vec![sym_gen.gen_positive(), SymExpr::Value(3)];
-        Ok([SymTensor::from_shape(out_shape)].into())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesContext};
@@ -95,7 +79,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape};
 
-    use super::{FixedShape, NonMaxSuppression};
+    use super::FixedShape;
 
     #[test]
     fn test_fixed_shape() {
@@ -112,21 +96,5 @@ mod tests {
             .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!());
-    }
-
-    #[test]
-    fn test_non_max_suppression() {
-        let mut sym_gen = SymbolGen::new();
-
-        // Output is `(num_selected, 3)` with a symbolic first dim.
-        let boxes = sym_shape!(1, 100, 4);
-        let scores = sym_shape!(1, 80, 100);
-        let result = NonMaxSuppression
-            .infer_shapes([boxes, scores].into(), &mut sym_gen)
-            .unwrap();
-        let shape: Vec<_> = result[0].shape().unwrap().collect();
-        assert_eq!(shape.len(), 2);
-        assert!(matches!(shape[0], SymExpr::Var(_)));
-        assert_eq!(shape[1], SymExpr::Value(3));
     }
 }
