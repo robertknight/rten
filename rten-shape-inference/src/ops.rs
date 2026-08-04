@@ -23,6 +23,7 @@ mod matmul;
 mod pad;
 mod quantize;
 mod random;
+mod reduce;
 mod resize;
 mod rnn;
 mod slice;
@@ -44,6 +45,7 @@ pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;
 pub use quantize::DynamicQuantizeLinear;
 pub use random::{Dropout, Multinomial};
+pub use reduce::TopK;
 pub use resize::{Resize, Upsample};
 pub use rnn::{Direction, GRU, LSTM};
 pub use slice::Slice;
@@ -195,48 +197,6 @@ impl InferShapes for SkipLayerNormalization {
     }
 }
 
-/// TopK operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__TopK.html>.
-pub struct TopK {
-    pub axis: Option<i32>,
-}
-
-impl InferShapes for TopK {
-    fn infer_shapes(
-        &self,
-        inputs: InferShapesContext,
-        sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs.require(0)?;
-        let k = inputs.require(1)?;
-
-        let Some(data_dims) = data.shape() else {
-            return Ok([
-                SymTensor::unknown("unknown input shape"),
-                SymTensor::unknown("unknown input shape"),
-            ]
-            .into());
-        };
-
-        let ndim = data_dims.len();
-        let axis = resolve_axis(ndim, self.axis.unwrap_or(-1))
-            .map_err(|_| InferShapesError::IncorrectRank)?;
-
-        // `k` is a 1D tensor with one element.
-        let k_val = k
-            .as_vector()
-            .and_then(|v| v.first().cloned())
-            .unwrap_or_else(|| sym_gen.gen_positive());
-
-        let mut out_shape: Vec<SymExpr> = data_dims.collect();
-        out_shape[axis] = k_val;
-
-        let shape = SymTensor::from_shape(out_shape);
-        Ok([shape.clone(), shape].into())
-    }
-}
-
 /// Where operator.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Where.html>.
@@ -307,8 +267,7 @@ mod tests {
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{
-        FixedShape, GridSample, Identity, NonMaxSuppression, NonZero, SkipLayerNormalization, TopK,
-        Where,
+        FixedShape, GridSample, Identity, NonMaxSuppression, NonZero, SkipLayerNormalization, Where,
     };
 
     #[test]
@@ -453,34 +412,6 @@ mod tests {
         assert_eq!(shape.len(), 2);
         assert!(matches!(shape[0], SymExpr::Var(_)));
         assert_eq!(shape[1], SymExpr::Value(3));
-    }
-
-    #[test]
-    fn test_top_k() {
-        let mut sym_gen = SymbolGen::new();
-
-        // Default axis (-1) with known K.
-        let data = sym_shape!("batch", 16, 32);
-        let k = sym_vec!(5);
-        let op = TopK { axis: None };
-        let result = op.infer_shapes([data, k].into(), &mut sym_gen).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], sym_shape!("batch", 16, 5));
-        assert_eq!(result[1], sym_shape!("batch", 16, 5));
-
-        // Explicit axis.
-        let data = sym_shape!("batch", 16, 32);
-        let k = sym_vec!(5);
-        let op = TopK { axis: Some(0) };
-        let result = op.infer_shapes([data, k].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], sym_shape!(5, 16, 32));
-
-        // Symbolic K value.
-        let data = sym_shape!("batch", 32);
-        let k = sym_vec!(SymExpr::from("k"));
-        let op = TopK { axis: Some(-1) };
-        let result = op.infer_shapes([data, k].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], sym_shape!("batch", "k"));
     }
 
     #[test]
