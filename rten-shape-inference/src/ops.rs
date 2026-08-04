@@ -47,36 +47,12 @@ pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;
 pub use quantize::DynamicQuantizeLinear;
 pub use random::{Dropout, Multinomial};
-pub use reduce::TopK;
+pub use reduce::{NonZero, TopK};
 pub use resize::{Resize, Upsample};
 pub use rnn::{Direction, GRU, LSTM};
 pub use slice::Slice;
 pub use split::Split;
 pub use unary::Neg;
-
-/// NonZero operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__NonZero.html>.
-pub struct NonZero;
-
-impl InferShapes for NonZero {
-    fn infer_shapes(
-        &self,
-        inputs: InferShapesContext,
-        sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs.require(0)?;
-
-        // Output is a 2D tensor of shape `(input.ndim(), num_nonzero)`.
-        let first_dim = data
-            .ndim()
-            .map(|n| SymExpr::Value(n as i32))
-            .unwrap_or_else(|| sym_gen.gen_positive());
-        let out_shape = vec![first_dim, sym_gen.gen_positive()];
-
-        Ok([SymTensor::from_shape(out_shape)].into())
-    }
-}
 
 /// Operator which produces a tensor of a fixed shape.
 pub struct FixedShape<'a> {
@@ -146,7 +122,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape};
 
-    use super::{FixedShape, NonMaxSuppression, NonZero, SkipLayerNormalization};
+    use super::{FixedShape, NonMaxSuppression, SkipLayerNormalization};
 
     #[test]
     fn test_skip_layer_normalization() {
@@ -201,25 +177,6 @@ mod tests {
             .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
             .unwrap();
         assert_eq!(result[0], sym_shape!());
-    }
-
-    #[test]
-    fn test_non_zero() {
-        let mut sym_gen = SymbolGen::new();
-
-        // Known input shape, output is 2D with first dim = ndim.
-        let data = sym_shape!("batch", 16, 32);
-        let result = NonZero.infer_shapes([data].into(), &mut sym_gen).unwrap();
-        let shape: Vec<_> = result[0].shape().unwrap().collect();
-        assert_eq!(shape.len(), 2);
-        assert_eq!(shape[0], SymExpr::Value(3));
-        assert!(matches!(shape[1], SymExpr::Var(_)));
-
-        // Unknown input shape, output is still 2D.
-        let data = SymTensor::unknown("unknown");
-        let result = NonZero.infer_shapes([data].into(), &mut sym_gen).unwrap();
-        let shape: Vec<_> = result[0].shape().unwrap().collect();
-        assert_eq!(shape.len(), 2);
     }
 
     #[test]
