@@ -17,6 +17,7 @@ mod fft;
 mod gather;
 mod generate;
 mod grid_sample;
+mod identity;
 mod layout;
 mod matmul;
 mod pad;
@@ -38,6 +39,7 @@ pub use fft::{DFT, STFT};
 pub use gather::{Gather, GatherElements, GatherND};
 pub use generate::{ConstantOfShape, OneHot, Range};
 pub use grid_sample::GridSample;
+pub use identity::Identity;
 pub use layout::{
     DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
 };
@@ -51,25 +53,6 @@ pub use rnn::{Direction, GRU, LSTM};
 pub use slice::Slice;
 pub use split::Split;
 pub use unary::Neg;
-
-/// Identity operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__Identity.html>.
-///
-/// Unlike [`UnaryOp`](crate::UnaryOp), this copies the input's values (when
-/// known) to the output, not just its shape.
-pub struct Identity;
-
-impl InferShapes for Identity {
-    fn infer_shapes(
-        &self,
-        inputs: InferShapesContext,
-        _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs.require(0)?;
-        Ok([data.clone()].into())
-    }
-}
 
 /// NonZero operator.
 ///
@@ -161,26 +144,9 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_tensor::{SymTensor, sym_shape};
 
-    use super::{FixedShape, Identity, NonMaxSuppression, NonZero, SkipLayerNormalization};
-
-    #[test]
-    fn test_identity() {
-        let mut sym_gen = SymbolGen::new();
-
-        let input = sym_vec!("batch", 16, "seq", 24);
-        let result = Identity
-            .infer_shapes([input.clone()].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result, &[input]);
-
-        let err = Identity
-            .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
-            .err()
-            .unwrap();
-        assert_eq!(err, InferShapesError::IncorrectInputCount);
-    }
+    use super::{FixedShape, NonMaxSuppression, NonZero, SkipLayerNormalization};
 
     #[test]
     fn test_skip_layer_normalization() {
