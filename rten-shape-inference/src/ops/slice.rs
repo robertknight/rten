@@ -1,7 +1,6 @@
 use rten_tensor::SliceRange;
 
-use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
-use crate::ops::resolve_axis;
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::{Constant, SymTensor};
