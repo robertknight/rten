@@ -21,6 +21,7 @@ mod generate;
 mod layout;
 mod matmul;
 mod pad;
+mod quantize;
 mod random;
 mod resize;
 mod rnn;
@@ -41,37 +42,13 @@ pub use layout::{
 };
 pub use matmul::{Gemm, MatMul, MatMulNBits};
 pub use pad::Pad;
+pub use quantize::DynamicQuantizeLinear;
 pub use random::{Dropout, Multinomial};
 pub use resize::{Resize, Upsample};
 pub use rnn::{Direction, GRU, LSTM};
 pub use slice::Slice;
 pub use split::Split;
 pub use unary::Neg;
-
-/// DynamicQuantizeLinear operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__DynamicQuantizeLinear.html>.
-pub struct DynamicQuantizeLinear;
-
-impl InferShapes for DynamicQuantizeLinear {
-    fn infer_shapes(
-        &self,
-        inputs: InferShapesContext,
-        _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let data = inputs.require(0)?;
-
-        let shape = if let Some(shape) = data.shape() {
-            SymTensor::from_shape(shape.collect())
-        } else {
-            SymTensor::unknown("unknown input shape")
-        };
-
-        let scale_shape = SymTensor::from_shape(vec![]);
-        let zero_point_shape = SymTensor::from_shape(vec![]);
-        Ok([shape, scale_shape, zero_point_shape].into())
-    }
-}
 
 /// GridSample operator.
 ///
@@ -330,8 +307,8 @@ mod tests {
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
     use super::{
-        DynamicQuantizeLinear, FixedShape, GridSample, Identity, NonMaxSuppression, NonZero,
-        SkipLayerNormalization, TopK, Where,
+        FixedShape, GridSample, Identity, NonMaxSuppression, NonZero, SkipLayerNormalization, TopK,
+        Where,
     };
 
     #[test]
@@ -387,16 +364,6 @@ mod tests {
             .infer_shapes(InferShapesContext::new(&[]), &mut sym_gen)
             .err();
         assert_eq!(err, Some(InferShapesError::IncorrectInputCount));
-    }
-
-    #[test]
-    fn test_dynamic_quantize_linear() {
-        let mut sym_gen = SymbolGen::new();
-        let data = sym_shape!(32, 32);
-        let result = DynamicQuantizeLinear
-            .infer_shapes([data].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result, &[sym_shape!(32, 32), sym_shape!(), sym_shape!(),]);
     }
 
     #[test]
