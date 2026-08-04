@@ -3,9 +3,7 @@
 //! See the [ONNX operator reference](https://onnx.ai/onnx/operators/index.html)
 //! for operator details.
 
-use crate::infer_shapes::{
-    BinaryOp, InferShapes, InferShapesContext, InferShapesError, resolve_axis,
-};
+use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
 use crate::sym_tensor::SymTensor;
@@ -32,7 +30,7 @@ mod split;
 mod unary;
 
 pub use attention::{Attention, GroupQueryAttention, MultiHeadAttention};
-pub use binary::{Add, Div, Equal, Mul, Sub};
+pub use binary::{Add, Div, Equal, Mul, Sub, Where};
 pub use concat::{Concat, Tile};
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 pub use einsum::Einsum;
@@ -158,68 +156,6 @@ impl InferShapes for SkipLayerNormalization {
     }
 }
 
-/// Where operator.
-///
-/// See <https://onnx.ai/onnx/operators/onnx__Where.html>.
-pub struct Where;
-
-impl InferShapes for Where {
-    fn infer_shapes(
-        &self,
-        inputs: InferShapesContext,
-        sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        let cond = inputs.require(0)?;
-        let x = inputs.require(1)?;
-        let y = inputs.require(2)?;
-
-        if let Some(cond_vals) = cond.values()
-            && let Some(x_vals) = x.values()
-            && let Some(y_vals) = y.values()
-        {
-            let len = cond_vals.len().max(x_vals.len()).max(y_vals.len());
-
-            let cs = cond_vals.iter().cycle().take(len);
-            let xs = x_vals.iter().cycle().take(len);
-            let ys = y_vals.iter().cycle().take(len);
-
-            let vals: Option<Vec<SymExpr>> = cs
-                .zip(xs.zip(ys))
-                .map(|(cond, (x, y))| {
-                    let cond_bool = match cond {
-                        SymExpr::Value(v) => Some(*v == 1),
-                        SymExpr::Var(_)
-                        | SymExpr::Neg(_)
-                        | SymExpr::Add(..)
-                        | SymExpr::Sub(..)
-                        | SymExpr::Mul(..)
-                        | SymExpr::Div(..)
-                        | SymExpr::DivCeil(..)
-                        | SymExpr::Max(..)
-                        | SymExpr::Min(..)
-                        | SymExpr::Broadcast(..) => None,
-                    }?;
-                    if cond_bool {
-                        Some(x.clone())
-                    } else {
-                        Some(y.clone())
-                    }
-                })
-                .collect();
-            if let Some(vals) = vals {
-                return Ok([SymTensor::from_vec(vals)].into());
-            }
-        }
-
-        // Broadcast the first two inputs together, then broadcast the result
-        // against the last input.
-        let cond_x = BinaryOp
-            .infer_shapes([cond.clone(), x.clone()].into(), sym_gen)?
-            .remove(0);
-        BinaryOp.infer_shapes([cond_x, y.clone()].into(), sym_gen)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
@@ -227,7 +163,7 @@ mod tests {
     use crate::sym_gen::SymbolGen;
     use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
 
-    use super::{FixedShape, Identity, NonMaxSuppression, NonZero, SkipLayerNormalization, Where};
+    use super::{FixedShape, Identity, NonMaxSuppression, NonZero, SkipLayerNormalization};
 
     #[test]
     fn test_identity() {
@@ -334,30 +270,5 @@ mod tests {
         assert_eq!(shape.len(), 2);
         assert!(matches!(shape[0], SymExpr::Var(_)));
         assert_eq!(shape[1], SymExpr::Value(3));
-    }
-
-    #[test]
-    fn test_where() {
-        let mut sym_gen = SymbolGen::new();
-
-        // Where op with symbolic vectors.
-        let cond = sym_vec!(0, 1, 0, 1);
-        let x = sym_vec!(1, 2, 3, 4);
-        let y = sym_vec!("foo", "bar", "baz", "meep");
-        let result = Where
-            .infer_shapes([cond, x, y].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], sym_vec!("foo", 2, "baz", 4));
-
-        // Where op with shapes.
-        //
-        // This broadcasts the three inputs together.
-        let cond = sym_shape!(1, 16, 1);
-        let x = sym_shape!(8, 16, 1);
-        let y = sym_shape!(1, 16, 24);
-        let result = Where
-            .infer_shapes([cond, x, y].into(), &mut sym_gen)
-            .unwrap();
-        assert_eq!(result[0], sym_shape!(8, 16, 24));
     }
 }
