@@ -497,6 +497,9 @@ def op_node_from_onnx_operator(
             attrs = sg.DropoutAttrsT()
             attrs.seed = attr_reader.get_attr("seed", "int", None)
 
+            # `ratio` was an attribute until opset 12, when it became an input.
+            attr_reader.generate_input_from_attr(1, "ratio", "float")
+
         case "Einsum":
             attrs = sg.EinsumAttrsT()
             attrs.equation = attr_reader.require_attr("equation", "string")

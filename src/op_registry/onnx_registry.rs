@@ -1091,7 +1091,14 @@ impl_read_op!(Div);
 #[cfg(feature = "random")]
 impl_read_op!(Dropout, |attrs: &Attrs| {
     let seed = attrs.get_as_int("seed")?;
-    Ok(ops::Dropout { seed })
+
+    // `ratio` was an attribute until opset 12, when it became an input.
+    let mut const_inputs = Vec::new();
+    if let Some(ratio) = attrs.get("ratio") {
+        const_inputs.push((1, ConstInput::Float(ratio.as_f32())));
+    }
+
+    Ok(ParsedOp::new(ops::Dropout { seed }).with_inputs(const_inputs))
 });
 
 impl_read_op!(DynamicQuantizeLinear);
@@ -2516,6 +2523,17 @@ mod tests {
                     .with_attr("min", -0.5)
                     .with_attr("max", 0.5),
                 expected_inputs: [(1, ConstInput::Float(-0.5)), (2, ConstInput::Float(0.5))].into(),
+            },
+            #[cfg(feature = "random")]
+            Case {
+                op: create_node("Dropout").with_attr("ratio", 0.25),
+                expected_inputs: [(1, ConstInput::Float(0.25))].into(),
+            },
+            // Dropout op with no `ratio` attribute.
+            #[cfg(feature = "random")]
+            Case {
+                op: create_node("Dropout"),
+                expected_inputs: [].into(),
             },
             // Pad op with `pads` and `value` attributes.
             Case {

@@ -308,7 +308,7 @@ impl Operator for Dropout {
     }
 
     fn max_inputs(&self) -> Option<usize> {
-        Some(2)
+        Some(3)
     }
 
     fn max_outputs(&self) -> Option<usize> {
