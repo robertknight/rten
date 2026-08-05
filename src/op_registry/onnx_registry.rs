@@ -1650,7 +1650,14 @@ impl_read_op!(Relu);
 
 impl_read_op!(Reshape, |attrs: &Attrs| {
     let allow_zero = attrs.get_as("allowzero").unwrap_or(false);
-    Ok(ops::Reshape { allow_zero })
+
+    // `shape` was an attribute before opset 5.
+    let mut const_inputs = Vec::new();
+    if let Some(shape) = attrs.get("shape") {
+        const_inputs.push((1, ConstInput::Ints(shape.as_ints().to_vec())));
+    }
+
+    Ok(ParsedOp::new(ops::Reshape { allow_zero }).with_inputs(const_inputs))
 });
 
 impl_read_op!(Resize, |attrs: &Attrs| {
@@ -2550,6 +2557,10 @@ mod tests {
             Case {
                 op: create_node("Pad").with_attr("pads", vec![1, 1, 1, 1]),
                 expected_inputs: [(1, ConstInput::Ints([1, 1, 1, 1].into()))].into(),
+            },
+            Case {
+                op: create_node("Reshape").with_attr("shape", vec![2, -1]),
+                expected_inputs: [(1, ConstInput::Ints([2, -1].into()))].into(),
             },
             Case {
                 op: create_node("Squeeze").with_attr("axes", vec![-1]),
