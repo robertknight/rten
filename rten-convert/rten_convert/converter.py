@@ -408,6 +408,9 @@ def op_node_from_onnx_operator(
             # is unsupported.
             attr_reader.ignore_attr("momentum")
 
+            # `spatial` was removed in opset 9.
+            attr_reader.check_attr("spatial", "int", 1)
+
         case "Cast":
             attrs = sg.CastAttrsT()
             to = attr_reader.get_attr(

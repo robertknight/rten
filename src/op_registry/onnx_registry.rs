@@ -834,6 +834,9 @@ impl_read_op!(BatchNormalization, |attrs: &Attrs| {
     // unsupported.
     attrs.check_unused::<f32>("momentum")?;
 
+    // "spatial" was removed in opset 9.
+    attrs.check_eq("spatial", 1)?;
+
     let epsilon = attrs.get("epsilon").map(|v| v.as_f32()).unwrap_or(1e-05);
     Ok(ops::BatchNormalization { epsilon })
 });
