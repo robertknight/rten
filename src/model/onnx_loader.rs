@@ -1625,6 +1625,26 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "random")]
+    #[test]
+    fn test_load_dropout_with_training_mode_input() {
+        let node = create_node("Dropout")
+            .with_input("x")
+            .with_input("ratio")
+            .with_input("training_mode")
+            .with_output("y")
+            .with_name("dropout_op");
+
+        let model_proto = onnx::GraphProto::default()
+            .with_input(create_value_info("x"))
+            .with_input(create_value_info("ratio"))
+            .with_input(create_value_info("training_mode"))
+            .with_node(node)
+            .into_model();
+
+        load_model(model_proto, None).unwrap();
+    }
+
     #[test]
     fn test_too_many_outputs_for_operator() {
         // Test operator-specific limit.
