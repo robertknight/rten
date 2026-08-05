@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{AssumeInit, NdTensor, NdTensorView, Scalar, Tensor, TensorView};
+use rten_tensor::{AssumeInit, NdTensor, Scalar, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
@@ -38,65 +38,63 @@ impl_dequantize_f32!(i32);
 impl_dequantize_f32!(i8);
 impl_dequantize_f32!(u8);
 
-pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar>(
+pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + 'static>(
     pool: &BufferPool,
     input: TensorView<T>,
     scale: TensorView<f32>,
     zero_point: Option<TensorView<T>>,
     axis: isize,
 ) -> Result<Tensor<f32>, OpError> {
-    if let Some(zero_point) = zero_point.as_ref()
-        && zero_point.shape() != scale.shape()
-    {
-        return Err(OpError::InvalidValue(
-            "scale and zero_point must have same shape",
-        ));
-    }
+    // Treat both a scalar and single-element vector as selecting per-tensor
+    // quantization. This deviates from the ONNX spec but is necessary for
+    // compatibility with ONNX Runtime and its quantization tools.
+    if let Some(scale) = scale.item() {
+        let zero_point = if let Some(zp) = zero_point {
+            zp.item().copied().ok_or(OpError::InvalidValue(
+                "scale and zero_point must have same shape",
+            ))?
+        } else {
+            T::default()
+        };
+        Ok(input.map_in(pool, |x| x.dequantize(*scale, zero_point)))
+    } else if let Ok(scale) = scale.into_rank::<1>() {
+        let axis = resolve_axis(input.ndim(), axis)?;
+        check_eq!(
+            scale.size(0),
+            input.size(axis),
+            "scale length does not match size of quantization axis"
+        )?;
+        let zero_point = if let Some(zp) = zero_point {
+            zp.into_rank::<1>()
+                .map_err(|_| OpError::InvalidValue("scale and zero point must have same rank"))?
+                .as_cow()
+        } else {
+            NdTensor::zeros(scale.shape()).into_cow()
+        };
+        check_eq!(
+            zero_point.size(0),
+            input.size(axis),
+            "zero_point length does not match size of quantization axis"
+        )?;
 
-    match scale.ndim() {
-        0 => {
-            let scale = scale.item().unwrap();
-            let zero_point = zero_point
-                .and_then(|z| z.item())
-                .copied()
-                .unwrap_or_default();
+        let mut output = Tensor::uninit_in(pool, input.shape());
+        output
+            .axis_iter_mut(axis)
+            .zip(input.axis_iter(axis))
+            .zip(scale.iter())
+            .zip(zero_point.iter())
+            .for_each(|(((mut out_slice, in_slice), &scale), &zero_point)| {
+                for (y, &x) in out_slice.iter_mut().zip(in_slice.iter()) {
+                    y.write(x.dequantize(scale, zero_point));
+                }
+            });
 
-            Ok(input.map_in(pool, |x| x.dequantize(*scale, zero_point)))
-        }
-        1 => {
-            let axis = resolve_axis(input.ndim(), axis)?;
-            let scale: NdTensorView<f32, 1> = scale.try_into().unwrap();
-            check_eq!(
-                scale.size(0),
-                input.size(axis),
-                "scale length does not match size of quantization axis"
-            )?;
-            let zero = NdTensor::from(T::default());
-            let zero_point: NdTensorView<T, 1> = zero_point
-                .map(|zp| {
-                    let zp_vec: NdTensorView<T, 1> = zp.try_into().unwrap();
-                    zp_vec
-                })
-                .unwrap_or(zero.broadcast(scale.shape()));
-
-            let mut output = Tensor::uninit_in(pool, input.shape());
-            output
-                .axis_iter_mut(axis)
-                .zip(input.axis_iter(axis))
-                .zip(scale.iter())
-                .zip(zero_point.iter())
-                .for_each(|(((mut out_slice, in_slice), &scale), &zero_point)| {
-                    for (y, &x) in out_slice.iter_mut().zip(in_slice.iter()) {
-                        y.write(x.dequantize(scale, zero_point));
-                    }
-                });
-
-            // Safety: All elements are initialized
-            Ok(unsafe { output.assume_init() })
-        }
-        _ => Err(OpError::UnsupportedValue(
+        // Safety: All elements are initialized
+        Ok(unsafe { output.assume_init() })
+    } else {
+        Err(OpError::UnsupportedValue(
             "Blocked dequantization is not supported",
-        )),
+        ))
     }
 }
 
@@ -195,7 +193,7 @@ impl Quantize<i8> for f32 {
     }
 }
 
-pub fn quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
+pub fn quantize_linear<T: Copy + Default + Send + Sync + Scalar + 'static>(
     pool: &BufferPool,
     input: TensorView<f32>,
     scale: TensorView<f32>,
@@ -205,79 +203,74 @@ pub fn quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
 where
     f32: Quantize<T>,
 {
-    if let Some(zero_point) = zero_point.as_ref()
-        && zero_point.shape() != scale.shape()
-    {
-        return Err(OpError::InvalidValue(
-            "scale and zero_point must have same shape",
-        ));
-    }
+    // Treat both a scalar and single-element vector as selecting per-tensor
+    // quantization. This deviates from the ONNX spec but is necessary for
+    // compatibility with ONNX Runtime and its quantization tools.
+    if let Some(scale) = scale.item() {
+        let inv_scale = 1. / *scale;
+        let zero_point = if let Some(zp) = zero_point {
+            zp.item().copied().ok_or(OpError::InvalidValue(
+                "scale and zero_point must have same shape",
+            ))?
+        } else {
+            T::default()
+        };
 
-    match scale.ndim() {
-        0 => {
-            let inv_scale = 1. / *scale.item().unwrap();
-            let zero_point = zero_point
-                .and_then(|z| z.item())
-                .copied()
-                .unwrap_or_default();
+        if let Some(data) = input.data() {
+            let mut buf = pool.alloc(data.len());
+            let buf_uninit = &mut buf.spare_capacity_mut()[..data.len()];
 
-            if let Some(data) = input.data() {
-                let mut buf = pool.alloc(data.len());
-                let buf_uninit = &mut buf.spare_capacity_mut()[..data.len()];
-
-                let chunk_size = 4096;
-                buf_uninit
-                    .par_chunks_mut(chunk_size)
-                    .zip(data.par_chunks(chunk_size))
-                    .for_each(|(out_data, data)| {
-                        Quantize::quantize_slice(data, out_data, inv_scale, zero_point);
-                    });
-                let buf_uninit_len = buf_uninit.len();
-
-                // Safety: We initialized `buf_uninit_len` elements.
-                unsafe { buf.set_len(buf_uninit_len) };
-
-                Ok(Tensor::from_data(input.shape(), buf))
-            } else {
-                Ok(input.map_in(pool, |x| x.quantize(inv_scale, zero_point)))
-            }
-        }
-        1 => {
-            let axis = resolve_axis(input.ndim(), axis)?;
-            let scale: NdTensorView<f32, 1> = scale.try_into().unwrap();
-            check_eq!(
-                scale.size(0),
-                input.size(axis),
-                "scale length does not match size of quantization axis"
-            )?;
-            let zero = NdTensor::from(T::default());
-            let zero_point: NdTensorView<T, 1> = zero_point
-                .map(|zp| {
-                    let zp_vec: NdTensorView<T, 1> = zp.try_into().unwrap();
-                    zp_vec
-                })
-                .unwrap_or(zero.broadcast(scale.shape()));
-
-            let mut output = Tensor::uninit_in(pool, input.shape());
-            output
-                .axis_iter_mut(axis)
-                .into_par_iter()
-                .zip(input.axis_iter(axis))
-                .zip(scale.iter())
-                .zip(zero_point.iter())
-                .for_each(|(((mut out_slice, in_slice), &scale), &zero_point)| {
-                    let inv_scale = 1. / scale;
-                    for (y, &x) in out_slice.iter_mut().zip(in_slice.iter()) {
-                        y.write(x.quantize(inv_scale, zero_point));
-                    }
+            let chunk_size = 4096;
+            buf_uninit
+                .par_chunks_mut(chunk_size)
+                .zip(data.par_chunks(chunk_size))
+                .for_each(|(out_data, data)| {
+                    Quantize::quantize_slice(data, out_data, inv_scale, zero_point);
                 });
+            let buf_uninit_len = buf_uninit.len();
 
-            // Safety: All elements are initialized
-            Ok(unsafe { output.assume_init() })
+            // Safety: We initialized `buf_uninit_len` elements.
+            unsafe { buf.set_len(buf_uninit_len) };
+
+            Ok(Tensor::from_data(input.shape(), buf))
+        } else {
+            Ok(input.map_in(pool, |x| x.quantize(inv_scale, zero_point)))
         }
-        _ => Err(OpError::UnsupportedValue(
+    } else if let Ok(scale) = scale.into_rank::<1>() {
+        let axis = resolve_axis(input.ndim(), axis)?;
+        check_eq!(
+            scale.size(0),
+            input.size(axis),
+            "scale length does not match size of quantization axis"
+        )?;
+        let zero_point = if let Some(zp) = zero_point {
+            zp.into_rank::<1>()
+                .map_err(|_| OpError::InvalidValue("scale and zero point must have same shape"))?
+                .as_cow()
+        } else {
+            NdTensor::zeros(scale.shape()).into_cow()
+        };
+
+        let mut output = Tensor::uninit_in(pool, input.shape());
+        output
+            .axis_iter_mut(axis)
+            .into_par_iter()
+            .zip(input.axis_iter(axis))
+            .zip(scale.iter())
+            .zip(zero_point.iter())
+            .for_each(|(((mut out_slice, in_slice), &scale), &zero_point)| {
+                let inv_scale = 1. / scale;
+                for (y, &x) in out_slice.iter_mut().zip(in_slice.iter()) {
+                    y.write(x.quantize(inv_scale, zero_point));
+                }
+            });
+
+        // Safety: All elements are initialized
+        Ok(unsafe { output.assume_init() })
+    } else {
+        Err(OpError::UnsupportedValue(
             "Blocked quantization is not supported",
-        )),
+        ))
     }
 }
 
@@ -356,7 +349,7 @@ pub struct DynamicQuantizeOutput<T> {
     pub zero_point: Tensor<T>,
 }
 
-pub fn dynamic_quantize_linear<T: Copy + Default + Send + Sync + Scalar>(
+pub fn dynamic_quantize_linear<T: Copy + Default + Send + Sync + Scalar + 'static>(
     pool: &BufferPool,
     input: TensorView<f32>,
 ) -> Result<DynamicQuantizeOutput<T>, OpError>
@@ -554,12 +547,47 @@ mod tests {
                 zero_point: None,
                 expected: Ok(Tensor::from([[5., 10.], [60., 80.]])),
             },
+            // One-element vector scale, treated as per-tensor even though the
+            // quantization axis is longer.
+            Case {
+                axis: 0,
+                input: Tensor::from([[10u8, 20], [30, 40]]).into(),
+                scale: Tensor::from([0.5]),
+                zero_point: None,
+                expected: Ok(Tensor::from([[5., 10.], [15., 20.]])),
+            },
+            // One-element vector scale and zero point.
+            Case {
+                axis: 0,
+                input: Tensor::from([[20u8, 30], [40, 50]]).into(),
+                scale: Tensor::from([0.5]),
+                zero_point: Some(Tensor::from([10u8]).into()),
+                expected: Ok(Tensor::from([[5., 10.], [15., 20.]])),
+            },
+            // One-element vector scale paired with a scalar zero point.
+            Case {
+                axis: 0,
+                input: Tensor::from([[20u8, 30], [40, 50]]).into(),
+                scale: Tensor::from([0.5]),
+                zero_point: Some(Tensor::from(10u8).into()),
+                expected: Ok(Tensor::from([[5., 10.], [15., 20.]])),
+            },
             // Mismatched scale and zero-point shape
             Case {
                 axis: 0,
-                input: Tensor::from([10u8]).into(),
+                input: Tensor::from([10u8, 5u8]).into(),
                 scale: Tensor::from([0.5, 2.]),
                 zero_point: Some(Tensor::from([1u8, 2, 3]).into()),
+                expected: Err(OpError::IncompatibleInputShapes(
+                    "zero_point length does not match size of quantization axis",
+                )),
+            },
+            // Scalar scale with a multi-element zero point
+            Case {
+                axis: 0,
+                input: Tensor::from([[10u8, 20], [30, 40]]).into(),
+                scale: Tensor::from(0.5),
+                zero_point: Some(Tensor::from([1u8, 2]).into()),
                 expected: Err(OpError::InvalidValue(
                     "scale and zero_point must have same shape",
                 )),
@@ -567,8 +595,8 @@ mod tests {
             // Scale shorter than the quantization axis
             Case {
                 axis: 0,
-                input: Tensor::from([[10u8, 20], [30, 40]]).into(),
-                scale: Tensor::from([0.5]),
+                input: Tensor::from([[10u8, 20], [30, 40], [50, 60]]).into(),
+                scale: Tensor::from([0.5, 0.6]),
                 zero_point: None,
                 expected: Err(OpError::IncompatibleInputShapes(
                     "scale length does not match size of quantization axis",
