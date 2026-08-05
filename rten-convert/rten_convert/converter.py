@@ -225,6 +225,29 @@ def read_pads(attr_reader: AttributeReader, attrs: PadAttrs) -> None:
         attrs.pads = pads
 
 
+def read_rnn_attrs(
+    attr_reader: AttributeReader, direction, default_activations: list[str]
+) -> None:
+    """
+    Check the attributes which are common to all RNN operators.
+
+    `default_activations` are the activation functions the operator uses for one
+    direction, in the order the ONNX spec lists them.
+    """
+    attr_reader.check_attr("activation_alpha", "floats", [])
+    attr_reader.check_attr("activation_beta", "floats", [])
+
+    # Only the default activations are supported. A bidirectional operator
+    # repeats the list once per direction.
+    n_directions = 2 if direction == sg.RNNDirection.Bidirectional else 1
+    attr_reader.check_attr(
+        "activations", "strings", ([], default_activations * n_directions)
+    )
+
+    attr_reader.check_attr("clip", "float", 0.0)
+    attr_reader.check_attr("layout", "int", 0)
+
+
 def read_strides(
     attr_reader: AttributeReader,
 ):
@@ -556,6 +579,8 @@ def op_node_from_onnx_operator(
                 attr_reader.get_attr("linear_before_reset", "int", 0)
             )
 
+            read_rnn_attrs(attr_reader, attrs.direction, ["Sigmoid", "Tanh"])
+
         case "HardSigmoid":
             attrs = sg.HardSigmoidAttrsT()
             attrs.alpha = attr_reader.get_attr("alpha", "float", 0.2)
@@ -617,12 +642,8 @@ def op_node_from_onnx_operator(
             )
             attrs.hiddenSize = attr_reader.require_attr("hidden_size", "int")
 
-            attr_reader.check_attr("activation_alpha", "floats", [])
-            attr_reader.check_attr("activation_beta", "floats", [])
-            attr_reader.check_attr("activations", "strings", [])
-            attr_reader.check_attr("clip", "float", 0.0)
+            read_rnn_attrs(attr_reader, attrs.direction, ["Sigmoid", "Tanh", "Tanh"])
             attr_reader.check_attr("input_forget", "int", 0)
-            attr_reader.check_attr("layout", "int", 0)
 
         case "MaxPool":
             attrs = sg.MaxPoolAttrsT()

@@ -16,6 +16,7 @@ pub enum AttrValue {
     Int(i64),
     Ints(Vec<i64>),
     String(String),
+    Strings(Vec<String>),
     Tensor(onnx::TensorProto),
 }
 
@@ -26,6 +27,7 @@ enum_from!(AttrValue, Graph, onnx::GraphProto);
 enum_from!(AttrValue, Int, i64);
 enum_from!(AttrValue, Ints, Vec<i64>);
 enum_from!(AttrValue, String, String);
+enum_from!(AttrValue, Strings, Vec<String>);
 enum_from!(AttrValue, Tensor, onnx::TensorProto);
 
 pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
@@ -39,6 +41,7 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
         AttrValue::Int(val) => attr.i = Some(val),
         AttrValue::Ints(val) => attr.ints = val,
         AttrValue::String(val) => attr.s = Some(val),
+        AttrValue::Strings(val) => attr.strings = val,
         AttrValue::Tensor(val) => attr.t = Some(val),
     }
     attr
