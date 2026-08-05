@@ -1650,7 +1650,14 @@ impl_read_op!(Relu);
 
 impl_read_op!(Reshape, |attrs: &Attrs| {
     let allow_zero = attrs.get_as("allowzero").unwrap_or(false);
-    Ok(ops::Reshape { allow_zero })
+
+    // `shape` was an attribute before opset 5.
+    let mut const_inputs = Vec::new();
+    if let Some(shape) = attrs.get("shape") {
+        const_inputs.push((1, ConstInput::Ints(shape.as_ints().to_vec())));
+    }
+
+    Ok(ParsedOp::new(ops::Reshape { allow_zero }).with_inputs(const_inputs))
 });
 
 impl_read_op!(Resize, |attrs: &Attrs| {
@@ -1944,11 +1951,19 @@ impl_read_op!(TopK, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?;
     let largest = attrs.get_as("largest").unwrap_or(true);
     let sorted = attrs.get_as("sorted").unwrap_or(true);
-    Ok(ops::TopK {
+
+    // `k` was an attribute before opset 10.
+    let mut const_inputs = Vec::new();
+    if let Some(k) = attrs.get("k") {
+        const_inputs.push((1, ConstInput::Int(k.as_i64())));
+    }
+
+    Ok(ParsedOp::new(ops::TopK {
         axis,
         largest,
         sorted,
     })
+    .with_inputs(const_inputs))
 });
 
 impl_read_op!(Transpose, |attrs: &Attrs| {
@@ -2552,6 +2567,10 @@ mod tests {
                 expected_inputs: [(1, ConstInput::Ints([1, 1, 1, 1].into()))].into(),
             },
             Case {
+                op: create_node("Reshape").with_attr("shape", vec![2, -1]),
+                expected_inputs: [(1, ConstInput::Ints([2, -1].into()))].into(),
+            },
+            Case {
                 op: create_node("Squeeze").with_attr("axes", vec![-1]),
                 expected_inputs: [(1, ConstInput::Ints([-1].into()))].into(),
             },
@@ -2570,6 +2589,10 @@ mod tests {
             Case {
                 op: create_node("Split").with_attr("split", vec![10]),
                 expected_inputs: [(1, ConstInput::Ints([10].into()))].into(),
+            },
+            Case {
+                op: create_node("TopK").with_attr("k", 3),
+                expected_inputs: [(1, ConstInput::Int(3))].into(),
             },
             Case {
                 op: create_node("Unsqueeze").with_attr("axes", vec![-1]),

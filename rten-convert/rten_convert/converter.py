@@ -713,6 +713,9 @@ def op_node_from_onnx_operator(
             attrs = sg.ReshapeAttrsT()
             attrs.allowZero = bool(attr_reader.get_attr("allowzero", "int", 0))
 
+            # `shape` was an attribute until opset 5, when it became an input.
+            attr_reader.generate_input_from_attr(1, "shape", "ints")
+
         case "ReverseSequence":
             attrs = sg.ReverseSequenceAttrsT()
             attrs.batchAxis = attr_reader.get_attr("batch_axis", "int", 1)
@@ -829,6 +832,9 @@ def op_node_from_onnx_operator(
             attrs.axis = attr_reader.get_attr("axis", "int", -1)
             attrs.largest = bool(attr_reader.get_attr("largest", "int", 1))
             attrs.sorted = bool(attr_reader.get_attr("sorted", "int", 1))
+
+            # `k` was an attribute until opset 10, when it became an input.
+            attr_reader.generate_input_from_attr(1, "k", "int")
 
         case "Transpose":
             attrs = sg.TransposeAttrsT()
