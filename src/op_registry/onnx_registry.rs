@@ -864,11 +864,21 @@ impl_read_op!(Cast, |attrs: &Attrs| {
     // Conversions to other types do not saturate, even if this attribute is 1.
     attrs.check_eq("saturate", 1)?;
 
+    // "round_mode" only applies to conversions to float8e8m0.
+    attrs.check_eq("round_mode", "up")?;
+
     let to = attrs.require("to")?.as_dtype()?;
     Ok(ops::Cast { to })
 });
 
-impl_read_op!(CastLike);
+impl_read_op!(CastLike, |attrs: &Attrs| {
+    // The "saturate" attribute only applies to FP8, which is unsupported.
+    // Conversions to other types do not saturate, even if this attribute is 1.
+    attrs.check_eq("saturate", 1)?;
+
+    attrs.check_eq("round_mode", "up")?;
+    Ok(ops::CastLike {})
+});
 impl_read_op!(Ceil);
 
 impl_read_op!(Clip, |attrs: &Attrs| {
@@ -1067,6 +1077,14 @@ impl_read_op!(DFT, |attrs: &Attrs| {
 
 impl_read_op!(DequantizeLinear, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(1);
+
+    // A non-zero "block_size" selects blocked quantization, which is
+    // unsupported.
+    attrs.check_eq("block_size", 0)?;
+
+    // A zero "output_dtype" means the type is taken from the `scale` input.
+    attrs.check_eq("output_dtype", 0)?;
+
     Ok(ops::DequantizeLinear { axis })
 });
 
@@ -1194,7 +1212,7 @@ impl_read_op!(GRU, |attrs: &Attrs| {
     let RnnAttrs {
         direction,
         hidden_size,
-    } = get_common_rnn_attrs(attrs)?;
+    } = get_common_rnn_attrs(attrs, &["Sigmoid", "Tanh"])?;
 
     let linear_before_reset = attrs.get_as("linear_before_reset").unwrap_or(false);
     Ok(ops::GRU {
@@ -1287,7 +1305,14 @@ struct RnnAttrs {
     direction: Direction,
 }
 
-fn get_common_rnn_attrs(attrs: &Attrs) -> Result<RnnAttrs, ReadOpError> {
+/// Read the attributes which are common to all RNN operators.
+///
+/// `default_activations` are the activation functions the operator uses for
+/// one direction, in the order the ONNX spec lists them.
+fn get_common_rnn_attrs(
+    attrs: &Attrs,
+    default_activations: &[&str],
+) -> Result<RnnAttrs, ReadOpError> {
     // ONNX spec does not state that hidden_size is required, but doesn't
     // provide a default. ONNX Runtime requires it to be present and non-zero.
     let hidden_size = attrs.require("hidden_size")?.cast_int()?;
@@ -1304,6 +1329,23 @@ fn get_common_rnn_attrs(attrs: &Attrs) -> Result<RnnAttrs, ReadOpError> {
         .transpose()?
         .unwrap_or(Direction::Forward);
 
+    attrs.check("activation_alpha", |val: &[f32]| val.is_empty())?;
+    attrs.check("activation_beta", |val: &[f32]| val.is_empty())?;
+
+    // Only the default activations are supported. A bidirectional operator
+    // repeats the list once per direction.
+    attrs.check("activations", |val: &[String]| {
+        val.is_empty()
+            || (val.len() == default_activations.len() * direction.num_directions()
+                && val
+                    .iter()
+                    .zip(default_activations.iter().cycle())
+                    .all(|(act, default)| act == default))
+    })?;
+
+    attrs.check_eq("clip", 0.)?;
+    attrs.check_eq("layout", 0)?;
+
     Ok(RnnAttrs {
         hidden_size,
         direction,
@@ -1314,14 +1356,9 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
     let RnnAttrs {
         direction,
         hidden_size,
-    } = get_common_rnn_attrs(attrs)?;
+    } = get_common_rnn_attrs(attrs, &["Sigmoid", "Tanh", "Tanh"])?;
 
-    attrs.check("activation_alpha", |val: &[f32]| val.is_empty())?;
-    attrs.check("activation_beta", |val: &[f32]| val.is_empty())?;
-    attrs.check("activations", |val: &[String]| val.is_empty())?;
-    attrs.check_eq("clip", 0.)?;
     attrs.check_eq("input_forget", 0)?;
-    attrs.check_eq("layout", 0)?;
 
     Ok(ops::LSTM {
         direction,
@@ -1518,11 +1555,26 @@ impl_read_op!(Pow);
 impl_read_op!(PRelu);
 
 impl_read_op!(QuantizeLinear, |attrs: &Attrs| {
+    // A zero "output_dtype" means the type is taken from the `zero_point`
+    // input instead.
     let output_dtype = attrs
         .get("output_dtype")
-        .map(|v| v.as_dtype())
+        .filter(|dt| dt.as_i64() != 0)
+        .map(|dt| dt.as_dtype())
         .transpose()?;
     let axis = attrs.get_as_int("axis")?.unwrap_or(-1);
+
+    // A non-zero "block_size" selects blocked quantization, which is
+    // unsupported.
+    attrs.check_eq("block_size", 0)?;
+
+    // "saturate" only applies to FP8, which is unsupported.
+    attrs.check_eq("saturate", 1)?;
+
+    // A zero "precision" means the division is performed using the type of the
+    // `scale` input.
+    attrs.check_eq("precision", 0)?;
+
     Ok(ops::QuantizeLinear { axis, output_dtype })
 });
 
@@ -1618,7 +1670,10 @@ impl_read_op!(RandomUniformLike, |attrs: &Attrs| {
     Ok(ops::RandomUniformLike { low, high, seed })
 });
 
-impl_read_op!(Range);
+impl_read_op!(Range, |attrs: &Attrs| {
+    attrs.check_eq("stash_type", 1)?;
+    Ok(ops::Range {})
+});
 impl_read_op!(Reciprocal);
 
 macro_rules! impl_read_op_for_reduce_op {
@@ -2218,6 +2273,116 @@ mod tests {
                 (Ok(op), Ok(())) => {
                     assert!(op.op.downcast_ref::<GridSample>().is_some());
                 }
+                (Err(err), Err(expected)) => {
+                    assert!(
+                        err.to_string().contains(expected),
+                        "{} does not contain {}",
+                        err,
+                        expected
+                    );
+                }
+                (result, expected) => {
+                    panic!("expected {:?} but got {:?}", expected, result.map(|_| ()))
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn test_read_rnn_activations() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            op_type: &'a str,
+            direction: Option<&'a str>,
+            activations: Option<&'a [&'a str]>,
+            expected: Result<(), &'a str>,
+        }
+
+        let cases = [
+            // Unset.
+            Case {
+                op_type: "LSTM",
+                direction: None,
+                activations: None,
+                expected: Ok(()),
+            },
+            Case {
+                op_type: "GRU",
+                direction: None,
+                activations: None,
+                expected: Ok(()),
+            },
+            // Defaults set explicitly.
+            Case {
+                op_type: "LSTM",
+                direction: None,
+                activations: Some(&["Sigmoid", "Tanh", "Tanh"]),
+                expected: Ok(()),
+            },
+            Case {
+                op_type: "GRU",
+                direction: None,
+                activations: Some(&["Sigmoid", "Tanh"]),
+                expected: Ok(()),
+            },
+            // Defaults repeated once per direction.
+            Case {
+                op_type: "LSTM",
+                direction: Some("bidirectional"),
+                activations: Some(&["Sigmoid", "Tanh", "Tanh", "Sigmoid", "Tanh", "Tanh"]),
+                expected: Ok(()),
+            },
+            Case {
+                op_type: "GRU",
+                direction: Some("bidirectional"),
+                activations: Some(&["Sigmoid", "Tanh", "Sigmoid", "Tanh"]),
+                expected: Ok(()),
+            },
+            // Non-default activations are not implemented.
+            Case {
+                op_type: "LSTM",
+                direction: None,
+                activations: Some(&["Sigmoid", "Tanh", "Relu"]),
+                expected: Err("unsupported value"),
+            },
+            Case {
+                op_type: "GRU",
+                direction: None,
+                activations: Some(&["Relu", "Tanh"]),
+                expected: Err("unsupported value"),
+            },
+            // Defaults with wrong length for operator.
+            Case {
+                op_type: "GRU",
+                direction: None,
+                activations: Some(&["Sigmoid", "Tanh", "Tanh"]),
+                expected: Err("unsupported value"),
+            },
+            // Defaults with wrong length for direction count.
+            Case {
+                op_type: "LSTM",
+                direction: None,
+                activations: Some(&["Sigmoid", "Tanh", "Tanh", "Sigmoid", "Tanh", "Tanh"]),
+                expected: Err("unsupported value"),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let mut node = create_node(case.op_type).with_attr("hidden_size", 4i64);
+            if let Some(direction) = case.direction {
+                node = node.with_attr("direction", direction.to_string());
+            }
+            if let Some(activations) = case.activations {
+                let activations: Vec<String> =
+                    activations.iter().map(|act| act.to_string()).collect();
+                node = node.with_attr("activations", activations);
+            }
+
+            let result = reg.read_op(&node, &FakeOpLoadContext::default());
+
+            match (result, case.expected) {
+                (Ok(op), Ok(())) => assert_eq!(op.op.name(), case.op_type),
                 (Err(err), Err(expected)) => {
                     assert!(
                         err.to_string().contains(expected),
