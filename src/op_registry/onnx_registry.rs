@@ -1951,11 +1951,19 @@ impl_read_op!(TopK, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?;
     let largest = attrs.get_as("largest").unwrap_or(true);
     let sorted = attrs.get_as("sorted").unwrap_or(true);
-    Ok(ops::TopK {
+
+    // `k` was an attribute before opset 10.
+    let mut const_inputs = Vec::new();
+    if let Some(k) = attrs.get("k") {
+        const_inputs.push((1, ConstInput::Int(k.as_i64())));
+    }
+
+    Ok(ParsedOp::new(ops::TopK {
         axis,
         largest,
         sorted,
     })
+    .with_inputs(const_inputs))
 });
 
 impl_read_op!(Transpose, |attrs: &Attrs| {
@@ -2581,6 +2589,10 @@ mod tests {
             Case {
                 op: create_node("Split").with_attr("split", vec![10]),
                 expected_inputs: [(1, ConstInput::Ints([10].into()))].into(),
+            },
+            Case {
+                op: create_node("TopK").with_attr("k", 3),
+                expected_inputs: [(1, ConstInput::Int(3))].into(),
             },
             Case {
                 op: create_node("Unsqueeze").with_attr("axes", vec![-1]),

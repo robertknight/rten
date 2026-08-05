@@ -833,6 +833,9 @@ def op_node_from_onnx_operator(
             attrs.largest = bool(attr_reader.get_attr("largest", "int", 1))
             attrs.sorted = bool(attr_reader.get_attr("sorted", "int", 1))
 
+            # `k` was an attribute until opset 10, when it became an input.
+            attr_reader.generate_input_from_attr(1, "k", "int")
+
         case "Transpose":
             attrs = sg.TransposeAttrsT()
             attrs.perm = attr_reader.get_attr("perm", "ints", None)
