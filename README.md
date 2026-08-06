@@ -80,6 +80,28 @@ python -m tools.export-timm-model timm/resnet50.a1_in1k
 cargo run -p rten-examples --release --bin imagenet resnet50.a1_in1k.onnx image.png
 ```
 
+## Usage in Python
+
+The [rten-py](rten-py/) crate provides Python bindings which take and return
+numpy arrays. To build the Python bindings locally you will need to install
+[uv](https://docs.astral.sh/uv/), then run:
+
+```sh
+just build-py
+```
+
+Then start a shell with `uv run --project rten-py python`.
+
+```python
+import numpy as np
+import rten
+
+model = rten.Model("model.onnx")
+outputs = model.run(None, {"input": np.zeros((1, 3, 224, 224), np.float32)})
+```
+
+See the [rten-py README](rten-py/README.md) for further details.
+
 ## Usage in JavaScript
 
 To use this library in a JavaScript application, there are two approaches:

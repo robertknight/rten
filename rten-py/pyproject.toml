@@ -1,0 +1,29 @@
+[project]
+name = "rten"
+description = "Machine learning runtime"
+requires-python = ">=3.12"
+dependencies = ["numpy"]
+readme = "README.md"
+dynamic = ["version"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
+]
+
+[dependency-groups]
+dev = ["pytest", "onnx"]
+
+[project.urls]
+Homepage = "https://github.com/robertknight/rten"
+Issues = "https://github.com/robertknight/rten/issues"
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+# Default to an optimized build because debug builds are too slow for most uses.
+profile = "release"
+features = ["extension-module"]
+module-name = "rten._rten"
+python-source = "python"
