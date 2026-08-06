@@ -1,0 +1,28 @@
+[package]
+name = "rten-py"
+version = "0.25.0"
+edition = "2024"
+authors = ["Robert Knight"]
+description = "Python bindings for the RTen machine learning runtime"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
+rust-version = "1.94.0"
+publish = false
+
+[lib]
+name = "_rten"
+crate-type = ["cdylib"]
+
+[dependencies]
+numpy = "0.29"
+pyo3 = { version = "0.29", features = ["abi3-py312"] }
+rten = { path = "..", version = "0.25.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.25.0" }
+
+[features]
+# Build a Python extension module which resolves Python symbols from the host
+# interpreter, rather than linking against libpython. This is enabled when
+# building wheels via maturin. It is not enabled by default because it prevents
+# linking binaries (eg. test harnesses) that embed an interpreter.
+extension-module = ["pyo3/extension-module"]

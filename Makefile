@@ -51,6 +51,24 @@ miri:
 test:
 	cargo test --no-fail-fast --workspace --features rten/all-ops,rten/mmap,rten-generate/text-decoder,rten-tensor/serde,rten-serialize/npy,rten-serialize/npz
 
+# Cargo profile used to build the Python bindings. Defaults to release because
+# debug builds are too slow for most uses.
+PY_PROFILE ?= release
+
+# Build the Python bindings.
+#
+# `--reinstall-package rten` forces the extension module to be rebuilt if the
+# Rust sources changed.
+.PHONY: build-py
+build-py:
+	cd rten-py && MATURIN_PEP517_ARGS="--profile $(PY_PROFILE)" uv sync --reinstall-package rten
+
+# Build the Python bindings and run their tests.
+.PHONY: test-py
+test-py: PY_PROFILE = dev
+test-py: build-py
+	cd rten-py && uv run --no-sync pytest tests
+
 # Default to running tests for the main crate unless otherwise specified.
 PACKAGE ?= rten
 CRATE := $(subst -,_,$(PACKAGE))
