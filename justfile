@@ -66,6 +66,19 @@ miri:
 test:
     cargo test --no-fail-fast --workspace --features rten/all-ops,rten/mmap,rten-generate/text-decoder,rten-tensor/serde,rten-serialize/npy,rten-serialize/npz
 
+# Build the Python bindings.
+build-py profile="release":
+    # The profile defaults to release because debug builds are too slow for most
+    # uses.
+    #
+    # `--reinstall-package rten` forces the extension module to be rebuilt if the
+    # Rust sources changed.
+    cd rten-py && MATURIN_PEP517_ARGS="--profile {{profile}}" uv sync --reinstall-package rten
+
+# Build the Python bindings and run their tests.
+test-py: (build-py "dev")
+    cd rten-py && uv run --no-sync pytest tests
+
 # Build the WASM library and JS bindings.
 wasm:
     RUSTFLAGS="{{wasm_target_features}}" cargo build --features=wasm_api --release --target wasm32-unknown-unknown

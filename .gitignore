@@ -6,8 +6,11 @@ node_modules/
 
 # Python
 __pycache__
+.venv/
 *.egg-info/
 dist/
+.pytest_cache/
+*.so
 
 # Converted rten ML models
 *.rten
