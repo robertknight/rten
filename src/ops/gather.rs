@@ -598,6 +598,12 @@ impl Operator for ReverseSequence {
     }
 }
 
+#[cfg(feature = "contrib")]
+pub use contrib::GatherBlockQuantized;
+
+#[cfg(feature = "contrib")]
+mod contrib;
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;

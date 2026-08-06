@@ -37,7 +37,7 @@ pub use concat::{Concat, Tile};
 pub use conv_pool::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 pub use einsum::Einsum;
 pub use fft::{DFT, STFT};
-pub use gather::{Gather, GatherElements, GatherND};
+pub use gather::{Gather, GatherBlockQuantized, GatherElements, GatherND};
 pub use generate::{ConstantOfShape, OneHot, Range};
 pub use grid_sample::GridSample;
 pub use identity::Identity;
