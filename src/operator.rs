@@ -138,6 +138,9 @@ pub enum OpError {
 
     /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
+
+    /// An output was requested that is currently unsupported.
+    UnsupportedOutput(&'static str),
 }
 
 impl OpError {
@@ -185,6 +188,9 @@ impl Display for OpError {
             }
             OpError::UnsupportedValue(details) => {
                 write!(f, "unsupported input or attribute value: {}", details)
+            }
+            OpError::UnsupportedOutput(name) => {
+                write!(f, "unsupported output: {}", name)
             }
             OpError::UnsupportedType => {
                 write!(f, "unsupported input type")
@@ -303,6 +309,16 @@ impl OutputMask {
             self.mask.get(idx as u32)
         } else {
             idx < self.len as usize
+        }
+    }
+
+    /// Return [`OpError::UnsupportedOutput`] if the unsupported output at the
+    /// given index is requested.
+    pub fn check_unsupported(&self, idx: usize, name: &'static str) -> Result<(), OpError> {
+        if self.is_used(idx) {
+            Err(OpError::UnsupportedOutput(name))
+        } else {
+            Ok(())
         }
     }
 }
