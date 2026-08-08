@@ -544,12 +544,16 @@ impl Operator for LayerNormalization {
     }
 
     fn max_outputs(&self) -> Option<usize> {
-        // ONNX allows optional `Mean` and `InvStdDev` outputs, but we only
-        // produce the normalized output.
-        Some(1)
+        // Outputs are Y, Mean and InvStdDev. The last 2 are for training mode,
+        // which is unsupported.
+        Some(3)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let outputs = ctx.outputs();
+        outputs.check_unsupported(1, "Mean")?;
+        outputs.check_unsupported(2, "InvStdDev")?;
+
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;

@@ -617,12 +617,13 @@ impl Operator for MaxPool {
     }
 
     fn max_outputs(&self) -> Option<usize> {
-        // ONNX allows an optional `Indices` output, but we only produce the
-        // pooled output.
-        Some(1)
+        // Outputs are Y and Indices. `Indices` is unsupported.
+        Some(2)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        ctx.outputs().check_unsupported(1, "Indices")?;
+
         let input = ctx.inputs().require_as(0)?;
         max_pool(
             ctx.pool(),
