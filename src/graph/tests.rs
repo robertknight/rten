@@ -2035,6 +2035,36 @@ fn test_run_context_outputs() {
 }
 
 #[test]
+fn test_clear_operator_output() {
+    let mut g = Graph::new();
+    let input_id = g.add_value(Some("input"), None, None);
+    let out_0 = g.add_value(Some("out_0"), None, None);
+    let out_1 = g.add_value(Some("out_1"), None, None);
+    let op_id = g.add_op(
+        Some("test_op"),
+        Arc::new(RunFn::new(|ctx| {
+            assert_eq!(ctx.outputs(), OutputMask::new(BitSet::from_indices([0]), 2));
+
+            // Values only have to be returned for outputs which are used.
+            Ok([Tensor::from(1.).into()].into_iter().collect())
+        })),
+        &[Some(input_id)],
+        &[Some(out_0), Some(out_1)],
+    );
+
+    assert_eq!(g.clear_operator_output(op_id, 1), Some(out_1));
+    assert_eq!(g.clear_operator_output(op_id, 1), None);
+
+    let (_, op) = g.get_source_node(out_0).unwrap();
+    assert_eq!(op.output_ids(), [Some(out_0), None]);
+    assert!(g.get_source_node(out_1).is_none());
+
+    let input = Tensor::from([1, 2, 3]);
+    g.run(vec![(input_id, input.into())], &[out_0], None, None)
+        .unwrap();
+}
+
+#[test]
 fn test_operator_with_many_outputs() {
     // Operators can have more outputs than the mask tracks individually. All
     // outputs beyond the first 32 are treated as used.

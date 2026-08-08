@@ -18,7 +18,7 @@ use crate::ops::{
     Add, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf, Expand, FusedMatMul,
     Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul,
     MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape,
-    Shape, Sigmoid, Slice, Softmax, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -933,6 +933,145 @@ fn test_no_eliminate_value_captured_by_subgraph() {
         .get_source_node(cast_out)
         .expect("captured value should still have a producer");
     assert_eq!(op.operator().name(), "Cast");
+}
+
+/// Create a graph containing a `DynamicQuantizeLinear` operator with three
+/// outputs, of which only those in `used_outputs` are graph outputs.
+fn quantize_graph(used_outputs: &[usize]) -> Graph {
+    let x = Expr::value("x");
+    let quant = x.apply(
+        DynamicQuantizeLinear {},
+        &[],
+        &[OutputMeta::NoMeta, OutputMeta::NoMeta, OutputMeta::NoMeta],
+    );
+    let outputs: Vec<_> = used_outputs.iter().map(|&i| quant.output(i)).collect();
+    Expr::make_graph([x], outputs)
+}
+
+/// Return the operator which produces the first output of `graph`.
+fn first_output_source(graph: &Graph) -> &OperatorNode {
+    let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+    op
+}
+
+#[test]
+fn test_remove_unused_outputs() {
+    let graph = quantize_graph(&[0]);
+
+    let unused_ids: Vec<NodeId> = first_output_source(&graph).output_ids()[1..]
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    assert_eq!(unused_ids.len(), 2);
+
+    let graph = optimize_graph(graph).unwrap();
+
+    let op = first_output_source(&graph);
+    assert_eq!(op.operator().name(), "DynamicQuantizeLinear");
+    assert_eq!(op.output_ids()[1..], [None, None]);
+
+    for id in unused_ids {
+        assert!(graph.get_node(id).is_none());
+    }
+}
+
+#[test]
+fn test_does_not_remove_output_used_as_graph_output() {
+    let graph = optimize_graph(quantize_graph(&[0, 2])).unwrap();
+
+    let op = first_output_source(&graph);
+    assert!(op.output_ids()[1].is_none());
+    assert_eq!(op.output_ids()[2], Some(graph.output_ids()[1]));
+}
+
+#[test]
+fn test_does_not_remove_output_used_by_operator() {
+    let x = Expr::value("x");
+    let quant = x.apply(
+        DynamicQuantizeLinear {},
+        &[],
+        &[OutputMeta::NoMeta, OutputMeta::NoMeta, OutputMeta::NoMeta],
+    );
+    let neg_scale = quant.output(1).unary(Neg {});
+    let graph = optimize_graph(Expr::make_graph([x], [quant.output(0), neg_scale])).unwrap();
+
+    let op = first_output_source(&graph);
+    let scale_id = op.output_ids()[1].expect("scale output should be preserved");
+    assert_eq!(
+        graph
+            .get_consuming_op(scale_id)
+            .map(|op| op.operator().name()),
+        Some("Neg")
+    );
+    assert!(op.output_ids()[2].is_none());
+}
+
+#[test]
+fn test_does_not_remove_output_captured_by_subgraph() {
+    let mut graph = Graph::new();
+    let input = graph.add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)));
+    let cond = graph.add_value(Some("cond"), None, Some(ValueType::Tensor(DataType::Int32)));
+    graph.set_input_ids(&[input, cond]);
+
+    let quant_out = graph.add_value(Some("quant_out"), None, None);
+    let scale = graph.add_value(Some("scale"), None, None);
+    let zero_point = graph.add_value(Some("zero_point"), None, None);
+    graph.add_op(
+        Some("quant"),
+        Arc::new(DynamicQuantizeLinear {}),
+        &[Some(input)],
+        &[quant_out, scale, zero_point].map(Some),
+    );
+
+    // Build then/else branches which each capture "scale" and return it.
+    let make_branch = || {
+        let mut sg = Graph::new();
+        let cap = sg.add_value(Some("scale"), None, None);
+        sg.set_captures(&[cap]);
+        sg.set_output_ids(&[cap]);
+        sg
+    };
+
+    let if_out = graph.add_value(Some("if_out"), None, None);
+    graph.add_op(
+        Some("If"),
+        Arc::new(If {
+            then_branch: make_branch(),
+            else_branch: make_branch(),
+        }),
+        &[Some(cond)],
+        &[Some(if_out)],
+    );
+    graph.set_output_ids(&[quant_out, if_out]);
+
+    let graph = optimize_graph(graph).unwrap();
+
+    let op = first_output_source(&graph);
+    assert_eq!(op.output_ids()[1], Some(scale));
+    // Un-captured zero-point output should be removed.
+    assert!(op.output_ids()[2].is_none());
+}
+
+#[test]
+fn test_removing_unused_output_preserves_output_count() {
+    // When the optimizer removes unused operator outputs, it must preserve
+    // the length of the output list as this can affect the behavior of the
+    // `Split` operator.
+    let x = Expr::value("x");
+    let split = x.apply(
+        Split {
+            axis: 0,
+            num_outputs: None,
+        },
+        &[],
+        &[OutputMeta::NoMeta, OutputMeta::NoMeta, OutputMeta::NoMeta],
+    );
+    let graph = optimize_graph(Expr::make_graph([x.clone()], [split.output(0)])).unwrap();
+
+    let op = first_output_source(&graph);
+    assert_eq!(op.output_ids().len(), 3);
+    assert_eq!(op.output_ids()[1..], [None, None]);
 }
 
 #[test]

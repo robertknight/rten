@@ -631,6 +631,28 @@ impl Graph {
         self.nodes.get_mut(&id)
     }
 
+    /// Mark an operator output as unused.
+    ///
+    /// This allows the operator to skip computing the output when the graph is
+    /// run.
+    ///
+    /// Returns the ID of the value node which was previously produced at this
+    /// position, if any. Note this node is not automatically removed from the
+    /// graph.
+    pub fn clear_operator_output(&mut self, op_id: NodeId, index: usize) -> Option<NodeId> {
+        let Some(Node::Operator(op_node)) = self.get_node_mut(op_id) else {
+            panic!("operator node not found");
+        };
+        let output_id = op_node.clear_output(index)?;
+
+        if self.source_ids.get(&output_id) == Some(&op_id) {
+            self.source_ids.remove(&output_id);
+        }
+        self.clear_cached_plan();
+
+        Some(output_id)
+    }
+
     /// Replace an operator input with a different value or constant.
     pub fn replace_input(&mut self, op_id: NodeId, old_input_id: NodeId, new_input_id: NodeId) {
         let Some(Node::Operator(op_node)) = self.get_node_mut(op_id) else {
@@ -1197,7 +1219,13 @@ impl Graph {
 
             // Extract outputs or fail if an error occurred.
             let outputs = op_result?;
-            let expected_num_outputs = op_node.output_ids().len();
+
+            // Get expected output count, ignoring trailing unused outputs.
+            let expected_num_outputs = op_node
+                .output_ids()
+                .iter()
+                .rposition(|id| id.is_some())
+                .map_or(0, |index| index + 1);
             if expected_num_outputs > outputs.len() {
                 return Err(RunErrorImpl::OutputMismatch {
                     name: op_node.name().unwrap_or_default().to_string(),

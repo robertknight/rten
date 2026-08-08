@@ -1381,6 +1381,17 @@ mod tests {
         let input_2d_u8 = graph_builder.add_value("input.2d.u8", None, None);
         let input_2d_i8 = graph_builder.add_value("input.2d.i8", None, None);
 
+        for input in [
+            input_node,
+            input_2d,
+            input_bool,
+            input_u8,
+            input_2d_u8,
+            input_2d_i8,
+        ] {
+            graph_builder.add_input(input);
+        }
+
         // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
         // require a different shape.
         let input_shape = [1, 1, 3, 3];
@@ -1399,6 +1410,7 @@ mod tests {
                 let output_name = format!("{}_out", name);
                 let op_output_node = builder.add_value(&output_name, None, None);
                 builder.add_operator(name, op, input_nodes, &[op_output_node]);
+                builder.add_output(op_output_node);
                 op_outputs.push(output_name);
                 op_output_node
             };
@@ -1531,6 +1543,8 @@ mod tests {
                 &[input_2d].map(Some),
                 &[dropout_out, dropout_out_mask],
             );
+            graph_builder.add_output(dropout_out);
+            graph_builder.add_output(dropout_out_mask);
         }
         add_operator!(Elu, [input_node], { alpha: 1.0 });
         add_operator!(Equal, [input_node, input_node]);
@@ -1707,6 +1721,9 @@ mod tests {
         let range_start_node = graph_builder.add_value("range_start", None, None);
         let range_limit_node = graph_builder.add_value("range_limit", None, None);
         let range_delta_node = graph_builder.add_value("range_delta", None, None);
+        for input in [range_start_node, range_limit_node, range_delta_node] {
+            graph_builder.add_input(input);
+        }
         let range_out = add_operator!(
             Range,
             [range_start_node, range_limit_node, range_delta_node]
@@ -1837,6 +1854,8 @@ mod tests {
             &[input_2d, split_splits].map(Some),
             &[split_out_1, split_out_2],
         );
+        graph_builder.add_output(split_out_1);
+        graph_builder.add_output(split_out_2);
 
         add_operator!(Sub, [input_node, input_node]);
         add_operator!(Sum, [input_node, input_node]);
@@ -1859,6 +1878,8 @@ mod tests {
             &[input_2d, topk_k].map(Some),
             &[topk_out_values, topk_out_indices],
         );
+        graph_builder.add_output(topk_out_values);
+        graph_builder.add_output(topk_out_indices);
 
         add_operator!(Transpose, [input_node], { perm: None });
 
@@ -1870,6 +1891,9 @@ mod tests {
         let where_cond = graph_builder.add_value("where_cond", None, None);
         let where_x = graph_builder.add_value("where_x", None, None);
         let where_y = graph_builder.add_value("where_y", None, None);
+        for input in [where_cond, where_x, where_y] {
+            graph_builder.add_input(input);
+        }
         let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
 
         add_operator!(Xor, [input_bool, input_bool]);
