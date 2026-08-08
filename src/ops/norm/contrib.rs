@@ -29,6 +29,10 @@ fn skip_layer_normalization(
     epsilon: f32,
     mean_normalize: MeanNormalize,
 ) -> Result<OutputList, OpError> {
+    let outputs = ctx.outputs();
+    outputs.check_unsupported(1, "mean")?;
+    outputs.check_unsupported(2, "inv_std_var")?;
+
     if !matches!(input.ndim(), 2 | 3) {
         return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
     }
@@ -66,8 +70,8 @@ fn skip_layer_normalization(
 
     let mut outputs: OutputList = [output.into()].into();
     if ctx.outputs().is_used(3) {
-        // `mean` and `inv_std_var` are used for training. Here we push
-        // dummy values.
+        // Placeholders to align `input_skip_bias_sum` with output index 3.
+        // The checks above guarantee these positions are unused.
         outputs.push(Tensor::from(0.).into()); // mean
         outputs.push(Tensor::from(0.).into()); // inv_std_var
         outputs.push(x_plus_skip.take().into());
@@ -97,7 +101,15 @@ impl Operator for SimplifiedLayerNormalization {
         Some(2)
     }
 
+    fn max_outputs(&self) -> Option<usize> {
+        // Outputs are Y and inv_std_var. The latter is for training mode,
+        // which is unsupported.
+        Some(2)
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        ctx.outputs().check_unsupported(1, "inv_std_var")?;
+
         let inputs = ctx.inputs();
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;

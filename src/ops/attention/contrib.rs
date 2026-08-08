@@ -59,6 +59,8 @@ impl MultiHeadAttention {
         past_key: Option<PastCache>,
         past_value: Option<PastCache>,
     ) -> Result<OutputList, OpError> {
+        ctx.outputs().check_unsupported(3, "qk")?;
+
         // (batch, seq, hidden) or (batch, kv_seq, num_heads, 3, head_size)
         let query: TensorView<f32> = ctx.inputs().require_as(0)?;
         let query = MhaQuery::new(query)?;
@@ -309,9 +311,9 @@ impl Operator for MultiHeadAttention {
     }
 
     fn max_outputs(&self) -> Option<usize> {
-        // Spec defines 4 outputs: output, present_key, present_value, qk.
-        // The `qk` output is not yet implemented.
-        Some(3)
+        // Outputs are output, present_key, present_value, qk. The `qk` output
+        // is not yet implemented.
+        Some(4)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -441,6 +443,8 @@ impl GroupQueryAttention {
         past_key: Option<PastCache>,
         past_value: Option<PastCache>,
     ) -> Result<OutputList, OpError> {
+        ctx.outputs().check_unsupported(3, "output_qk")?;
+
         let inputs = ctx.inputs();
 
         // (batch, seq, q_hidden)
@@ -821,9 +825,9 @@ impl Operator for GroupQueryAttention {
     }
 
     fn max_outputs(&self) -> Option<usize> {
-        // Spec defines 4 outputs: output, present_key, present_value, output_qk.
-        // The `output_qk` output is not implemented.
-        Some(3)
+        // Outputs are output, present_key, present_value, output_qk. The
+        // `output_qk` output is not implemented.
+        Some(4)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {

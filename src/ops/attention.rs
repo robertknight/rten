@@ -675,11 +675,7 @@ impl Attention {
         // key/value inputs are right-padded.
         let nonpad_kv_seqlen: Option<NdTensorView<i32, 1>> = inputs.get_as(6)?;
 
-        if ctx.outputs().is_used(3) {
-            return Err(OpError::UnsupportedValue(
-                "qk_matmul_output output is not supported",
-            ));
-        }
+        ctx.outputs().check_unsupported(3, "qk_matmul_output")?;
 
         let input_3d = match query.ndim() {
             3 => true,
