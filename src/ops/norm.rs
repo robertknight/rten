@@ -245,6 +245,17 @@ pub struct BatchNormalization {
     pub epsilon: f32,
 }
 
+impl BatchNormalization {
+    fn check_outputs(&self, ctx: &OpRunContext) -> Result<(), OpError> {
+        let outputs = ctx.outputs();
+        outputs.check_unsupported(1, "running_mean")?;
+        outputs.check_unsupported(2, "running_var")?;
+        outputs.check_unsupported(3, "saved_mean")?;
+        outputs.check_unsupported(4, "saved_var")?;
+        Ok(())
+    }
+}
+
 impl Operator for BatchNormalization {
     fn name(&self) -> &str {
         "BatchNormalization"
@@ -255,9 +266,10 @@ impl Operator for BatchNormalization {
     }
 
     fn max_outputs(&self) -> Option<usize> {
-        // ONNX allows additional outputs in training mode (`running_mean`,
-        // `running_var`), but we only support inference.
-        Some(1)
+        // Outputs are Y, running_mean, running_var, saved_mean, saved_var.
+        // The last 4 are for training mode, which is unsupported. `saved_mean`
+        // and `saved_var` were removed in opset 14.
+        Some(5)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -267,6 +279,8 @@ impl Operator for BatchNormalization {
         let bias = inputs.require_as(2)?;
         let mean = inputs.require_as(3)?;
         let var = inputs.require_as(4)?;
+
+        self.check_outputs(ctx)?;
 
         batch_norm(ctx.pool(), input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
@@ -286,6 +300,8 @@ impl Operator for BatchNormalization {
         let bias = inputs.require_as(2)?;
         let mean = inputs.require_as(3)?;
         let var = inputs.require_as(4)?;
+
+        self.check_outputs(ctx)?;
 
         batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
 
