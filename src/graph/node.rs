@@ -213,6 +213,16 @@ impl OperatorNode {
         self.operator.clone()
     }
 
+    /// Mark the output at `index` as unused and return its previous ID.
+    ///
+    /// The entry is set to `None` rather than removed, as the number of outputs
+    /// affects the behavior of some operators (eg. `Split`).
+    pub(super) fn clear_output(&mut self, index: usize) -> Option<NodeId> {
+        let output_id = self.outputs.get_mut(index)?.take()?;
+        self.output_mask.set_unused(index);
+        Some(output_id)
+    }
+
     /// Replace an input in the operator's list of inputs.
     ///
     /// Consumers outside the graph module should use graph-level methods instead

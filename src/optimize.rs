@@ -328,6 +328,16 @@ impl GraphMutator {
         &self.output_ids
     }
 
+    /// Mark operator outputs as unused and remove their value nodes from the
+    /// graph.
+    fn clear_operator_outputs(&mut self, outputs: &[(NodeId, usize)]) {
+        let removed_values: Vec<NodeId> = outputs
+            .iter()
+            .filter_map(|(op_id, index)| self.graph.clear_operator_output(*op_id, *index))
+            .collect();
+        self.graph.remove_nodes(&removed_values);
+    }
+
     fn set_captures(&mut self, captures: &[NodeId]) {
         self.graph.set_captures(captures)
     }
@@ -518,6 +528,13 @@ impl GraphOptimizer {
             diag.set_level(level);
         }
 
+        // Remove unused operator outputs.
+        //
+        // This is done first so that later passes, in particular constant
+        // propagation, don't evaluate operators which would fail because an
+        // unsupported output was requested.
+        self.remove_unused_outputs(&mut graph_mut);
+
         // Perform shape inference to update type and shape metadata for nodes.
         //
         // This can unlock fusions which have restrictions on the shapes and
@@ -659,6 +676,39 @@ impl GraphOptimizer {
         }
 
         Ok(graph_mut.finalize_graph())
+    }
+
+    /// Mark operator outputs whose values are not used anywhere in the graph
+    /// as unused, and remove the corresponding value nodes.
+    fn remove_unused_outputs(&self, graph: &mut GraphMutator) {
+        let captured_values = graph.graph().subgraph_capture_value_ids();
+
+        // Check if a value is used - either as a graph output, captured by a
+        // subgraph or as an input to another operator.
+        let is_used = |value_id: NodeId| {
+            graph.output_ids().contains(&value_id)
+                || captured_values.contains(&value_id)
+                || graph
+                    .graph()
+                    .get_consumers(value_id)
+                    .is_some_and(|consumers| !consumers.is_empty())
+        };
+
+        // Unused operator outputs as `(operator_id, output_index)` pairs.
+        let unused: Vec<(NodeId, usize)> = graph
+            .graph()
+            .iter()
+            .filter_map(|(op_id, node)| node.as_operator().map(|op| (op_id, op)))
+            .flat_map(|(op_id, op)| {
+                op.output_ids()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_index, output_id)| output_id.is_some_and(|id| !is_used(id)))
+                    .map(move |(index, _output_id)| (op_id, index))
+            })
+            .collect();
+
+        graph.clear_operator_outputs(&unused);
     }
 
     /// Replace captured values in a graph with constants if the captured value

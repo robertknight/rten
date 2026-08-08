@@ -312,6 +312,16 @@ impl OutputMask {
         }
     }
 
+    /// Mark the output at position `idx` as unused.
+    ///
+    /// This has no effect for outputs beyond the first 32, which are always
+    /// treated as used.
+    pub fn set_unused(&mut self, idx: usize) {
+        if idx < u32::BITS as usize {
+            self.mask.delete(idx as u32);
+        }
+    }
+
     /// Return [`OpError::UnsupportedOutput`] if the unsupported output at the
     /// given index is requested.
     pub fn check_unsupported(&self, idx: usize, name: &'static str) -> Result<(), OpError> {
