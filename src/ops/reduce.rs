@@ -1921,13 +1921,17 @@ mod tests {
         let result = reduce_mean(&pool, input.view(), Some(&[3]), false /* keep_dims */);
         assert_eq!(
             result.err(),
-            Some(OpError::invalid_value("Axis is invalid"))
+            Some(OpError::invalid_value(
+                "Axis 3 is out of range. Must be in [-2, 2)"
+            ))
         );
 
         let result = reduce_mean(&pool, input.view(), Some(&[-3]), false /* keep_dims */);
         assert_eq!(
             result.err(),
-            Some(OpError::invalid_value("Axis is invalid"))
+            Some(OpError::invalid_value(
+                "Axis -3 is out of range. Must be in [-2, 2)"
+            ))
         );
     }
 
@@ -2334,7 +2338,9 @@ mod tests {
             Case {
                 input: Tensor::from(0.),
                 k: 2,
-                expected: Err(OpError::invalid_value("Axis is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Axis -1 is out of range. Must be in [0, 0)",
+                )),
                 ..Default::default()
             },
             // 2D input, take top-K over axis 1

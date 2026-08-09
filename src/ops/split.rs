@@ -280,7 +280,7 @@ mod tests {
             Case {
                 axis: 2,
                 splits: [1, 1].as_slice().into(),
-                expected: OpError::invalid_value("Axis is invalid"),
+                expected: OpError::invalid_value("Axis 2 is out of range. Must be in [-2, 2)"),
             },
             Case {
                 axis: 1,

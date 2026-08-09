@@ -426,7 +426,9 @@ mod tests {
         let result = concat(&pool, &[input.view(), input.view()], 1);
         assert_eq!(
             result.err(),
-            Some(OpError::invalid_value("Axis is invalid"))
+            Some(OpError::invalid_value(
+                "Axis 1 is out of range. Must be in [-1, 1)"
+            ))
         );
 
         // Shape mismatch

@@ -468,7 +468,9 @@ mod tests {
                 depth: 2,
                 on_value: 1.,
                 off_value: 0.,
-                expected: Err(OpError::invalid_value("Axis is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Axis 2 is out of range. Must be in [-2, 2)",
+                )),
             },
         ];
 

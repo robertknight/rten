@@ -1,11 +1,9 @@
 use rayon::prelude::*;
-use std::borrow::Cow;
 use std::mem::MaybeUninit;
 
 use rten_shape_inference::UnaryOp;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::slice_range::to_slice_items;
 use rten_tensor::{InitEmpty, NdTensorView, SliceItem, Tensor, TensorBase, TensorView};
 use smallvec::SmallVec;
 
@@ -15,11 +13,8 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::{map_value_view, resolve_axis, resolve_index};
+use crate::ops::{invalid_index_err, map_value_view, resolve_axis, try_resolve_index};
 use crate::value::{Value, ValueView};
-
-const INVALID_INDEX_ERR: OpError =
-    OpError::InvalidValue(Cow::Borrowed("Entry in `indices` is out of range"));
 
 /// Trait for random-access to 1D slices.
 trait GetItem {
@@ -79,14 +74,13 @@ pub fn gather<T: Copy + Default>(
         let output = if input.ndim() == 1 {
             // Fast path for indexing a vector with a scalar. This is common
             // in subgraphs that process tensor shapes.
-            let index = resolve_index(input.len(), *index as isize).ok_or(INVALID_INDEX_ERR)?;
+            let index = try_resolve_index(input.len(), *index)?;
             Tensor::full_in(pool, &[], input[[index]])
         } else {
+            let index = try_resolve_index(input.size(axis), *index)?;
             let mut slice_range = full_range(input.ndim());
-            slice_range[axis] = SliceItem::Index(*index as isize);
-            let slice = input
-                .try_slice(slice_range.as_slice())
-                .map_err(|_| INVALID_INDEX_ERR)?;
+            slice_range[axis] = SliceItem::Index(index as isize);
+            let slice = input.slice(slice_range.as_slice());
             slice.to_tensor_in(pool)
         };
         return Ok(output);
@@ -106,8 +100,10 @@ pub fn gather<T: Copy + Default>(
 
     // Early exit if chunks to copy are empty.
     if chunk_len == 0 {
-        if axis_size == 0 && !indices.is_empty() {
-            return Err(INVALID_INDEX_ERR);
+        if axis_size == 0
+            && let Some(index) = indices.iter().next()
+        {
+            return Err(invalid_index_err(*index, axis_size));
         }
         return Ok(Tensor::from_data(&out_shape, out_data));
     }
@@ -117,9 +113,7 @@ pub fn gather<T: Copy + Default>(
     if let Some(in_data) = input.data() {
         for in_outer in in_data.chunks(chunk_len) {
             for index in indices.iter() {
-                let Some(index) = resolve_index(axis_size, *index as isize) else {
-                    return Err(INVALID_INDEX_ERR);
-                };
+                let index = try_resolve_index(axis_size, *index)?;
                 out_data.extend_from_slice(&in_outer[index * in_slice_len..][..in_slice_len]);
             }
         }
@@ -135,9 +129,7 @@ pub fn gather<T: Copy + Default>(
         let entry_len = entry_layout.min_data_len();
 
         for index in indices.iter() {
-            let Some(index) = resolve_index(input_chunk.size(0), *index as isize) else {
-                return Err(INVALID_INDEX_ERR);
-            };
+            let index = try_resolve_index(input_chunk.size(0), *index)?;
 
             // Conceptually `entry = input_chunk.slice(index)` but we re-use
             // the pre-prepared view layout.
@@ -236,14 +228,11 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
         indices: impl Iterator<Item = &'a i32>,
         output: impl Iterator<Item = &'a mut MaybeUninit<T>>,
     ) -> Result<(), OpError> {
-        let axis_size = data.len() as i32;
+        let axis_size = data.len();
         for (&idx, out) in indices.zip(output) {
-            let idx = if idx < 0 { idx + axis_size } else { idx };
-            if let Some(el) = data.get(idx as usize) {
-                out.write(*el);
-            } else {
-                return Err(OpError::invalid_value("Entry in `indices` is out of range"));
-            }
+            let idx = try_resolve_index(axis_size, idx)?;
+            // `try_resolve_index` checked that `idx` is in bounds.
+            out.write(*data.get(idx).unwrap());
         }
         Ok(())
     }
@@ -393,9 +382,7 @@ pub fn gather_nd<T: Clone + Default>(
                     .iter()
                     .zip(input.shape().iter().zip(input.strides()))
                     .map(|(idx, (size, stride))| {
-                        resolve_index(*size, *idx as isize)
-                            .map(|idx| idx * stride)
-                            .ok_or(OpError::invalid_value("Invalid index"))
+                        try_resolve_index(*size, *idx).map(|idx| idx * stride)
                     })
                     .sum::<Result<usize, OpError>>()?;
 
@@ -407,10 +394,14 @@ pub fn gather_nd<T: Clone + Default>(
             }
         } else {
             for (out_slice, idx) in out_slices.zip(idx_slices) {
-                let slice_items = to_slice_items(idx);
-                let in_slice = input
-                    .try_slice(slice_items.as_slice())
-                    .map_err(|_| OpError::invalid_value("Invalid index"))?;
+                let slice_items: SmallVec<[SliceItem; 4]> = idx
+                    .iter()
+                    .zip(input.shape())
+                    .map(|(&index, &size)| {
+                        try_resolve_index(size, index).map(|index| SliceItem::Index(index as isize))
+                    })
+                    .collect::<Result<_, OpError>>()?;
+                let in_slice = input.slice(slice_items.as_slice());
 
                 for (out, x) in out_slice.iter_mut().zip(in_slice.iter()) {
                     out.write(x.clone());
@@ -612,7 +603,7 @@ mod tests {
 
     use crate::buffer_pool::BufferPool;
     use crate::operator::{OpError, OperatorExt};
-    use crate::ops::{ReverseSequence, gather, gather_elements, gather_nd};
+    use crate::ops::{ReverseSequence, gather, gather_elements, gather_nd, invalid_index_err};
 
     #[test]
     fn test_gather_scalar_index() {
@@ -709,7 +700,9 @@ mod tests {
         let result = gather(&pool, input.view(), 5, indices.view());
         assert_eq!(
             result.err(),
-            Some(OpError::invalid_value("Axis is invalid"))
+            Some(OpError::invalid_value(
+                "Axis 5 is out of range. Must be in [-2, 2)"
+            ))
         );
     }
 
@@ -719,6 +712,7 @@ mod tests {
         struct Case {
             input: Tensor<i32>,
             indices: Tensor<i32>,
+            expected: OpError,
         }
 
         let cases = [
@@ -726,31 +720,40 @@ mod tests {
             Case {
                 input: Tensor::zeros(&[128, 10]),
                 indices: Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]),
+                expected: invalid_index_err(130, 128),
             },
             // Non-scalar indices into an empty (size zero) axis
             Case {
                 input: Tensor::zeros(&[0]),
                 indices: Tensor::from([0]),
+                expected: invalid_index_err(0, 0),
             },
             // Scalar indices, with 1D and ND inputs
             Case {
                 input: [1, 2, 3].into(),
                 indices: Tensor::from(4),
+                expected: invalid_index_err(4, 3),
             },
             Case {
                 input: [[1, 2, 3]].into(),
                 indices: Tensor::from(2),
+                expected: invalid_index_err(2, 1),
             },
         ];
 
         cases.test_each(|case| {
             let pool = BufferPool::new();
             let result = gather(&pool, case.input.view(), 0, case.indices.view());
-            assert_eq!(
-                result.err(),
-                Some(OpError::invalid_value("Entry in `indices` is out of range"))
-            );
+            assert_eq!(result.err().as_ref(), Some(&case.expected));
         })
+    }
+
+    #[test]
+    fn test_invalid_index_err() {
+        assert_eq!(
+            invalid_index_err(4, 3).to_string(),
+            "input or attribute has invalid value: Index 4 is out of range. Must be in [-3, 3)"
+        );
     }
 
     #[test]
@@ -847,13 +850,13 @@ mod tests {
                 input: [[1, 2], [3, 4]].into(),
                 indices: [[0, 0], [1, 0]].into(),
                 axis: 2,
-                expected: OpError::invalid_value("Axis is invalid"),
+                expected: OpError::invalid_value("Axis 2 is out of range. Must be in [-2, 2)"),
             },
             Case {
                 input: [[1, 2], [3, 4]].into(),
                 indices: [[0, 0], [1, 3]].into(),
                 axis: 1,
-                expected: OpError::invalid_value("Entry in `indices` is out of range"),
+                expected: invalid_index_err(3, 2),
             },
             Case {
                 input: [[1, 2], [3, 4]].into(),
@@ -942,14 +945,14 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: false,
                 indices: [[0, 0], [1, 2]].into(),
-                expected: Err(OpError::invalid_value("Invalid index")),
+                expected: Err(invalid_index_err(2, 2)),
             },
             Case {
                 batch_dims: 0,
                 data: [[0, 1], [2, 3]].into(),
                 transpose: false,
                 indices: [[-3, 0]].into(),
-                expected: Err(OpError::invalid_value("Invalid index")),
+                expected: Err(invalid_index_err(-3, 2)),
             },
             // Input with a zero-size dimension in the gathered slice.
             Case {
@@ -988,7 +991,7 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: true,
                 indices: [[0, 1], [1, 2]].into(),
-                expected: Err(OpError::invalid_value("Invalid index")),
+                expected: Err(invalid_index_err(2, 2)),
             },
             // Negative indexes with a transposed (non-contiguous) input.
             Case {
@@ -1003,7 +1006,7 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: true,
                 indices: [[-3, 0]].into(),
-                expected: Err(OpError::invalid_value("Invalid index")),
+                expected: Err(invalid_index_err(-3, 2)),
             },
         ];
 
