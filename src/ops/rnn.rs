@@ -152,7 +152,7 @@ pub fn gru(
     // See note in https://pytorch.org/docs/stable/generated/torch.nn.GRU.html.
     if !linear_before_reset {
         // PyTorch and cuDNN
-        return Err(OpError::UnsupportedValue(
+        return Err(OpError::unsupported_value(
             "`linear_before_reset=0` is not supported",
         ));
     }
@@ -433,7 +433,7 @@ pub fn lstm(
     let hidden_size = hidden_x4 / 4;
 
     if weights.size(1) % 4 != 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
@@ -442,7 +442,7 @@ pub fn lstm(
     if let Some(bias) = bias.as_ref()
         && bias.size(1) % 8 != 0
     {
-        return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
+        return Err(OpError::invalid_value("bias dim 1 must be 8 * hidden_size"));
     }
 
     let initial_hidden = initial_hidden

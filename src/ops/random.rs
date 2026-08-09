@@ -239,7 +239,7 @@ impl Operator for Multinomial {
         let [batch_size, class_size] = input.shape();
 
         if class_size == 0 {
-            return Err(OpError::InvalidValue("input must have at least one class"));
+            return Err(OpError::invalid_value("input must have at least one class"));
         }
 
         let mut rng = rng_from_seed(self.seed);
@@ -331,7 +331,7 @@ impl Operator for Dropout {
         let ratio = inputs.get_as(1)?.unwrap_or(0.5);
         #[allow(clippy::manual_range_contains)]
         if ratio < 0. || ratio >= 1.0 {
-            return Err(OpError::InvalidValue("ratio must be in the range [0, 1)"));
+            return Err(OpError::invalid_value("ratio must be in the range [0, 1)"));
         }
 
         let training_mode = inputs.get_as::<i32>(2)?.unwrap_or(0) != 0;
@@ -726,7 +726,7 @@ mod tests {
         let result: Result<Tensor<i32>, _> = op.run_simple(input.view());
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("input must have at least one class"))
+            Some(OpError::invalid_value("input must have at least one class"))
         );
     }
 

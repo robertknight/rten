@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use std::borrow::Cow;
 use std::mem::MaybeUninit;
 
 use rten_shape_inference::UnaryOp;
@@ -17,7 +18,8 @@ use crate::operator::{
 use crate::ops::{map_value_view, resolve_axis, resolve_index};
 use crate::value::{Value, ValueView};
 
-const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
+const INVALID_INDEX_ERR: OpError =
+    OpError::InvalidValue(Cow::Borrowed("Entry in `indices` is out of range"));
 
 /// Trait for random-access to 1D slices.
 trait GetItem {
@@ -200,7 +202,7 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     if input.ndim() != indices.ndim() {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Input and indices must have same rank",
         ));
     }
@@ -210,7 +212,7 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
     // corresponding input dimension, but not larger.
     for d in 0..input.ndim() {
         if d != axis && indices.size(d) > input.size(d) {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "`indices` size must be <= input size in non-axis dimensions",
             ));
         }
@@ -240,7 +242,7 @@ pub fn gather_elements<T: Copy + Default + Send + Sync + std::fmt::Debug>(
             if let Some(el) = data.get(idx as usize) {
                 out.write(*el);
             } else {
-                return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+                return Err(OpError::invalid_value("Entry in `indices` is out of range"));
             }
         }
         Ok(())
@@ -325,25 +327,25 @@ pub fn gather_nd<T: Clone + Default>(
     batch_dims: usize,
 ) -> Result<Tensor<T>, OpError> {
     if input.ndim() < 1 || indices.ndim() < 1 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Input and indices must have >= 1 dims",
         ));
     }
     if batch_dims >= input.ndim().min(indices.ndim()) {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`input` and `indices` ndim must be > `batch_dims`",
         ));
     }
 
     if input.shape()[..batch_dims] != indices.shape()[..batch_dims] {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`input` and `indices` batch dims have different sizes",
         ));
     }
 
     let idx_tuple_size = indices.size(indices.ndim() - 1);
     if idx_tuple_size < 1 || idx_tuple_size > input.ndim() - batch_dims {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Size of last dim of `indices` is incorrect",
         ));
     }
@@ -393,7 +395,7 @@ pub fn gather_nd<T: Clone + Default>(
                     .map(|(idx, (size, stride))| {
                         resolve_index(*size, *idx as isize)
                             .map(|idx| idx * stride)
-                            .ok_or(OpError::InvalidValue("Invalid index"))
+                            .ok_or(OpError::invalid_value("Invalid index"))
                     })
                     .sum::<Result<usize, OpError>>()?;
 
@@ -408,7 +410,7 @@ pub fn gather_nd<T: Clone + Default>(
                 let slice_items = to_slice_items(idx);
                 let in_slice = input
                     .try_slice(slice_items.as_slice())
-                    .map_err(|_| OpError::InvalidValue("Invalid index"))?;
+                    .map_err(|_| OpError::invalid_value("Invalid index"))?;
 
                 for (out, x) in out_slice.iter_mut().zip(in_slice.iter()) {
                     out.write(x.clone());
@@ -485,7 +487,7 @@ fn reverse_sequence<T: Copy>(
     layout: SequenceLayout,
 ) -> Result<Tensor<T>, OpError> {
     if input.ndim() < 2 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "ReverseSequence input must have at least 2 dims",
         ));
     }
@@ -496,13 +498,13 @@ fn reverse_sequence<T: Copy>(
     };
 
     if seq_lens.size(0) != batch_size {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "sequence_lens length must match the batch dimension size",
         ));
     }
     for &len in seq_lens.iter() {
         if len < 0 || len as usize > time_size {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "sequence_lens values must be in the range [0, time_size]",
             ));
         }
@@ -575,7 +577,7 @@ impl Operator for ReverseSequence {
             (0, 1) => SequenceLayout::BatchFirst,
             (1, 0) => SequenceLayout::TimeFirst,
             _ => {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "batch_axis and time_axis must be 0 and 1 in some order",
                 ));
             }
@@ -705,7 +707,10 @@ mod tests {
         let input = Tensor::<f32>::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(&pool, input.view(), 5, indices.view());
-        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+        assert_eq!(
+            result.err(),
+            Some(OpError::invalid_value("Axis is invalid"))
+        );
     }
 
     #[test]
@@ -743,7 +748,7 @@ mod tests {
             let result = gather(&pool, case.input.view(), 0, case.indices.view());
             assert_eq!(
                 result.err(),
-                Some(OpError::InvalidValue("Entry in `indices` is out of range"))
+                Some(OpError::invalid_value("Entry in `indices` is out of range"))
             );
         })
     }
@@ -842,25 +847,27 @@ mod tests {
                 input: [[1, 2], [3, 4]].into(),
                 indices: [[0, 0], [1, 0]].into(),
                 axis: 2,
-                expected: OpError::InvalidValue("Axis is invalid"),
+                expected: OpError::invalid_value("Axis is invalid"),
             },
             Case {
                 input: [[1, 2], [3, 4]].into(),
                 indices: [[0, 0], [1, 3]].into(),
                 axis: 1,
-                expected: OpError::InvalidValue("Entry in `indices` is out of range"),
+                expected: OpError::invalid_value("Entry in `indices` is out of range"),
             },
             Case {
                 input: [[1, 2], [3, 4]].into(),
                 indices: [1, 2, 3].into(),
                 axis: 1,
-                expected: OpError::IncompatibleInputShapes("Input and indices must have same rank"),
+                expected: OpError::incompatible_input_shapes(
+                    "Input and indices must have same rank",
+                ),
             },
             Case {
                 input: [[1, 2], [3, 4]].into(),
                 indices: [[1, 2, 3], [4, 5, 6]].into(),
                 axis: 0,
-                expected: OpError::IncompatibleInputShapes(
+                expected: OpError::incompatible_input_shapes(
                     "`indices` size must be <= input size in non-axis dimensions",
                 ),
             },
@@ -935,14 +942,14 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: false,
                 indices: [[0, 0], [1, 2]].into(),
-                expected: Err(OpError::InvalidValue("Invalid index")),
+                expected: Err(OpError::invalid_value("Invalid index")),
             },
             Case {
                 batch_dims: 0,
                 data: [[0, 1], [2, 3]].into(),
                 transpose: false,
                 indices: [[-3, 0]].into(),
-                expected: Err(OpError::InvalidValue("Invalid index")),
+                expected: Err(OpError::invalid_value("Invalid index")),
             },
             // Input with a zero-size dimension in the gathered slice.
             Case {
@@ -981,7 +988,7 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: true,
                 indices: [[0, 1], [1, 2]].into(),
-                expected: Err(OpError::InvalidValue("Invalid index")),
+                expected: Err(OpError::invalid_value("Invalid index")),
             },
             // Negative indexes with a transposed (non-contiguous) input.
             Case {
@@ -996,7 +1003,7 @@ mod tests {
                 data: [[0, 1], [2, 3]].into(),
                 transpose: true,
                 indices: [[-3, 0]].into(),
-                expected: Err(OpError::InvalidValue("Invalid index")),
+                expected: Err(OpError::invalid_value("Invalid index")),
             },
         ];
 
@@ -1077,7 +1084,7 @@ mod tests {
                 seq_lens: Tensor::from([1, 2]),
                 batch_axis: 1,
                 time_axis: 0,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "sequence_lens length must match the batch dimension size",
                 )),
             },
@@ -1087,7 +1094,7 @@ mod tests {
                 seq_lens: Tensor::from([1, 2, 3, 5]),
                 batch_axis: 1,
                 time_axis: 0,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "sequence_lens values must be in the range [0, time_size]",
                 )),
             },
@@ -1097,7 +1104,7 @@ mod tests {
                 seq_lens: Tensor::from([4, 4, 4, 4]),
                 batch_axis: 0,
                 time_axis: 2,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "batch_axis and time_axis must be 0 and 1 in some order",
                 )),
             },

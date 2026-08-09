@@ -44,7 +44,7 @@ impl Operator for RotaryEmbeddingMicrosoft {
             [batch, seq_len, _] => (batch, seq_len),
             [batch, _, seq_len, _] => (batch, seq_len),
             _ => {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "Input processed needs 3-4 dimensions",
                 ));
             }
@@ -66,7 +66,7 @@ impl Operator for RotaryEmbeddingMicrosoft {
             }
             (2, _) => position_ids.nd_view(),
             _ => {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "position_ids must be a scalar, a 1-element vector or have 2 dims",
                 ));
             }
@@ -84,7 +84,7 @@ impl Operator for RotaryEmbeddingMicrosoft {
                 // be provided explicitly.
                 Some(0) | None => {
                     if self.rotary_embedding_dim != 0 {
-                        return Err(OpError::InvalidValue(
+                        return Err(OpError::invalid_value(
                             "num_heads must be specified when rotary_embedding_dim is set",
                         ));
                     }
@@ -92,15 +92,15 @@ impl Operator for RotaryEmbeddingMicrosoft {
                         .shape()
                         .last()
                         .copied()
-                        .ok_or(OpError::InvalidValue("cos cache must not be scalar"))?;
+                        .ok_or(OpError::invalid_value("cos cache must not be scalar"))?;
                     if head_size_half == 0 {
-                        return Err(OpError::InvalidValue(
+                        return Err(OpError::invalid_value(
                             "Last dimension of cos cache must not be 0",
                         ));
                     }
                     let head_size = head_size_half * 2;
                     if hidden_size % head_size != 0 {
-                        return Err(OpError::InvalidValue(
+                        return Err(OpError::invalid_value(
                             "hidden_size must be divisible by head size",
                         ));
                     }
@@ -192,7 +192,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(OpError::InvalidValue(
+            Err(OpError::invalid_value(
                 "num_heads must be specified when rotary_embedding_dim is set"
             ))
         );
@@ -220,7 +220,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(OpError::InvalidValue(
+            Err(OpError::invalid_value(
                 "Last dimension of cos cache must not be 0"
             ))
         );
@@ -341,7 +341,7 @@ mod tests {
         ));
         assert_eq!(
             result,
-            Err(OpError::InvalidValue(
+            Err(OpError::invalid_value(
                 "position_ids must be a scalar, a 1-element vector or have 2 dims"
             ))
         );

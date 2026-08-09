@@ -24,7 +24,7 @@ fn reduce_elementwise<T: Copy, R: Fn(T, T) -> T + Copy>(
     reduce: R,
 ) -> Result<Tensor<T>, OpError> {
     match inputs {
-        [] => Err(OpError::InvalidValue("Expected at least one input")),
+        [] => Err(OpError::invalid_value("Expected at least one input")),
         [a] => Ok(a.to_tensor_in(pool)),
         [a, b] => binary_op(pool, a.view(), b.view(), &reduce),
         [a, b, c @ ..] => {
@@ -241,7 +241,7 @@ mod tests {
             // Zero inputs
             Case {
                 inputs: vec![],
-                expected: Err(OpError::InvalidValue("Expected at least one input")),
+                expected: Err(OpError::invalid_value("Expected at least one input")),
             },
             // One input
             Case {
@@ -280,7 +280,9 @@ mod tests {
             // Two inputs, incompatible broadcast
             Case {
                 inputs: vec![[4., 5., 6.].into(), [[1., 2.], [3., 4.]].into()],
-                expected: Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs")),
+                expected: Err(OpError::incompatible_input_shapes(
+                    "Cannot broadcast inputs",
+                )),
             },
             // Three inputs, incompatible broadcast
             Case {
@@ -289,7 +291,9 @@ mod tests {
                     Tensor::from(3.),
                     [[1., 2.], [3., 4.]].into(),
                 ],
-                expected: Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs")),
+                expected: Err(OpError::incompatible_input_shapes(
+                    "Cannot broadcast inputs",
+                )),
             },
         ];
 

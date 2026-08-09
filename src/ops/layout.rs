@@ -32,7 +32,7 @@ pub fn depth_to_space<T: Clone>(
     mode: DepthToSpaceMode,
 ) -> Result<Tensor<T>, OpError> {
     if block_size == 0 {
-        return Err(OpError::InvalidValue("`block_size` must be > 0"));
+        return Err(OpError::invalid_value("`block_size` must be > 0"));
     }
 
     let input = static_dims!(input, 4, "NCHW")?;
@@ -40,7 +40,7 @@ pub fn depth_to_space<T: Clone>(
     let block_size = block_size.as_usize();
 
     if c % (block_size * block_size) != 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "input channels must be a multiple of `block_size` squared",
         ));
     }
@@ -111,8 +111,8 @@ fn expand_output_shape(
         .iter()
         .map(|el| usize::try_from(*el))
         .collect::<Result<_, _>>()
-        .map_err(|_| OpError::InvalidValue("Target shape contains negative values"))?;
-    broadcast_shapes(input_shape, &shape_vec).ok_or(OpError::IncompatibleInputShapes(
+        .map_err(|_| OpError::invalid_value("Target shape contains negative values"))?;
+    broadcast_shapes(input_shape, &shape_vec).ok_or(OpError::incompatible_input_shapes(
         "Cannot broadcast input with target shape",
     ))
 }
@@ -332,10 +332,10 @@ fn resolve_shape(
     let mut specified_dims_size = 1;
     for (dim, &size) in shape.iter().enumerate() {
         if size < -1 {
-            return Err(OpError::InvalidValue("Invalid dimension size in shape"));
+            return Err(OpError::invalid_value("Invalid dimension size in shape"));
         } else if size == 0 && !allow_zero {
             if dim >= input_shape.len() {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "Zero dim has no corresponding input dim",
                 ));
             }
@@ -343,7 +343,7 @@ fn resolve_shape(
         } else if size != -1 {
             specified_dims_size *= size as usize;
         } else if unspecified_dim.is_some() {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "Multiple dimensions in new shape set to -1",
             ));
         } else {
@@ -353,7 +353,7 @@ fn resolve_shape(
 
     let input_len: usize = input_shape.iter().product();
     let length_mismatch = || {
-        Err(OpError::InvalidValue(
+        Err(OpError::invalid_value(
             "Input length does not match target shape",
         ))
     };
@@ -363,7 +363,7 @@ fn resolve_shape(
             // The ONNX spec makes a target shape containing both a zero and a
             // `-1` invalid, as the size of the `-1` dim cannot be determined
             // uniquely when the other dims multiply to zero.
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "Cannot infer size of -1 dim when other dims are zero",
             ));
         } else if !input_len.is_multiple_of(specified_dims_size) {
@@ -565,7 +565,7 @@ pub fn squeeze_in_place<T: Clone>(
         let axes = resolve_axes(input.ndim(), axes.iter())?;
         for axis in axes.iter() {
             if input.size(*axis) != 1 {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "Can only remove dimensions of size 1",
                 ));
             }
@@ -653,7 +653,7 @@ pub fn transpose<T: Copy>(
     match permutation {
         Some(order) => {
             if !is_valid_permutation(input.ndim(), order) {
-                return Err(OpError::InvalidValue("Permutation is invalid"));
+                return Err(OpError::invalid_value("Permutation is invalid"));
             }
             transposed.permute(order)
         }
@@ -723,7 +723,7 @@ pub fn unsqueeze_in_place<T: Clone>(
         .zip(resolved_axes.iter().skip(1))
         .any(|(prev, curr)| prev == curr)
     {
-        return Err(OpError::InvalidValue("Axes must be unique"));
+        return Err(OpError::invalid_value("Axes must be unique"));
     }
 
     for axis in resolved_axes {
@@ -857,7 +857,7 @@ mod tests {
                 input: NdTensor::full([1, 16, 2, 2], 1.0),
                 block_size: 3,
                 mode: DepthToSpaceMode::ColumnRowDepth,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "input channels must be a multiple of `block_size` squared",
                 )),
             },
@@ -866,7 +866,7 @@ mod tests {
                 input: NdTensor::full([1, 16, 2, 2], 1.0),
                 block_size: 0,
                 mode: DepthToSpaceMode::ColumnRowDepth,
-                expected: Err(OpError::InvalidValue("`block_size` must be > 0")),
+                expected: Err(OpError::invalid_value("`block_size` must be > 0")),
             },
         ];
 
@@ -933,7 +933,7 @@ mod tests {
             Case {
                 input: Tensor::from([1, 2, 3]),
                 shape: vec![2, 2],
-                expected: Err(OpError::IncompatibleInputShapes(
+                expected: Err(OpError::incompatible_input_shapes(
                     "Cannot broadcast input with target shape",
                 )),
             },
@@ -941,7 +941,7 @@ mod tests {
             Case {
                 input: make_tensor([1]),
                 shape: vec![-1],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Target shape contains negative values",
                 )),
             },
@@ -1016,12 +1016,12 @@ mod tests {
             Case {
                 shape: [2, 3, 4].into(),
                 axis: 4,
-                expected: Err(OpError::InvalidValue("Axis is invalid")),
+                expected: Err(OpError::invalid_value("Axis is invalid")),
             },
             Case {
                 shape: [2, 3, 4].into(),
                 axis: -4,
-                expected: Err(OpError::InvalidValue("Axis is invalid")),
+                expected: Err(OpError::invalid_value("Axis is invalid")),
             },
         ];
 
@@ -1086,7 +1086,7 @@ mod tests {
                 input: &[8],
                 shape: &[9],
                 allow_zero: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Input length does not match target shape",
                 )),
             },
@@ -1095,7 +1095,7 @@ mod tests {
                 input: &[2],
                 shape: &[2, 0],
                 allow_zero: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Zero dim has no corresponding input dim",
                 )),
             },
@@ -1111,7 +1111,7 @@ mod tests {
                 input: &[10, 1],
                 shape: &[10, 0],
                 allow_zero: true,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Input length does not match target shape",
                 )),
             },
@@ -1120,7 +1120,7 @@ mod tests {
                 input: &[2, 2],
                 shape: &[-1, -1],
                 allow_zero: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Multiple dimensions in new shape set to -1",
                 )),
             },
@@ -1129,7 +1129,7 @@ mod tests {
                 input: &[2, 8],
                 shape: &[1, 8],
                 allow_zero: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Input length does not match target shape",
                 )),
             },
@@ -1138,7 +1138,7 @@ mod tests {
                 input: &[1, 2, 256, 0],
                 shape: &[1, 512, 256],
                 allow_zero: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Input length does not match target shape",
                 )),
             },
@@ -1147,7 +1147,7 @@ mod tests {
                 input: &[0, 4],
                 shape: &[0, -1],
                 allow_zero: true,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Cannot infer size of -1 dim when other dims are zero",
                 )),
             },
@@ -1156,7 +1156,7 @@ mod tests {
                 input: &[0, 4],
                 shape: &[0, -1],
                 allow_zero: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Cannot infer size of -1 dim when other dims are zero",
                 )),
             },
@@ -1341,7 +1341,7 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue(
+            Some(OpError::invalid_value(
                 "Can only remove dimensions of size 1"
             ))
         );
@@ -1381,28 +1381,28 @@ mod tests {
         let result = transpose(&pool, input.view(), Some(&[0, 1, 1]));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Permutation is invalid"))
+            Some(OpError::invalid_value("Permutation is invalid"))
         );
 
         // Too few dims
         let result = transpose(&pool, input.view(), Some(&[]));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Permutation is invalid"))
+            Some(OpError::invalid_value("Permutation is invalid"))
         );
 
         // Invalid dimension index
         let result = transpose(&pool, input.view(), Some(&[2, 1]));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Permutation is invalid"))
+            Some(OpError::invalid_value("Permutation is invalid"))
         );
 
         // Repeated dimension index
         let result = transpose(&pool, input.view(), Some(&[1, 1]));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Permutation is invalid"))
+            Some(OpError::invalid_value("Permutation is invalid"))
         );
     }
 
@@ -1435,13 +1435,16 @@ mod tests {
 
         // Invalid dimension index
         let result = unsqueeze(&pool, input.view(), &NdTensor::from([3]).view());
-        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+        assert_eq!(
+            result.err(),
+            Some(OpError::invalid_value("Axis is invalid"))
+        );
 
         // Repeated dimension index
         let result = unsqueeze(&pool, input.view(), &NdTensor::from([1, 1]).view());
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Axes must be unique"))
+            Some(OpError::invalid_value("Axes must be unique"))
         );
     }
 

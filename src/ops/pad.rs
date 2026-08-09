@@ -41,7 +41,7 @@ pub fn pad<T: Copy + Default + PartialEq>(
     let ndim = input.ndim();
 
     if padding.size(0) != ndim * 2 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "padding length should be 2 * input dims",
         ));
     }
@@ -54,7 +54,7 @@ pub fn pad<T: Copy + Default + PartialEq>(
             let crop_start = crop_amount(padding[i]);
             let crop_end = crop_amount(padding[[ndim + i]]);
             if crop_start + crop_end > *size {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "Negative pads remove more elements than axis contains",
                 ));
             }
@@ -112,13 +112,13 @@ pub fn pad<T: Copy + Default + PartialEq>(
             const PAD_DIMS: usize = 2;
             let batch_dims = input.ndim().saturating_sub(PAD_DIMS);
             if out_shape[..batch_dims] != input.shape()[..batch_dims] {
-                return Err(OpError::UnsupportedValue(
+                return Err(OpError::unsupported_value(
                     "Pad only supports non-constant padding of last 2 dims",
                 ));
             }
 
             if input.shape()[batch_dims..].contains(&0) {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "Padded dimension for non-constant padding is empty",
                 ));
             }
@@ -306,7 +306,7 @@ impl Operator for Pad {
         let axes: Option<NdTensorView<i32, 1>> = inputs.get_as(3)?;
 
         if axes.is_some() {
-            return Err(OpError::UnsupportedValue(
+            return Err(OpError::unsupported_value(
                 "Pad operator does not yet support `axes` input",
             ));
         }
@@ -466,7 +466,7 @@ mod tests {
                 input: [[1., 2.], [3., 4.]].into(),
                 pads: [-3, 0, 0, 0].into(),
                 mode: PadMode::Constant,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Negative pads remove more elements than axis contains",
                 )),
             },
@@ -558,7 +558,7 @@ mod tests {
                 input: [[[1., 2., 3.]]].into(),
                 pads: [0, 0, 0, 2, 0, 0].into(),
                 mode: PadMode::Reflect,
-                expected: Err(OpError::UnsupportedValue(
+                expected: Err(OpError::unsupported_value(
                     "Pad only supports non-constant padding of last 2 dims",
                 )),
             },
@@ -567,7 +567,7 @@ mod tests {
                 input: Tensor::zeros(&[3, 0]),
                 pads: NdTensor::from([0, 2, 0, 0]),
                 mode: PadMode::Reflect,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Padded dimension for non-constant padding is empty",
                 )),
             },
@@ -700,14 +700,14 @@ mod tests {
                 input: input.clone(),
                 pads: from_slice(&[1]),
                 const_val: None,
-                expected_error: OpError::InvalidValue("padding length should be 2 * input dims"),
+                expected_error: OpError::invalid_value("padding length should be 2 * input dims"),
             },
             // Negative pads which remove more elements than an axis contains.
             Case {
                 input: input.clone(),
                 pads: from_slice(&[-3, 0, 0, 0]),
                 const_val: None,
-                expected_error: OpError::InvalidValue(
+                expected_error: OpError::invalid_value(
                     "Negative pads remove more elements than axis contains",
                 ),
             },

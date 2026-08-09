@@ -1562,7 +1562,7 @@ impl Operator for Subgraph {
     }
 
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        Err(OpError::InvalidValue(
+        Err(OpError::invalid_value(
             "operator must be run with `run_subgraph`",
         ))
     }

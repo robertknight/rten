@@ -259,8 +259,9 @@ pub fn binary_op<T: Copy, U: Copy, R>(
     b: TensorView<U>,
     op: &dyn BinaryKernel<T, U, R>,
 ) -> Result<Tensor<R>, OpError> {
-    let out_shape = broadcast_shapes(a.shape(), b.shape())
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
+    let out_shape = broadcast_shapes(a.shape(), b.shape()).ok_or(
+        OpError::incompatible_input_shapes("Cannot broadcast inputs"),
+    )?;
 
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
     // possible.
@@ -603,7 +604,7 @@ logical_boolean_op!(Xor, xor, |x, y| x ^ y);
 /// inputs zeros are allowed in the divisor and produce inf or NaN.
 fn check_nonzero<T: Default + PartialEq>(x: &TensorView<T>) -> Result<(), OpError> {
     if x.iter().any(|x| *x == T::default()) {
-        Err(OpError::InvalidValue("Divisor contains zero"))
+        Err(OpError::invalid_value("Divisor contains zero"))
     } else {
         Ok(())
     }
@@ -1059,7 +1060,7 @@ impl Pow {
             (ValueView::Int32Tensor(base), ValueView::Int32Tensor(exponent)) => {
                 pow(ctx.pool(), base, exponent).map(|t| t.into())
             }
-            _ => Err(OpError::UnsupportedValue(
+            _ => Err(OpError::unsupported_value(
                 "Unsupported base and exponent type combination",
             )),
         }
@@ -1107,7 +1108,7 @@ impl Operator for Pow {
                     pow_in_place(base.view_mut(), exponent);
                     Ok(base.into())
                 }
-                _ => Err(OpError::UnsupportedValue(
+                _ => Err(OpError::unsupported_value(
                     "Unsupported base and exponent type combination",
                 )),
             }
@@ -1192,10 +1193,12 @@ pub fn where_op<T: Copy>(
     x: TensorView<T>,
     y: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
-    let broadcast_xy_shape = broadcast_shapes(x.shape(), y.shape())
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
-    let result_shape = broadcast_shapes(cond.shape(), &broadcast_xy_shape)
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
+    let broadcast_xy_shape = broadcast_shapes(x.shape(), y.shape()).ok_or(
+        OpError::incompatible_input_shapes("Cannot broadcast inputs"),
+    )?;
+    let result_shape = broadcast_shapes(cond.shape(), &broadcast_xy_shape).ok_or(
+        OpError::incompatible_input_shapes("Cannot broadcast inputs"),
+    )?;
 
     let out_len = result_shape.iter().product();
     let mut out_data = pool.alloc(out_len);
@@ -1484,7 +1487,9 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
+            Some(OpError::incompatible_input_shapes(
+                "Cannot broadcast inputs"
+            ))
         );
     }
 
@@ -1536,7 +1541,7 @@ mod tests {
         let result = div(&pool, a.view(), b.view());
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Divisor contains zero"))
+            Some(OpError::invalid_value("Divisor contains zero"))
         );
 
         // Zero in float divisor
@@ -1585,7 +1590,7 @@ mod tests {
         let result = div_in_place(a.view_mut(), b.view());
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Divisor contains zero"))
+            Some(OpError::invalid_value("Divisor contains zero"))
         );
 
         // Zero in float divisor
@@ -1727,7 +1732,7 @@ mod tests {
         let result = mod_op(&pool, a.view(), b.view(), DivMode::FloorDiv);
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Divisor contains zero"))
+            Some(OpError::invalid_value("Divisor contains zero"))
         );
 
         // Zero in float divisor
@@ -2027,14 +2032,18 @@ mod tests {
         let result = where_op(&pool, cond.view(), x.view(), y.view());
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
+            Some(OpError::incompatible_input_shapes(
+                "Cannot broadcast inputs"
+            ))
         );
 
         // Failure to broadcast `y` to match `cond`
         let result = where_op(&pool, cond.view(), y.view(), x.view());
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
+            Some(OpError::incompatible_input_shapes(
+                "Cannot broadcast inputs"
+            ))
         );
     }
 

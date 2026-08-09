@@ -17,7 +17,7 @@ use crate::value::{Value, ValueView};
 macro_rules! check_input {
     ($cond:expr, $msg:literal) => {
         if !$cond {
-            return Err(OpError::InvalidValue($msg));
+            return Err(OpError::invalid_value($msg));
         }
     };
 }
@@ -607,7 +607,7 @@ mod tests {
                 Some(&case.steps.into()),
             )
             .err();
-            assert_eq!(err, Some(OpError::InvalidValue(case.expected)));
+            assert_eq!(err, Some(OpError::invalid_value(case.expected)));
         });
     }
 }

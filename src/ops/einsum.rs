@@ -64,22 +64,22 @@ pub fn einsum(
     equation_str: &str,
 ) -> Result<Tensor, OpError> {
     let equation =
-        EinsumExpr::parse(equation_str).map_err(|err| OpError::InvalidValue(err.as_str()))?;
+        EinsumExpr::parse(equation_str).map_err(|err| OpError::invalid_value(err.as_str()))?;
 
     let broadcast_ndim = equation
         .validate_inputs(inputs.iter().map(|view| Some(view.ndim())))
         .map_err(|err| match err {
-            ValidateError::IncorrectInputCount => OpError::InvalidValue(
+            ValidateError::IncorrectInputCount => OpError::invalid_value(
                 "Number of terms in Einsum equation does not match input tensor count",
             ),
             ValidateError::TooManyDims => {
-                OpError::UnsupportedValue("Einsum input or term has too many dimensions")
+                OpError::unsupported_value("Einsum input or term has too many dimensions")
             }
             ValidateError::BroadcastMismatch => {
-                OpError::InvalidValue("Number of broadcast dims does not match across inputs")
+                OpError::invalid_value("Number of broadcast dims does not match across inputs")
             }
             ValidateError::RankMismatch => {
-                OpError::InvalidValue("Einsum term dimension count does not match input tensor")
+                OpError::invalid_value("Einsum term dimension count does not match input tensor")
             }
             // Should not happen as the rank of every input is known.
             ValidateError::UnknownRank => unreachable!(),
@@ -144,7 +144,7 @@ fn take_diagonals<'a>(term: &str, x: &TensorView<'a>) -> Result<(String, TensorV
                 continue;
             }
             if x.size(k) != dim_size {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "Dimension sizes for repeated labels in term do not match",
                 ));
             }
@@ -198,7 +198,7 @@ fn broadcast_size(a: usize, b: usize) -> Result<usize, OpError> {
     match (a, b) {
         (a, b) if a == b => Ok(a),
         (1, size) | (size, 1) => Ok(size),
-        _ => Err(OpError::IncompatibleInputShapes(
+        _ => Err(OpError::incompatible_input_shapes(
             "Einsum label has different sizes in different terms",
         )),
     }
@@ -972,7 +972,7 @@ mod tests {
             Case {
                 equation: "ij,jk->ik",
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Number of terms in Einsum equation does not match input tensor count",
                 )),
             },
@@ -1069,7 +1069,7 @@ mod tests {
             Case {
                 equation: "",
                 inputs: vec![],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Number of terms in Einsum equation does not match input tensor count",
                 )),
             },
@@ -1130,17 +1130,17 @@ mod tests {
             Case {
                 equation: "i1j", // Digits are used internally for ellipsis dims
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::InvalidValue("Input term is invalid")),
+                expected: Err(OpError::invalid_value("Input term is invalid")),
             },
             Case {
                 equation: "i.j", // Period that is not part of an ellipsis
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::InvalidValue("Input term is invalid")),
+                expected: Err(OpError::invalid_value("Input term is invalid")),
             },
             Case {
                 equation: "i...j...", // Multiple ellipses in a term
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::InvalidValue("Input term is invalid")),
+                expected: Err(OpError::invalid_value("Input term is invalid")),
             },
             // Repeated labels in input term take the diagonal.
             Case {
@@ -1163,7 +1163,7 @@ mod tests {
             Case {
                 equation: "ii->i",
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Dimension sizes for repeated labels in term do not match",
                 )),
             },
@@ -1171,14 +1171,14 @@ mod tests {
             Case {
                 equation: "ij,jk->i.k",
                 inputs: vec![mat_a.view(), mat_b.view()],
-                expected: Err(OpError::InvalidValue("Output term is invalid")),
+                expected: Err(OpError::invalid_value("Output term is invalid")),
             },
             // Output labels which differ only in case from the input labels
             // refer to dimensions which are not in any input.
             Case {
                 equation: "ij,jk->IK",
                 inputs: vec![mat_a.view(), mat_b.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Einsum output term contains a label not present in any input term",
                 )),
             },
@@ -1186,7 +1186,7 @@ mod tests {
             Case {
                 equation: "ij->ii",
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Einsum output term contains repeated labels",
                 )),
             },
@@ -1194,14 +1194,14 @@ mod tests {
             Case {
                 equation: "ij",
                 inputs: vec![vec_a.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Einsum term dimension count does not match input tensor",
                 )),
             },
             Case {
                 equation: "i...j",
                 inputs: vec![vec_a.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Einsum term dimension count does not match input tensor",
                 )),
             },
@@ -1209,7 +1209,7 @@ mod tests {
             Case {
                 equation: "abcdefghijkl...",
                 inputs: vec![TensorView::from_data([0; 12].as_slice(), &[])],
-                expected: Err(OpError::UnsupportedValue(
+                expected: Err(OpError::unsupported_value(
                     "Einsum input or term has too many dimensions",
                 )),
             },
@@ -1217,7 +1217,7 @@ mod tests {
             Case {
                 equation: "...",
                 inputs: vec![TensorView::from_data([0; 11].as_slice(), &[])],
-                expected: Err(OpError::UnsupportedValue(
+                expected: Err(OpError::unsupported_value(
                     "Einsum input or term has too many dimensions",
                 )),
             },
@@ -1287,7 +1287,7 @@ mod tests {
             Case {
                 equation: "...,...->...",
                 inputs: vec![vec_a.view(), mat_a.view()],
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Number of broadcast dims does not match across inputs",
                 )),
             },

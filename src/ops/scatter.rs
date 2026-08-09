@@ -67,12 +67,12 @@ pub fn scatter_elements<
     reduction: Option<ScatterReduction>,
 ) -> Result<Tensor<T>, OpError> {
     if indices.ndim() != data.ndim() {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`data` and `indices` must have same rank",
         ));
     }
     if indices.shape() != updates.shape() {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`indices` and `updates` must have same shape",
         ));
     }
@@ -89,7 +89,7 @@ pub fn scatter_elements<
 
         for (idx, update) in index_lane.zip(update_lane) {
             let Some(idx) = resolve_index(axis_size, *idx as isize) else {
-                return Err(OpError::InvalidValue("Index is invalid"));
+                return Err(OpError::invalid_value("Index is invalid"));
             };
             let out_el = &mut output_lane[[idx]];
             *out_el = scatter_reduce(*out_el, *update, reduction);
@@ -183,7 +183,7 @@ pub fn scatter_nd<
     reduction: Option<ScatterReduction>,
 ) -> Result<Tensor<T>, OpError> {
     if data.ndim() == 0 || indices.ndim() == 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`data` and `indices` must have rank >= 1",
         ));
     }
@@ -194,7 +194,7 @@ pub fn scatter_nd<
 
     let expected_update_dim = data.ndim() + indices.ndim() - k - 1;
     if updates.ndim() != expected_update_dim {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`updates` does not have expected rank",
         ));
     }
@@ -203,7 +203,7 @@ pub fn scatter_nd<
     expected_update_shape.extend_from_slice(&indices.shape()[..indices.ndim() - 1]);
     expected_update_shape.extend_from_slice(&data.shape()[k..data.ndim()]);
     if updates.shape() != expected_update_shape.as_slice() {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`updates` does not have expected shape",
         ));
     }
@@ -226,7 +226,7 @@ pub fn scatter_nd<
             .zip(output.shape().iter().zip(output.strides().iter()))
         {
             let idx = resolve_index(*size, *i as isize)
-                .ok_or(OpError::InvalidValue("invalid scatter index"))?;
+                .ok_or(OpError::invalid_value("invalid scatter index"))?;
             output_slice_offset += idx * stride;
         }
         let out_data = output.data_mut().unwrap();
@@ -317,7 +317,7 @@ mod tests {
                 indices: Tensor::from([4]),
                 updates: Tensor::from([1.]),
                 axis: 0,
-                expected: Err(OpError::InvalidValue("Index is invalid")),
+                expected: Err(OpError::invalid_value("Index is invalid")),
             },
             // Rank mismatch
             Case {
@@ -325,7 +325,7 @@ mod tests {
                 indices: Tensor::from([[4]]),
                 updates: Tensor::from([[1.]]),
                 axis: 0,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "`data` and `indices` must have same rank",
                 )),
             },
@@ -335,7 +335,7 @@ mod tests {
                 indices: Tensor::from([4]),
                 updates: Tensor::from([1., 2.]),
                 axis: 0,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "`indices` and `updates` must have same shape",
                 )),
             },
@@ -523,31 +523,31 @@ mod tests {
                 data: (5.).into(),
                 indices: [0].into(),
                 updates: [0.].into(),
-                expected: OpError::InvalidValue("`data` and `indices` must have rank >= 1"),
+                expected: OpError::invalid_value("`data` and `indices` must have rank >= 1"),
             },
             Case {
                 data: Tensor::from([0.]),
                 indices: Tensor::from(0),
                 updates: [0.].into(),
-                expected: OpError::InvalidValue("`data` and `indices` must have rank >= 1"),
+                expected: OpError::invalid_value("`data` and `indices` must have rank >= 1"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
                 indices: [[0], [1], [2], [3]].into(),
                 updates: [[1., 2., 3., 4.]].into(),
-                expected: OpError::InvalidValue("`updates` does not have expected rank"),
+                expected: OpError::invalid_value("`updates` does not have expected rank"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
                 indices: [[0], [1], [2], [3]].into(),
                 updates: [1., 2., 3., 4., 5.].into(),
-                expected: OpError::InvalidValue("`updates` does not have expected shape"),
+                expected: OpError::invalid_value("`updates` does not have expected shape"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
                 indices: [[0], [1], [2], [4]].into(),
                 updates: [1., 2., 3., 4.].into(),
-                expected: OpError::InvalidValue("invalid scatter index"),
+                expected: OpError::invalid_value("invalid scatter index"),
             },
         ];
 

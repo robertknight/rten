@@ -44,7 +44,7 @@ impl AxisPadding {
                 let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
                     .as_slice()
                     .try_into()
-                    .map_err(|_| OpError::InvalidValue("Expected 4 padding values"))?;
+                    .map_err(|_| OpError::invalid_value("Expected 4 padding values"))?;
                 let h_pad = AxisPadding::Fixed {
                     start: pad_top,
                     end: pad_bottom,
@@ -98,7 +98,7 @@ fn output_size_and_padding_for_axis(
             let dilated_kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1);
 
             if padded_in_size < dilated_kernel_size {
-                return Err(OpError::InvalidValue("Input too small for kernel size"));
+                return Err(OpError::invalid_value("Input too small for kernel size"));
             }
 
             // Compute output size. The PyTorch docs provide the clearest
@@ -189,12 +189,12 @@ where
 {
     let spatial_dims = input.ndim().saturating_sub(2);
     if kernel_size.len() != spatial_dims {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "kernel_size len does not match spatial dims",
         ));
     }
     if strides.len() != spatial_dims {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "strides len does not match spatial dims",
         ));
     }
@@ -221,7 +221,7 @@ where
         }
         2 => { /* handled below */ }
         _ => {
-            return Err(OpError::UnsupportedValue(
+            return Err(OpError::unsupported_value(
                 "Only inputs with 1 or 2 spatial dims are supported",
             ));
         }
@@ -480,7 +480,7 @@ fn global_pool<T: Clone + Send + Sync>(
     kernel: &(dyn Fn(&[T]) -> T + Send + Sync),
 ) -> Result<Tensor<T>, OpError> {
     if input.ndim() < 2 {
-        return Err(OpError::InvalidValue("Input must have at least 2 dims"));
+        return Err(OpError::invalid_value("Input must have at least 2 dims"));
     }
 
     let batch = input.size(0);
@@ -869,7 +869,7 @@ mod tests {
         let err = global_max_pool(&pool, input.view()).err().unwrap();
         assert_eq!(
             err,
-            OpError::InvalidValue("Input must have at least 2 dims")
+            OpError::invalid_value("Input must have at least 2 dims")
         );
     }
 
@@ -1042,7 +1042,7 @@ mod tests {
                     strides: (1, 1),
                     padding: [0, 0, 0, 0].into(),
                     round_mode: RoundMode::Floor,
-                    expected: Err(OpError::InvalidValue("default")),
+                    expected: Err(OpError::invalid_value("default")),
                 }
             }
         }
@@ -1151,32 +1151,32 @@ mod tests {
             // Zero stride
             Case {
                 strides: (0, 0),
-                expected: Err(OpError::InvalidValue("Strides must be > 0")),
+                expected: Err(OpError::invalid_value("Strides must be > 0")),
                 ..Default::default()
             },
             // Zero dilation
             Case {
                 dilations: (0, 0),
-                expected: Err(OpError::InvalidValue("Dilations must be > 0")),
+                expected: Err(OpError::invalid_value("Dilations must be > 0")),
                 ..Default::default()
             },
             // Zero kernel size
             Case {
                 kernel_size: (0, 0),
-                expected: Err(OpError::InvalidValue("Kernel size must be > 0")),
+                expected: Err(OpError::invalid_value("Kernel size must be > 0")),
                 ..Default::default()
             },
             // Incorrect padding length
             Case {
                 padding: [0, 0].into(),
-                expected: Err(OpError::InvalidValue("Expected 4 padding values")),
+                expected: Err(OpError::invalid_value("Expected 4 padding values")),
                 ..Default::default()
             },
             // Dilated kernel size > input size
             Case {
                 in_size: (4, 4),
                 dilations: (2, 2),
-                expected: Err(OpError::InvalidValue("Input too small for kernel size")),
+                expected: Err(OpError::invalid_value("Input too small for kernel size")),
                 ..Default::default()
             },
         ];

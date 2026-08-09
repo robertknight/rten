@@ -70,7 +70,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
 ) -> Result<Tensor<i32>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
     if input.size(resolved_axis) == 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Cannot select index from empty sequence",
         ));
     }
@@ -1258,7 +1258,7 @@ pub fn topk<T: Copy + Default + PartialOrd + IsNaN>(
 
     let axis_size = values.size(axis);
     if k > axis_size {
-        return Err(OpError::InvalidValue("k > dimension size"));
+        return Err(OpError::invalid_value("k > dimension size"));
     }
 
     let topk_cmp = |(a_val, a_idx): &(T, usize), (b_val, b_idx): &(T, usize)| -> Ordering {
@@ -1330,7 +1330,7 @@ impl Operator for TopK {
         let values = inputs.require(0)?;
         let k = inputs.require_as::<i32>(1).and_then(|k| {
             if k < 0 {
-                Err(OpError::InvalidValue("k must be positive"))
+                Err(OpError::invalid_value("k must be positive"))
             } else {
                 Ok(k as usize)
             }
@@ -1443,7 +1443,7 @@ mod tests {
                 input: Tensor::<f32>::from_data(&[10, 0, 5], vec![]),
                 axis: 1,
                 keep_dims: false,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Cannot select index from empty sequence",
                 )),
             },
@@ -1919,10 +1919,16 @@ mod tests {
         let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = reduce_mean(&pool, input.view(), Some(&[3]), false /* keep_dims */);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+        assert_eq!(
+            result.err(),
+            Some(OpError::invalid_value("Axis is invalid"))
+        );
 
         let result = reduce_mean(&pool, input.view(), Some(&[-3]), false /* keep_dims */);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+        assert_eq!(
+            result.err(),
+            Some(OpError::invalid_value("Axis is invalid"))
+        );
     }
 
     // ONNX leaves `ReduceMean` over an empty set undefined. We follow numpy
@@ -2321,14 +2327,14 @@ mod tests {
             Case {
                 input: [0., 1., 2.].into(),
                 k: 4,
-                expected: Err(OpError::InvalidValue("k > dimension size")),
+                expected: Err(OpError::invalid_value("k > dimension size")),
                 ..Default::default()
             },
             // Scalar input
             Case {
                 input: Tensor::from(0.),
                 k: 2,
-                expected: Err(OpError::InvalidValue("Axis is invalid")),
+                expected: Err(OpError::invalid_value("Axis is invalid")),
                 ..Default::default()
             },
             // 2D input, take top-K over axis 1

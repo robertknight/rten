@@ -200,7 +200,7 @@ pub fn batch_norm_in_place(
     epsilon: f32,
 ) -> Result<(), OpError> {
     if input.ndim() < 1 {
-        return Err(OpError::InvalidValue("Input must have at least 1 dim"));
+        return Err(OpError::invalid_value("Input must have at least 1 dim"));
     }
 
     let channels = if input.ndim() >= 2 { input.size(1) } else { 1 };
@@ -336,20 +336,20 @@ pub fn instance_normalization_in_place(
     epsilon: Option<f32>,
 ) -> Result<(), OpError> {
     let &[_batch, chans, ..] = input.shape() else {
-        return Err(OpError::InvalidValue("expected input with >= 2 dims"));
+        return Err(OpError::invalid_value("expected input with >= 2 dims"));
     };
 
     // If epsilon is None, use default from ONNX spec.
     let epsilon = epsilon.unwrap_or(1e-5);
 
     if scale.size(0) != chans {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "scale length should match channel count",
         ));
     }
 
     if bias.size(0) != chans {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "bias length should match channel count",
         ));
     }
@@ -473,7 +473,7 @@ fn layer_normalization_impl(
         scale_elements = scale
             .try_broadcast(normalized_slice_shape)
             .map_err(|_| {
-                OpError::InvalidValue("`scale` is not broadcastable to normalized axes of input")
+                OpError::invalid_value("`scale` is not broadcastable to normalized axes of input")
             })?
             .to_contiguous_in(pool);
         (1.0, Some(scale_elements.data()))
@@ -487,7 +487,9 @@ fn layer_normalization_impl(
             bias_elements = bias
                 .try_broadcast(normalized_slice_shape)
                 .map_err(|_| {
-                    OpError::InvalidValue("`bias` is not broadcastable to normalized axes of input")
+                    OpError::invalid_value(
+                        "`bias` is not broadcastable to normalized axes of input",
+                    )
                 })?
                 .to_contiguous_in(pool);
             (0.0, Some(bias_elements.data()))
@@ -646,7 +648,7 @@ pub fn lp_normalization_in_place(output: &mut Tensor, axis: isize, p: u32) -> Re
             scale_by_norm(lane, norm);
         },
         _ => {
-            return Err(OpError::UnsupportedValue("`p` must be 1 or 2"));
+            return Err(OpError::unsupported_value("`p` must be 1 or 2"));
         }
     };
 
@@ -1012,7 +1014,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(OpError::InvalidValue("Input must have at least 1 dim"))
+            Err(OpError::invalid_value("Input must have at least 1 dim"))
         );
     }
 
@@ -1138,7 +1140,7 @@ mod tests {
                 scale: Tensor::full(&[2, 3], 1.0),
                 bias: None,
                 axis: -1,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "`scale` is not broadcastable to normalized axes of input",
                 )),
             },
@@ -1148,7 +1150,7 @@ mod tests {
                 scale: Tensor::from([1., 1., 1.]),
                 bias: Some(Tensor::full(&[2, 3], 1.0)),
                 axis: -1,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "`bias` is not broadcastable to normalized axes of input",
                 )),
             },
@@ -1261,7 +1263,7 @@ mod tests {
         let result = lp_normalization(&pool, input.view(), 0, 3);
         assert_eq!(
             result.err(),
-            Some(OpError::UnsupportedValue("`p` must be 1 or 2"))
+            Some(OpError::unsupported_value("`p` must be 1 or 2"))
         );
 
         Ok(())

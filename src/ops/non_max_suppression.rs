@@ -79,13 +79,13 @@ pub fn non_max_suppression(
     let [scores_batch, n_classes, scores_n_boxes] = scores.shape();
 
     if n_coords != 4 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "`boxes` last dimension should have size 4",
         ));
     }
 
     if batch != scores_batch || n_boxes != scores_n_boxes {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "`boxes` and `scores` have incompatible shapes",
         ));
     }
@@ -474,7 +474,7 @@ mod tests {
         let result = apply_nms(boxes.view(), scores.view());
         assert_eq!(
             result,
-            Err(OpError::IncompatibleInputShapes(
+            Err(OpError::incompatible_input_shapes(
                 "`boxes` and `scores` have incompatible shapes"
             ))
         );
@@ -484,7 +484,7 @@ mod tests {
         let result = apply_nms(boxes.view(), scores.view());
         assert_eq!(
             result,
-            Err(OpError::InvalidValue(
+            Err(OpError::invalid_value(
                 "`boxes` last dimension should have size 4"
             ))
         );

@@ -50,7 +50,7 @@ pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + 'static>
     // compatibility with ONNX Runtime and its quantization tools.
     if let Some(scale) = scale.item() {
         let zero_point = if let Some(zp) = zero_point {
-            zp.item().copied().ok_or(OpError::InvalidValue(
+            zp.item().copied().ok_or(OpError::invalid_value(
                 "scale and zero_point must have same shape",
             ))?
         } else {
@@ -66,7 +66,7 @@ pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + 'static>
         )?;
         let zero_point = if let Some(zp) = zero_point {
             zp.into_rank::<1>()
-                .map_err(|_| OpError::InvalidValue("scale and zero point must have same rank"))?
+                .map_err(|_| OpError::invalid_value("scale and zero point must have same rank"))?
                 .as_cow()
         } else {
             NdTensor::zeros(scale.shape()).into_cow()
@@ -92,7 +92,7 @@ pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + 'static>
         // Safety: All elements are initialized
         Ok(unsafe { output.assume_init() })
     } else {
-        Err(OpError::UnsupportedValue(
+        Err(OpError::unsupported_value(
             "Blocked dequantization is not supported",
         ))
     }
@@ -209,7 +209,7 @@ where
     if let Some(scale) = scale.item() {
         let inv_scale = 1. / *scale;
         let zero_point = if let Some(zp) = zero_point {
-            zp.item().copied().ok_or(OpError::InvalidValue(
+            zp.item().copied().ok_or(OpError::invalid_value(
                 "scale and zero_point must have same shape",
             ))?
         } else {
@@ -245,7 +245,7 @@ where
         )?;
         let zero_point = if let Some(zp) = zero_point {
             zp.into_rank::<1>()
-                .map_err(|_| OpError::InvalidValue("scale and zero point must have same shape"))?
+                .map_err(|_| OpError::invalid_value("scale and zero point must have same shape"))?
                 .as_cow()
         } else {
             NdTensor::zeros(scale.shape()).into_cow()
@@ -268,7 +268,7 @@ where
         // Safety: All elements are initialized
         Ok(unsafe { output.assume_init() })
     } else {
-        Err(OpError::UnsupportedValue(
+        Err(OpError::unsupported_value(
             "Blocked quantization is not supported",
         ))
     }
@@ -578,7 +578,7 @@ mod tests {
                 input: Tensor::from([10u8, 5u8]).into(),
                 scale: Tensor::from([0.5, 2.]),
                 zero_point: Some(Tensor::from([1u8, 2, 3]).into()),
-                expected: Err(OpError::IncompatibleInputShapes(
+                expected: Err(OpError::incompatible_input_shapes(
                     "zero_point length does not match size of quantization axis",
                 )),
             },
@@ -588,7 +588,7 @@ mod tests {
                 input: Tensor::from([[10u8, 20], [30, 40]]).into(),
                 scale: Tensor::from(0.5),
                 zero_point: Some(Tensor::from([1u8, 2]).into()),
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "scale and zero_point must have same shape",
                 )),
             },
@@ -598,7 +598,7 @@ mod tests {
                 input: Tensor::from([[10u8, 20], [30, 40], [50, 60]]).into(),
                 scale: Tensor::from([0.5, 0.6]),
                 zero_point: None,
-                expected: Err(OpError::IncompatibleInputShapes(
+                expected: Err(OpError::incompatible_input_shapes(
                     "scale length does not match size of quantization axis",
                 )),
             },
@@ -608,7 +608,7 @@ mod tests {
                 input: Tensor::from([[10u8, 20], [30, 40]]).into(),
                 scale: Tensor::from([0.5, 2., 4.]),
                 zero_point: None,
-                expected: Err(OpError::IncompatibleInputShapes(
+                expected: Err(OpError::incompatible_input_shapes(
                     "scale length does not match size of quantization axis",
                 )),
             },
@@ -618,7 +618,7 @@ mod tests {
                 input: Tensor::from([[10u8, 20], [30, 40]]).into(),
                 scale: Tensor::from([[1., 2.], [3., 4.]]),
                 zero_point: Some(Tensor::from([[1u8, 2], [3, 4]]).into()),
-                expected: Err(OpError::UnsupportedValue(
+                expected: Err(OpError::unsupported_value(
                     "Blocked dequantization is not supported",
                 )),
             },

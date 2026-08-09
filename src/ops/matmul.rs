@@ -52,7 +52,7 @@ where
     let [b_rows, _b_cols] = b.shape();
 
     if a_cols != b_rows {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Columns of first matrix does not match rows of second matrix",
         ));
     }
@@ -63,7 +63,7 @@ where
     let output = match c {
         Some(c) if beta != OutT::zero() => {
             if !c.can_broadcast_to(out_shape) {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "Cannot broadcast c to output shape",
                 ));
             }
@@ -220,7 +220,7 @@ where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
 {
     if a.ndim() < 1 || b.ndim() < 1 {
-        return Err(OpError::InvalidValue("Inputs must have >= 1 dimensions"));
+        return Err(OpError::invalid_value("Inputs must have >= 1 dimensions"));
     }
 
     // Expand vector inputs to matrices. This follows the rules of `numpy.matmul`.
@@ -241,7 +241,7 @@ where
     let b_cols = b.size(b.ndim() - 1);
 
     if a_cols != b_rows {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Columns of first matrix does not match rows of second matrix",
         ));
     }
@@ -252,8 +252,9 @@ where
     let num_a_matrices: usize = a_prefix.iter().product();
     let num_b_matrices: usize = b_prefix.iter().product();
 
-    let out_prefix = broadcast_shapes(a_prefix, b_prefix)
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
+    let out_prefix = broadcast_shapes(a_prefix, b_prefix).ok_or(
+        OpError::incompatible_input_shapes("Cannot broadcast shapes"),
+    )?;
     let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
 
     // A batched matrix multiplication with `[A, M, K] x [K, N]`, where `A` can
@@ -518,12 +519,12 @@ pub fn zero_point_to_vec<T>(
         Some(zp) if zp.ndim() == 0 => Ok(Some(zp.broadcast([expected_len]))),
         Some(zp) if zp.ndim() == 1 => {
             if zp.size(0) != expected_len {
-                Err(OpError::InvalidValue("Zero point has incorrect size"))
+                Err(OpError::invalid_value("Zero point has incorrect size"))
             } else {
                 Ok(Some(zp.nd_view()))
             }
         }
-        Some(_) => Err(OpError::UnsupportedValue(
+        Some(_) => Err(OpError::unsupported_value(
             "Only scalar or vector zero points are supported",
         )),
         None => Ok(None),
@@ -725,7 +726,7 @@ impl<'a> OutputScale<'a> {
             0 => Ok(OutputScale::Scalar(scale.item().copied().unwrap())),
             1 if scale.size(0) == 1 => Ok(OutputScale::Scalar(scale.item().copied().unwrap())),
             1 => Ok(OutputScale::Vector(scale.into_rank().unwrap())),
-            _ => Err(OpError::InvalidValue("scale should have rank 0 or 1")),
+            _ => Err(OpError::invalid_value("scale should have rank 0 or 1")),
         }
     }
 }
@@ -739,7 +740,7 @@ pub fn cast_scale(
     match scale {
         OutputScale::Vector(scale) => {
             if data.size(data.ndim() - 1) != scale.size(0) {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "Scale length does not match tensor columns",
                 ));
             }
@@ -970,7 +971,7 @@ mod tests {
             Case {
                 input: [[1, 2], [3, 4]].into(),
                 scales: OutputScale::Vector(NdTensorView::from(&[2., 3., 4.])),
-                expected: Err(OpError::IncompatibleInputShapes(
+                expected: Err(OpError::incompatible_input_shapes(
                     "Scale length does not match tensor columns",
                 )),
             },
@@ -1074,7 +1075,7 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
+            Some(OpError::incompatible_input_shapes(
                 "Cannot broadcast c to output shape"
             ))
         );
@@ -1086,7 +1087,7 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
+            Some(OpError::incompatible_input_shapes(
                 "Columns of first matrix does not match rows of second matrix",
             ))
         );
@@ -1293,24 +1294,24 @@ mod tests {
             Case {
                 a_shape: &[],
                 b_shape: &[10, 8],
-                error: OpError::InvalidValue("Inputs must have >= 1 dimensions"),
+                error: OpError::invalid_value("Inputs must have >= 1 dimensions"),
             },
             Case {
                 a_shape: &[3, 10],
                 b_shape: &[],
-                error: OpError::InvalidValue("Inputs must have >= 1 dimensions"),
+                error: OpError::invalid_value("Inputs must have >= 1 dimensions"),
             },
             Case {
                 a_shape: &[3, 10],
                 b_shape: &[11, 8],
-                error: OpError::IncompatibleInputShapes(
+                error: OpError::incompatible_input_shapes(
                     "Columns of first matrix does not match rows of second matrix",
                 ),
             },
             Case {
                 a_shape: &[2, 3, 10],
                 b_shape: &[3, 10, 8],
-                error: OpError::IncompatibleInputShapes("Cannot broadcast shapes"),
+                error: OpError::incompatible_input_shapes("Cannot broadcast shapes"),
             },
         ];
 
@@ -1435,7 +1436,7 @@ mod tests {
                 b: Tensor::from([[5, 6], [7, 8]]),
                 a_zero_point: Some(Tensor::from([1, 2, 4])),
                 b_zero_point: Some(Tensor::from([3, 4])),
-                expected_err: Some(OpError::InvalidValue("Zero point has incorrect size")),
+                expected_err: Some(OpError::invalid_value("Zero point has incorrect size")),
             },
             // Non-scalar zero points
             Case {
@@ -1443,7 +1444,7 @@ mod tests {
                 b: Tensor::from([[2, 2], [2, 2]]),
                 a_zero_point: Some(Tensor::from([[2, 2], [2, 2]])),
                 b_zero_point: None,
-                expected_err: Some(OpError::UnsupportedValue(
+                expected_err: Some(OpError::unsupported_value(
                     "Only scalar or vector zero points are supported",
                 )),
             },
@@ -1452,7 +1453,7 @@ mod tests {
                 b: Tensor::from([[2, 2], [2, 2]]),
                 a_zero_point: None,
                 b_zero_point: Some(Tensor::from([[2, 2], [2, 2]])),
-                expected_err: Some(OpError::UnsupportedValue(
+                expected_err: Some(OpError::unsupported_value(
                     "Only scalar or vector zero points are supported",
                 )),
             },
@@ -1470,7 +1471,7 @@ mod tests {
                 b: Tensor::zeros(&[3, 1]),
                 a_zero_point: None,
                 b_zero_point: None,
-                expected_err: Some(OpError::IncompatibleInputShapes(
+                expected_err: Some(OpError::incompatible_input_shapes(
                     "Columns of first matrix does not match rows of second matrix",
                 )),
             },
@@ -1480,7 +1481,7 @@ mod tests {
                 b: Tensor::zeros(&[3, 1]),
                 a_zero_point: None,
                 b_zero_point: None,
-                expected_err: Some(OpError::InvalidValue("Inputs must have >= 1 dimensions")),
+                expected_err: Some(OpError::invalid_value("Inputs must have >= 1 dimensions")),
             },
             // RHS is a scalar
             Case {
@@ -1488,14 +1489,16 @@ mod tests {
                 b: Tensor::zeros(&[]),
                 a_zero_point: None,
                 b_zero_point: None,
-                expected_err: Some(OpError::InvalidValue("Inputs must have >= 1 dimensions")),
+                expected_err: Some(OpError::invalid_value("Inputs must have >= 1 dimensions")),
             },
             Case {
                 a: Tensor::zeros(&[2, 2, 2]),
                 b: Tensor::zeros(&[3, 2, 2]),
                 a_zero_point: None,
                 b_zero_point: None,
-                expected_err: Some(OpError::IncompatibleInputShapes("Cannot broadcast shapes")),
+                expected_err: Some(OpError::incompatible_input_shapes(
+                    "Cannot broadcast shapes",
+                )),
             },
         ];
 

@@ -24,13 +24,13 @@ fn grid_sample(
     let [in_batch, in_c, in_h, in_w] = input.shape();
 
     if batch != in_batch {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Batch size of input and grid must match",
         ));
     }
 
     if coord_ndim != 2 {
-        return Err(OpError::UnsupportedValue(
+        return Err(OpError::unsupported_value(
             "Unsupported grid coordinate size",
         ));
     }
@@ -312,14 +312,14 @@ mod tests {
             Case {
                 input_shape: [1, 1, 1, 1],
                 grid_shape: [2, 1, 1, 2],
-                expected: OpError::IncompatibleInputShapes(
+                expected: OpError::incompatible_input_shapes(
                     "Batch size of input and grid must match",
                 ),
             },
             Case {
                 input_shape: [1, 1, 1, 1],
                 grid_shape: [1, 1, 1, 3],
-                expected: OpError::UnsupportedValue("Unsupported grid coordinate size"),
+                expected: OpError::unsupported_value("Unsupported grid coordinate size"),
             },
         ];
 

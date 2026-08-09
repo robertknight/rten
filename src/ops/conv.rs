@@ -153,14 +153,14 @@ where
         let strides_2d = match strides {
             &[stride] => [1, stride],
             _ => {
-                return Err(OpError::InvalidValue("expected 1 stride value"));
+                return Err(OpError::invalid_value("expected 1 stride value"));
             }
         };
 
         let dilations_2d = match dilations {
             &[dilation] => [1, dilation],
             _ => {
-                return Err(OpError::InvalidValue("expected 1 dilation value"));
+                return Err(OpError::invalid_value("expected 1 dilation value"));
             }
         };
 
@@ -199,10 +199,10 @@ where
 
     let [stride_y, stride_x]: [usize; 2] = strides
         .try_into()
-        .map_err(|_| OpError::InvalidValue("expected 2 stride values"))?;
+        .map_err(|_| OpError::invalid_value("expected 2 stride values"))?;
     let [dilation_y, dilation_x]: [usize; 2] = dilations
         .try_into()
-        .map_err(|_| OpError::InvalidValue("expected 2 dilation values"))?;
+        .map_err(|_| OpError::invalid_value("expected 2 dilation values"))?;
 
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
@@ -224,25 +224,25 @@ where
         .map(|zero_point| QuantParams { zero_point });
 
     if groups == 0 {
-        return Err(OpError::InvalidValue("Group count must be > 0"));
+        return Err(OpError::invalid_value("Group count must be > 0"));
     }
 
     let in_chans_per_group = in_c / groups;
     if in_c % groups != 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Input channel count not divisible by groups",
         ));
     }
 
     if in_chans_per_group != k_in_c {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Input channels (per group) does not match kernel input channels",
         ));
     }
 
     let out_chans_per_group = out_channels / groups;
     if out_channels % groups != 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Output channel count not divisible by groups",
         ));
     }
@@ -445,7 +445,7 @@ where
 
     let input_zero = if let Some(zero_point) = input_zero {
         let Some(&zero) = zero_point.item() else {
-            return Err(OpError::InvalidValue("input zero point must be a scalar"));
+            return Err(OpError::invalid_value("input zero point must be a scalar"));
         };
         zero
     } else {
@@ -571,7 +571,7 @@ impl Operator for ConvIntegerToFloat {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let scale: TensorView<f32> = ctx.inputs().require_as(4)?;
         let Some(&scale) = scale.item() else {
-            return Err(OpError::InvalidValue("scale should be a scalar"));
+            return Err(OpError::invalid_value("scale should be a scalar"));
         };
         let output: Tensor<i32> = self.conv.run(ctx)?.remove(0).try_into().unwrap();
         cast_scale(ctx.pool(), output, OutputScale::Scalar(scale)).into_op_result()
@@ -1199,7 +1199,7 @@ mod tests {
                 strides: &[1, 1],
                 dilations: &[1, 1],
                 groups: 1,
-                expected: OpError::InvalidValue("Input too small for kernel size"),
+                expected: OpError::invalid_value("Input too small for kernel size"),
             },
             // Zero stride
             Case {
@@ -1208,7 +1208,7 @@ mod tests {
                 strides: &[0, 0],
                 dilations: &[1, 1],
                 groups: 1,
-                expected: OpError::InvalidValue("Strides must be > 0"),
+                expected: OpError::invalid_value("Strides must be > 0"),
             },
             // Unsupported stride count
             Case {
@@ -1217,7 +1217,7 @@ mod tests {
                 strides: &[1, 1, 1],
                 dilations: &[1, 1],
                 groups: 1,
-                expected: OpError::InvalidValue("expected 2 stride values"),
+                expected: OpError::invalid_value("expected 2 stride values"),
             },
             // Unsupported dilation count
             Case {
@@ -1226,7 +1226,7 @@ mod tests {
                 strides: &[1, 1],
                 dilations: &[1, 1, 1],
                 groups: 1,
-                expected: OpError::InvalidValue("expected 2 dilation values"),
+                expected: OpError::invalid_value("expected 2 dilation values"),
             },
             // Zero groups
             Case {
@@ -1235,7 +1235,7 @@ mod tests {
                 strides: &[1, 1],
                 dilations: &[1, 1],
                 groups: 0,
-                expected: OpError::InvalidValue("Group count must be > 0"),
+                expected: OpError::invalid_value("Group count must be > 0"),
             },
             // Input channels don't match kernel input channels. This is a 1x1
             // kernel, so it exercises the pointwise fast path.
@@ -1245,7 +1245,7 @@ mod tests {
                 strides: &[1, 1],
                 dilations: &[1, 1],
                 groups: 1,
-                expected: OpError::IncompatibleInputShapes(
+                expected: OpError::incompatible_input_shapes(
                     "Input channels (per group) does not match kernel input channels",
                 ),
             },
@@ -1582,7 +1582,7 @@ mod tests {
             // Non-scalar scale.
             Case {
                 scale: Tensor::from([0.1, 0.2, 0.3]),
-                expected: Err(OpError::InvalidValue("scale should be a scalar")),
+                expected: Err(OpError::invalid_value("scale should be a scalar")),
             },
         ];
 

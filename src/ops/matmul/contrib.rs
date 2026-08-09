@@ -27,7 +27,7 @@ fn matmul_nbits(
     accuracy: AccuracyLevel,
 ) -> Result<Tensor<f32>, OpError> {
     if lhs.ndim() < 2 {
-        return Err(OpError::InvalidValue("A input must have at least 2 dims"));
+        return Err(OpError::invalid_value("A input must have at least 2 dims"));
     }
 
     let batch_dims = &lhs.shape()[..lhs.ndim() - 2];
@@ -38,7 +38,7 @@ fn matmul_nbits(
     let scales = scales.to_contiguous_in(pool);
 
     let b_mat = BlockQuantizedMatrix::new(rhs.view(), scales.view(), bits).map_err(|err| {
-        OpError::UnsupportedValue(match err {
+        OpError::unsupported_value(match err {
             BlockQuantizedError::UnsupportedBlockSize => "Unsupported K block size",
             BlockQuantizedError::UnsupportedElementSize => "Unsupported bits-per-element",
         })
@@ -54,7 +54,7 @@ fn matmul_nbits(
     let mut out_data = pool.alloc(out_len);
 
     if lhs_cols != b_mat.rows() {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Columns of first matrix does not match rows of second matrix",
         ));
     }
@@ -155,21 +155,21 @@ impl Operator for MatMulNBits {
                 let rhs_cols = rhs.size(0);
 
                 if scales.len() != rhs_cols * k_blocks {
-                    return Err(OpError::InvalidValue(
+                    return Err(OpError::invalid_value(
                         "Expected 1D `scales` size to match columns * block_size",
                     ));
                 }
                 scales.reshaped([rhs_cols, k_blocks])
             }
             _ => {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "Expected `scales` to have one or two dims",
                 ));
             }
         };
 
         if ctx.inputs().len() > 3 {
-            return Err(OpError::UnsupportedValue(
+            return Err(OpError::unsupported_value(
                 "zero_points, g_idx and bias inputs are unsupported",
             ));
         }
@@ -365,7 +365,7 @@ mod tests {
             lhs_shape: [1].into(),
             rhs_shape: [1, 1, 16],
             scales_shape: [1, 1].into(),
-            expected: OpError::InvalidValue("A input must have at least 2 dims"),
+            expected: OpError::invalid_value("A input must have at least 2 dims"),
         }];
 
         cases.test_each(|case| {
