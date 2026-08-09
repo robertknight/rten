@@ -27,14 +27,14 @@ fn concatenated_shape<T: Copy>(
     for other in inputs {
         let other_shape = other.shape();
         if other_shape.len() != first_shape.len() {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "Tensors must have the same number of dimensions",
             ));
         }
         for (d, (first_size, other_size)) in first_shape.iter().zip(other_shape.iter()).enumerate()
         {
             if d != axis && first_size != other_size {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "Dimensions must be the same except for concat axis",
                 ));
             } else if d == axis {
@@ -242,7 +242,7 @@ pub fn tile<T: Copy>(
     repeats: NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
     if repeats.size(0) != input.ndim() || repeats.iter().any(|n| *n < 0) {
-        return Err(OpError::InvalidValue("invalid repeats"));
+        return Err(OpError::invalid_value("invalid repeats"));
     }
 
     let repeats: Vec<usize> = repeats.iter().map(|r| *r as usize).collect();
@@ -424,7 +424,10 @@ mod tests {
         // Invalid `dim` attribute
         let input = from_slice(&[1, 2, 3]);
         let result = concat(&pool, &[input.view(), input.view()], 1);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+        assert_eq!(
+            result.err(),
+            Some(OpError::invalid_value("Axis is invalid"))
+        );
 
         // Shape mismatch
         let a = Tensor::<f32>::zeros(&[1]);
@@ -432,7 +435,7 @@ mod tests {
         let result = concat(&pool, &[a.view(), b.view()], 0);
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
+            Some(OpError::incompatible_input_shapes(
                 "Tensors must have the same number of dimensions"
             ))
         );
@@ -443,7 +446,7 @@ mod tests {
         let result = concat(&pool, &[a.view(), b.view()], 0);
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
+            Some(OpError::incompatible_input_shapes(
                 "Dimensions must be the same except for concat axis"
             ))
         );
@@ -536,13 +539,13 @@ mod tests {
             Case {
                 input: Tensor::from([1, 2, 3]),
                 repeats: Tensor::from([1, 2]),
-                expected_error: OpError::InvalidValue("invalid repeats"),
+                expected_error: OpError::invalid_value("invalid repeats"),
             },
             // Negative repeats
             Case {
                 input: Tensor::from([1, 2, 3]),
                 repeats: Tensor::from([-1]),
-                expected_error: OpError::InvalidValue("invalid repeats"),
+                expected_error: OpError::invalid_value("invalid repeats"),
             },
         ];
 

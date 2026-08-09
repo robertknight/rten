@@ -35,7 +35,7 @@ impl<'a> MhaQuery<'a> {
         match query.ndim() {
             5 => Ok(Self::Packed(query.nd_view())),
             3 => Ok(Self::Unpacked(query.nd_view())),
-            _ => Err(OpError::InvalidValue("query must have 3 or 5 dims")),
+            _ => Err(OpError::invalid_value("query must have 3 or 5 dims")),
         }
     }
 }
@@ -82,19 +82,19 @@ impl MultiHeadAttention {
 
         let past_seq_len: Option<NdTensorView<i32, 0>> = ctx.inputs().get_as(8)?;
         if past_seq_len.is_some() {
-            return Err(OpError::UnsupportedValue("past_seq_len is not supported"));
+            return Err(OpError::unsupported_value("past_seq_len is not supported"));
         }
 
         let cache_indirection: Option<NdTensorView<i32, 3>> = ctx.inputs().get_as(9)?;
         if cache_indirection.is_some() {
-            return Err(OpError::UnsupportedValue(
+            return Err(OpError::unsupported_value(
                 "cache_indirection is not supported",
             ));
         }
 
         let num_heads = self.num_heads as usize;
         if num_heads == 0 {
-            return Err(OpError::InvalidValue("num_heads must be positive"));
+            return Err(OpError::invalid_value("num_heads must be positive"));
         }
 
         let (query, key, value, batch_size, seq_len, head_size) = match query {
@@ -102,27 +102,27 @@ impl MultiHeadAttention {
                 let [batch_size, kv_seq_len, q_num_heads, three, head_size] = query.shape();
 
                 if key.is_some() {
-                    return Err(OpError::InvalidValue(
+                    return Err(OpError::invalid_value(
                         "key must be None when query is packed",
                     ));
                 }
                 if value.is_some() {
-                    return Err(OpError::InvalidValue(
+                    return Err(OpError::invalid_value(
                         "value must be None when query is packed",
                     ));
                 }
                 if bias.is_some() {
-                    return Err(OpError::InvalidValue(
+                    return Err(OpError::invalid_value(
                         "bias is not supported with packed QKV format",
                     ));
                 }
                 if three != 3 {
-                    return Err(OpError::InvalidValue(
+                    return Err(OpError::invalid_value(
                         "4th dimension of packed qkv input must be 3",
                     ));
                 }
                 if q_num_heads != num_heads {
-                    return Err(OpError::InvalidValue(
+                    return Err(OpError::invalid_value(
                         "2nd dimension of packed qkv input must be equal to number of attention heads",
                     ));
                 }
@@ -143,7 +143,7 @@ impl MultiHeadAttention {
             MhaQuery::Unpacked(query) => {
                 let [batch_size, seq_len, hidden] = query.shape();
                 if hidden % num_heads != 0 {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "Hidden size must be divisible by number of attention heads",
                     ));
                 }
@@ -153,7 +153,7 @@ impl MultiHeadAttention {
                     (None, _) => (query, query), // Reference impl ignores if value is some
                     (Some(key), Some(value)) => (key, value),
                     (Some(_), None) => {
-                        return Err(OpError::InvalidValue(
+                        return Err(OpError::invalid_value(
                             "value input must be set if key input is present",
                         ));
                     }
@@ -165,17 +165,17 @@ impl MultiHeadAttention {
                     || value_batch != batch_size
                     || value_seq_len != key_seq_len
                 {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "Key and value batch or sequence lengths do not match",
                     ));
                 }
                 if key_hidden != hidden {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "Key hidden size does not match query hidden size",
                     ));
                 }
                 if v_hidden % num_heads != 0 {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "Value hidden size must be divisible by number of attention heads",
                     ));
                 }
@@ -183,7 +183,7 @@ impl MultiHeadAttention {
 
                 let (query, key, value) = if let Some(bias) = bias {
                     if bias.shape() != [hidden * 2 + v_hidden] {
-                        return Err(OpError::IncompatibleInputShapes(
+                        return Err(OpError::incompatible_input_shapes(
                             "Bias shape does not match QKV hidden sizes",
                         ));
                     }
@@ -249,7 +249,7 @@ impl MultiHeadAttention {
         if let Some(key_padding_mask) = key_padding_mask
             && key_padding_mask.shape() != [batch_size, total_seq_len]
         {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "key_padding_mask shape does not match key sequence length",
             ));
         }
@@ -463,7 +463,7 @@ impl GroupQueryAttention {
         }
         let seqlens_k = seqlens_k
             .into_rank::<1>()
-            .map_err(|_| OpError::UnsupportedValue("seqlens_k must be a vector"))?;
+            .map_err(|_| OpError::unsupported_value("seqlens_k must be a vector"))?;
 
         // Scalar. Maximum total sequence length (past + new) across the batch.
         let total_seqlen: NdTensorView<i32, 0> = inputs.require_as(6)?;
@@ -477,21 +477,23 @@ impl GroupQueryAttention {
         let head_sink: Option<NdTensorView<f32, 1>> = inputs.get_as(11)?;
 
         if head_sink.is_some() {
-            return Err(OpError::UnsupportedValue("head_sink is not supported"));
+            return Err(OpError::unsupported_value("head_sink is not supported"));
         }
         if self.smooth_softmax {
-            return Err(OpError::UnsupportedValue("smooth_softmax is not supported"));
+            return Err(OpError::unsupported_value(
+                "smooth_softmax is not supported",
+            ));
         }
 
         let num_heads = self.num_heads as usize;
         let kv_num_heads = self.kv_num_heads as usize;
         if num_heads == 0 || kv_num_heads == 0 {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "num_heads and kv_num_heads must be positive",
             ));
         }
         if !num_heads.is_multiple_of(kv_num_heads) {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "num_heads must be a multiple of kv_num_heads",
             ));
         }
@@ -506,7 +508,7 @@ impl GroupQueryAttention {
             (Some(key), Some(value)) => {
                 let [batch, seq, q_hidden] = query.shape();
                 if !q_hidden.is_multiple_of(num_heads) {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "query hidden size must be divisible by num_heads",
                     ));
                 }
@@ -515,17 +517,17 @@ impl GroupQueryAttention {
                 let [key_batch, kv_seq, kv_hidden] = key.shape();
                 let [value_batch, value_seq, value_hidden] = value.shape();
                 if key_batch != batch || value_batch != batch {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "key and value batch size must match query",
                     ));
                 }
                 if kv_seq != value_seq || kv_hidden != value_hidden {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "key and value must have the same shape",
                     ));
                 }
                 if kv_hidden != kv_num_heads * head_size {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "key hidden size must equal kv_num_heads * head_size",
                     ));
                 }
@@ -533,7 +535,7 @@ impl GroupQueryAttention {
                 // not supported. New key/value sequence length must match the
                 // query.
                 if kv_seq != seq {
-                    return Err(OpError::UnsupportedValue(
+                    return Err(OpError::unsupported_value(
                         "key sequence length must match query sequence length",
                     ));
                 }
@@ -551,7 +553,7 @@ impl GroupQueryAttention {
                 let [batch, seq, packed_hidden] = query.shape();
                 let total_heads = num_heads + 2 * kv_num_heads;
                 if !packed_hidden.is_multiple_of(total_heads) {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "packed query hidden size must be divisible by num_heads + 2 * kv_num_heads",
                     ));
                 }
@@ -568,7 +570,7 @@ impl GroupQueryAttention {
                 )
             }
             _ => {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "key and value must both be present or both absent",
                 ));
             }
@@ -577,14 +579,14 @@ impl GroupQueryAttention {
 
         // Resolve per-batch sequence lengths.
         if seqlens_k.len() != batch {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "seqlens_k must have batch_size elements",
             ));
         }
 
         let total_sequence_length = total_seqlen.item().copied().unwrap();
         if total_sequence_length <= 0 {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "total_sequence_length must be positive",
             ));
         }
@@ -602,7 +604,7 @@ impl GroupQueryAttention {
                     || pv_head_size != head_size
                     || pk_seq != pv_seq
                 {
-                    return Err(OpError::IncompatibleInputShapes(
+                    return Err(OpError::incompatible_input_shapes(
                         "past_key/past_value shape does not match",
                     ));
                 }
@@ -610,7 +612,7 @@ impl GroupQueryAttention {
             }
             (None, None) => 0,
             _ => {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "past_key and past_value must both be present or both absent",
                 ));
             }
@@ -621,22 +623,22 @@ impl GroupQueryAttention {
         let is_subsequent_prompt = seq > 1 && seq != total_sequence_length;
 
         if is_subsequent_prompt && batch != 1 {
-            return Err(OpError::UnsupportedValue(
+            return Err(OpError::unsupported_value(
                 "batch size must be 1 when sequence_length > 1 and a past context is given",
             ));
         }
         if !is_first_prompt && !is_subsequent_prompt && seq != 1 {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "sequence_length must be 1 when query is not a prompt",
             ));
         }
 
         for &len in seqlens_k.iter() {
             if len < 0 || len as usize >= present_seq {
-                return Err(OpError::InvalidValue("seqlens_k entry is out of range"));
+                return Err(OpError::invalid_value("seqlens_k entry is out of range"));
             }
             if (len as usize + 1) < seq {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "seqlens_k entry is too small for the query sequence length",
                 ));
             }
@@ -650,7 +652,7 @@ impl GroupQueryAttention {
                 || bias_seq < seq
                 || bias_total < present_seq
             {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "attention_bias shape is incompatible with query/key shapes",
                 ));
             }
@@ -671,7 +673,7 @@ impl GroupQueryAttention {
         // Apply rotary embeddings to Q and K
         let (rotary_q, rotary_k) = if self.do_rotary {
             let (Some(cos), Some(sin)) = (cos_cache, sin_cache) else {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "cos_cache and sin_cache are required when do_rotary is set",
                 ));
             };
@@ -1235,7 +1237,7 @@ mod tests {
         let result = run_gqa(&op, &query, &key, &value, None, None, &seqlens_k, 2);
         assert_eq!(
             result.err().unwrap(),
-            OpError::UnsupportedValue("smooth_softmax is not supported")
+            OpError::unsupported_value("smooth_softmax is not supported")
         );
 
         // num_heads must be a multiple of kv_num_heads.
@@ -1243,7 +1245,7 @@ mod tests {
         let result = run_gqa(&op, &query, &key, &value, None, None, &seqlens_k, 2);
         assert_eq!(
             result.err().unwrap(),
-            OpError::InvalidValue("num_heads must be a multiple of kv_num_heads")
+            OpError::invalid_value("num_heads must be a multiple of kv_num_heads")
         );
 
         // Inconsistent seqlens_k / total_sequence_length
@@ -1260,7 +1262,7 @@ mod tests {
         );
         assert_eq!(
             result.err().unwrap(),
-            OpError::InvalidValue("seqlens_k entry is too small for the query sequence length")
+            OpError::invalid_value("seqlens_k entry is too small for the query sequence length")
         );
 
         // First-prompt query (seq == total_sequence_length) whose seqlens_k entry
@@ -1278,7 +1280,7 @@ mod tests {
         );
         assert_eq!(
             result.err().unwrap(),
-            OpError::InvalidValue("seqlens_k entry is too small for the query sequence length")
+            OpError::invalid_value("seqlens_k entry is too small for the query sequence length")
         );
 
         // seqlens_k implies a past context larger than the supplied past_key
@@ -1302,7 +1304,7 @@ mod tests {
         );
         assert_eq!(
             result.err().unwrap(),
-            OpError::InvalidValue("seqlens_k entry is out of range")
+            OpError::invalid_value("seqlens_k entry is out of range")
         );
     }
 
@@ -1384,7 +1386,7 @@ mod tests {
         let bias = NdTensor::<f32, 4>::zeros([1, 1, 1, 2]);
         assert_eq!(
             run_with_bias(&bias).err().unwrap(),
-            OpError::IncompatibleInputShapes(
+            OpError::incompatible_input_shapes(
                 "attention_bias shape is incompatible with query/key shapes"
             )
         );
@@ -1393,7 +1395,7 @@ mod tests {
         let bias = NdTensor::<f32, 4>::zeros([1, 1, 2, 1]);
         assert_eq!(
             run_with_bias(&bias).err().unwrap(),
-            OpError::IncompatibleInputShapes(
+            OpError::incompatible_input_shapes(
                 "attention_bias shape is incompatible with query/key shapes"
             )
         );
@@ -1402,7 +1404,7 @@ mod tests {
         let bias = NdTensor::<f32, 4>::zeros([1, 3, 2, 2]);
         assert_eq!(
             run_with_bias(&bias).err().unwrap(),
-            OpError::IncompatibleInputShapes(
+            OpError::incompatible_input_shapes(
                 "attention_bias shape is incompatible with query/key shapes"
             )
         );

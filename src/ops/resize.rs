@@ -279,7 +279,7 @@ fn calc_output_size(
         ResizeTarget::Sizes(sizes) => sizes.size(0),
     };
     if target_len != input_shape.len() {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "scales/sizes length should equal input rank",
         ));
     }
@@ -298,7 +298,7 @@ fn calc_output_size(
     };
 
     if sizes.iter().any(|size| *size < 0) {
-        return Err(OpError::InvalidValue("scales/sizes must be positive"));
+        return Err(OpError::invalid_value("scales/sizes must be positive"));
     }
 
     Ok(ResizeGeometry {
@@ -401,7 +401,7 @@ fn resize_impl(
             opts,
         )
         .map(|y| y.into_shape(output_size.as_slice())),
-        _ => Err(OpError::UnsupportedValue(
+        _ => Err(OpError::unsupported_value(
             "Only 1D to 4D inputs are supported with up to two resized dimensions",
         )),
     }
@@ -1076,7 +1076,7 @@ mod tests {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from([1., 1., 1.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::IncompatibleInputShapes(
+                expected: CaseOutput::Error(OpError::incompatible_input_shapes(
                     "scales/sizes length should equal input rank",
                 )),
             },
@@ -1084,13 +1084,15 @@ mod tests {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from([1., 1., -1., 1.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::InvalidValue("scales/sizes must be positive")),
+                expected: CaseOutput::Error(OpError::invalid_value(
+                    "scales/sizes must be positive",
+                )),
             },
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: Some(Tensor::from_data(&[1, 1, 2, 2], vec![1., 1., 3., 3.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::InvalidValue("scales must have 1 dims")),
+                expected: CaseOutput::Error(OpError::invalid_value("scales must have 1 dims")),
             },
             // Values for scales/sizes and input shapes which are legal according to the spec,
             // but not currently supported in our implementation.
@@ -1098,7 +1100,7 @@ mod tests {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: Some(Tensor::from([2., 1., 3., 3.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::UnsupportedValue(
+                expected: CaseOutput::Error(OpError::unsupported_value(
                     "Only 1D to 4D inputs are supported with up to two resized dimensions",
                 )),
             },

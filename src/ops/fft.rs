@@ -37,7 +37,7 @@ pub fn stft(
         }
         3 => signal.nd_view(),
         _ => {
-            return Err(OpError::InvalidValue("signal must have 2 or 3 dims"));
+            return Err(OpError::invalid_value("signal must have 2 or 3 dims"));
         }
     };
 
@@ -48,7 +48,7 @@ pub fn stft(
             if fl >= 1 && fl as usize <= signal_len {
                 Ok(fl as usize)
             } else {
-                Err(OpError::InvalidValue(
+                Err(OpError::invalid_value(
                     "frame_length must be in range [1, signal_length]",
                 ))
             }
@@ -58,20 +58,20 @@ pub fn stft(
     let frame_step = if frame_step > 0 {
         frame_step as usize
     } else {
-        return Err(OpError::InvalidValue("frame_step must be > 0"));
+        return Err(OpError::invalid_value("frame_step must be > 0"));
     };
 
     // If both `frame_length` and `window` are set, their sizes must match.
     if let (Some(frame_length), Some(window)) = (frame_length, window)
         && frame_length != window.size(0)
     {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "window length must equal frame_length",
         ));
     }
 
     let Some(n_fft) = frame_length.or_else(|| window.map(|w| w.size(0))) else {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Either frame_length or window must be set",
         ));
     };
@@ -80,14 +80,14 @@ pub fn stft(
         1 => FftType::Real,
         2 => FftType::Complex,
         _ => {
-            return Err(OpError::InvalidValue(
+            return Err(OpError::invalid_value(
                 "Last dimension of signal must have size 1 or 2",
             ));
         }
     };
 
     if matches!(fft_type, FftType::Complex) && onesided {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "FFT cannot be one-sided if input is complex",
         ));
     }
@@ -207,13 +207,15 @@ pub fn dft(
 ) -> Result<Tensor<f32>, OpError> {
     let ndim = input.ndim();
     if ndim < 2 {
-        return Err(OpError::InvalidValue("DFT input must have at least 2 dims"));
+        return Err(OpError::invalid_value(
+            "DFT input must have at least 2 dims",
+        ));
     }
 
     let complex_dim = ndim - 1;
     let n_components = input.size(complex_dim);
     if n_components != 1 && n_components != 2 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Last dimension of DFT input must have size 1 or 2",
         ));
     }
@@ -224,12 +226,12 @@ pub fn dft(
     // signal, so it requires real input.
     let irfft = inverse && onesided;
     if irfft && n_components != 2 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Inverse one-sided DFT (IRFFT) requires complex input",
         ));
     }
     if onesided && !inverse && n_components == 2 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "DFT cannot be one-sided if input is complex",
         ));
     }
@@ -238,7 +240,7 @@ pub fn dft(
     // `[-r, -2] ∪ [0, r-2]`, ie. the final (complex) dimension is excluded.
     let dft_axis = resolve_axis(ndim, axis)?;
     if dft_axis == complex_dim {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "DFT axis cannot be the complex dimension",
         ));
     }
@@ -252,7 +254,7 @@ pub fn dft(
     // the default `N` is `2 * (signal_len - 1)`. Matches NumPy's `irfft`.
     let n_fft = match dft_length {
         Some(len) if len >= 1 => len as usize,
-        Some(_) => return Err(OpError::InvalidValue("dft_length must be >= 1")),
+        Some(_) => return Err(OpError::invalid_value("dft_length must be >= 1")),
         None if irfft => 2 * signal_len.saturating_sub(1),
         None => signal_len,
     };
@@ -486,7 +488,7 @@ mod tests {
                     window: None,
                     frame_length: None,
                     onesided: true,
-                    expected: Err(OpError::InvalidValue("Invalid expectation")),
+                    expected: Err(OpError::invalid_value("Invalid expectation")),
                 }
             }
         }
@@ -584,7 +586,7 @@ mod tests {
                 signal: real_signal.clone(),
                 frame_step: 4,
                 frame_length: Some(0),
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "frame_length must be in range [1, signal_length]",
                 )),
                 ..Default::default()
@@ -593,7 +595,7 @@ mod tests {
                 signal: real_signal.clone(),
                 frame_step: 4,
                 frame_length: Some(real_signal.size(1) as i32 + 1),
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "frame_length must be in range [1, signal_length]",
                 )),
                 ..Default::default()
@@ -603,14 +605,14 @@ mod tests {
                 signal: real_signal.clone(),
                 frame_step: 0,
                 frame_length: Some(4),
-                expected: Err(OpError::InvalidValue("frame_step must be > 0")),
+                expected: Err(OpError::invalid_value("frame_step must be > 0")),
                 ..Default::default()
             },
             // Missing window and frame_length
             Case {
                 signal: real_signal.clone(),
                 frame_step: 4,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Either frame_length or window must be set",
                 )),
                 ..Default::default()
@@ -621,7 +623,7 @@ mod tests {
                 frame_step: 4,
                 frame_length: Some(4),
                 window: Some([0., 0.5].into()),
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "window length must equal frame_length",
                 )),
                 ..Default::default()
@@ -632,7 +634,7 @@ mod tests {
                 frame_step: 4,
                 frame_length: Some(4),
                 onesided: true,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "FFT cannot be one-sided if input is complex",
                 )),
                 ..Default::default()
@@ -685,7 +687,7 @@ mod tests {
                     axis: -2,
                     inverse: false,
                     onesided: false,
-                    expected: Err(OpError::InvalidValue("Invalid expectation")),
+                    expected: Err(OpError::invalid_value("Invalid expectation")),
                 }
             }
         }
@@ -763,7 +765,7 @@ mod tests {
                 input: real_signal.clone(),
                 inverse: true,
                 onesided: true,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Inverse one-sided DFT (IRFFT) requires complex input",
                 )),
                 ..Default::default()
@@ -773,7 +775,7 @@ mod tests {
             Case {
                 input: complex_signal.clone(),
                 onesided: true,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "DFT cannot be one-sided if input is complex",
                 )),
                 ..Default::default()
@@ -820,7 +822,7 @@ mod tests {
             // Invalid component count.
             Case {
                 input: Tensor::from([[[1., 2., 3.]]]),
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Last dimension of DFT input must have size 1 or 2",
                 )),
                 ..Default::default()
@@ -829,7 +831,7 @@ mod tests {
             Case {
                 input: real_signal.clone(),
                 dft_length: Some(0),
-                expected: Err(OpError::InvalidValue("dft_length must be >= 1")),
+                expected: Err(OpError::invalid_value("dft_length must be >= 1")),
                 ..Default::default()
             },
         ];

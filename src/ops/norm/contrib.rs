@@ -34,7 +34,7 @@ fn skip_layer_normalization(
     outputs.check_unsupported(2, "inv_std_var")?;
 
     if !matches!(input.ndim(), 2 | 3) {
-        return Err(OpError::InvalidValue("input must be 2 or 3 dimensioned"));
+        return Err(OpError::invalid_value("input must be 2 or 3 dimensioned"));
     }
 
     // `skip` may either match `input` exactly or broadcast over the batch
@@ -42,12 +42,12 @@ fn skip_layer_normalization(
     // trailing dimensions must match those of `input`. This matches ONNX
     // Runtime, which indexes `skip` modulo its own size.
     if !matches!(skip.ndim(), 2 | 3) {
-        return Err(OpError::InvalidValue("skip must be 2 or 3 dimensioned"));
+        return Err(OpError::invalid_value("skip must be 2 or 3 dimensioned"));
     }
     if skip.shape()[skip.ndim() - 2..] != input.shape()[input.ndim() - 2..]
         || !skip.can_broadcast_to(input.shape())
     {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "skip must broadcast to input over the batch dimension",
         ));
     }
@@ -525,7 +525,7 @@ mod tests {
                     input: Tensor::zeros(&[2, 4]),
                     skip: Tensor::zeros(&[2, 3]),
                     gamma: Tensor::zeros(&[4]),
-                    expected: OpError::IncompatibleInputShapes(
+                    expected: OpError::incompatible_input_shapes(
                         "skip must broadcast to input over the batch dimension",
                     ),
                 },
@@ -535,7 +535,7 @@ mod tests {
                     input: Tensor::zeros(&[4]),
                     skip: Tensor::zeros(&[4]),
                     gamma: Tensor::zeros(&[4]),
-                    expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
+                    expected: OpError::invalid_value("input must be 2 or 3 dimensioned"),
                 },
                 // 4D input is unsupported
                 Case {
@@ -543,7 +543,7 @@ mod tests {
                     input: Tensor::zeros(&[1, 1, 2, 4]),
                     skip: Tensor::zeros(&[1, 1, 2, 4]),
                     gamma: Tensor::zeros(&[4]),
-                    expected: OpError::InvalidValue("input must be 2 or 3 dimensioned"),
+                    expected: OpError::invalid_value("input must be 2 or 3 dimensioned"),
                 },
             ]);
         }

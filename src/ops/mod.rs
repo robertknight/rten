@@ -206,7 +206,7 @@ impl Padding {
             Padding::Same => Ok(Padding::Same),
             Padding::Fixed(pads) => match pads.as_slice() {
                 &[pad_start, pad_end] => Ok([0, pad_start, 0, pad_end].into()),
-                _ => Err(OpError::InvalidValue("expected 2 pad values")),
+                _ => Err(OpError::invalid_value("expected 2 pad values")),
             },
         }
     }
@@ -247,7 +247,7 @@ fn resolve_index(len: usize, index: isize) -> Option<usize> {
 ///
 /// Negative axis values count backwards from the last dimension.
 fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
-    resolve_index(ndim, axis).ok_or(OpError::InvalidValue("Axis is invalid"))
+    resolve_index(ndim, axis).ok_or(OpError::invalid_value("Axis is invalid"))
 }
 
 /// Resolve a sequence of axes values in `[-ndim, ndim-1]` to zero-based dimension
@@ -384,7 +384,7 @@ use map_value;
 macro_rules! check_value {
     ($condition:expr, $err_variant:ident, $err_msg:expr) => {
         if !$condition {
-            return Err(OpError::$err_variant($err_msg));
+            return Err(OpError::$err_variant($err_msg.into()));
         }
     };
 }

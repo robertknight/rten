@@ -20,7 +20,7 @@ fn bias_gelu(ctx: &OpRunContext, approximate: bool) -> Result<OutputList, OpErro
     let b: NdTensorView<_, 1> = inputs.require_as(1)?;
 
     if a.ndim() == 0 || a.size(a.ndim() - 1) != b.size(0) {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "bias length does not match last dimension of input",
         ));
     }
@@ -325,7 +325,7 @@ mod tests {
                 let result = op.run_simple::<_, Tensor>((input.view(), bias.view()));
                 assert_eq!(
                     result,
-                    Err(OpError::IncompatibleInputShapes(
+                    Err(OpError::incompatible_input_shapes(
                         "bias length does not match last dimension of input"
                     ))
                 );

@@ -627,7 +627,7 @@ fn prelu<T: Copy + Default + PartialOrd + std::ops::Mul<Output = T>>(
     slope: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
     if !slope.can_broadcast_to(x.shape()) {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Slope is not broadcastable to input shape",
         ));
     }
@@ -1180,7 +1180,7 @@ mod tests {
         let result: Result<Tensor, _> = op.run_simple((x.view(), slope_2d.view()));
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
+            Some(OpError::incompatible_input_shapes(
                 "Slope is not broadcastable to input shape"
             ))
         );

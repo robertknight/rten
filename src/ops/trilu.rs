@@ -44,7 +44,7 @@ pub fn trilu<T: Copy + Default>(
     upper: bool,
 ) -> Result<Tensor<T>, OpError> {
     if input.ndim() < 2 {
-        return Err(OpError::InvalidValue("Input must have >= 2 dims"));
+        return Err(OpError::invalid_value("Input must have >= 2 dims"));
     }
 
     let mut output = Tensor::uninit_in(pool, input.shape());
@@ -205,7 +205,7 @@ mod tests {
         let result = trilu(&pool, input.view(), 0, true /* upper */);
         assert_eq!(
             result,
-            Err(OpError::InvalidValue("Input must have >= 2 dims"))
+            Err(OpError::invalid_value("Input must have >= 2 dims"))
         );
     }
 }

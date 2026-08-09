@@ -25,18 +25,18 @@ fn rotary_cache_dims(
     bad_last_dim: &'static str,
 ) -> Result<(usize, usize), OpError> {
     let &[cache_batch, cache_seq, cache_half] = cache_shape else {
-        return Err(OpError::InvalidValue("cos/sin cache must be a 3D tensor"));
+        return Err(OpError::invalid_value("cos/sin cache must be a 3D tensor"));
     };
     if cache_half != half {
-        return Err(OpError::InvalidValue(bad_last_dim));
+        return Err(OpError::invalid_value(bad_last_dim));
     }
     if cache_seq != 1 && cache_seq != seq_len {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "cos/sin cache sequence length must be 1 or match the input",
         ));
     }
     if cache_batch != 1 && cache_batch != batch {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "cos/sin cache batch size must be 1 or match the input",
         ));
     }
@@ -57,12 +57,12 @@ pub(crate) fn rotary_embedding(
     let reshaped_input = match input.shape() {
         &[batch, seq_len, hidden_size] => {
             if num_heads == 0 {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "num_heads must not be 0 for 3 dimensioned input",
                 ));
             }
             if hidden_size % num_heads != 0 {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "hidden_size must be divisible by num_heads",
                 ));
             }
@@ -74,7 +74,7 @@ pub(crate) fn rotary_embedding(
             input.nd_view().permuted([0, 2, 1, 3]).as_cow()
         }
         _ => {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "Input processed needs 3-4 dimensions",
             ));
         }
@@ -87,12 +87,12 @@ pub(crate) fn rotary_embedding(
         rotary_embedding_dim
     };
     if rotary_embedding_dim == 0 || rotary_embedding_dim % 2 != 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "rotary_embedding_dim must be a positive even number",
         ));
     }
     if rotary_embedding_dim > head_size {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "rotary_embedding_dim must not exceed head size",
         ));
     }
@@ -603,7 +603,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                Err(OpError::InvalidValue(
+                Err(OpError::invalid_value(
                     "rotary_embedding_dim must be a positive even number"
                 ))
             );

@@ -192,7 +192,9 @@ impl Operator for CastLike {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let target_type = ctx.inputs().require(1)?;
         let ValueType::Tensor(to) = target_type.dtype() else {
-            return Err(OpError::InvalidValue("expected target_type to be a tensor"));
+            return Err(OpError::invalid_value(
+                "expected target_type to be a tensor",
+            ));
         };
         Cast { to }.run(ctx)
     }
@@ -208,7 +210,9 @@ impl Operator for CastLike {
     ) -> Result<OutputList, OpError> {
         let target_type = ctx.inputs().require(1)?;
         let ValueType::Tensor(to) = target_type.dtype() else {
-            return Err(OpError::InvalidValue("expected target_type to be a tensor"));
+            return Err(OpError::invalid_value(
+                "expected target_type to be a tensor",
+            ));
         };
         Cast { to }.run_in_place(in_place, ctx)
     }

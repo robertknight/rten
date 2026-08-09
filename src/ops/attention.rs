@@ -1,5 +1,6 @@
 //! Attention-related operations.
 
+use std::borrow::Cow;
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
@@ -22,7 +23,8 @@ use crate::ops::{
 };
 use crate::value::{Value, ValueView};
 
-const BROADCAST_ERROR: OpError = OpError::IncompatibleInputShapes("Cannot broadcast inputs");
+const BROADCAST_ERROR: OpError =
+    OpError::IncompatibleInputShapes(Cow::Borrowed("Cannot broadcast inputs"));
 
 /// Perform lanewise `Add + Softmax` on tensors `qk` and `m`.
 ///
@@ -171,7 +173,7 @@ fn repeat_interleave<T: Copy>(
     repeats: usize,
 ) -> Result<Tensor<T>, OpError> {
     if input.ndim() <= axis {
-        return Err(OpError::InvalidValue("Input has too few dims"));
+        return Err(OpError::invalid_value("Input has too few dims"));
     }
 
     // Insert temporary 1-sized axis and use broadcasting to repeat along
@@ -264,13 +266,13 @@ impl Operator for GroupedQueryAttentionMatMul {
         let [rhs_batch, rhs_heads, rhs_k, rhs_n] = rhs.shape();
 
         if batch != rhs_batch {
-            return Err(OpError::IncompatibleInputShapes("Batch size mismatch"));
+            return Err(OpError::incompatible_input_shapes("Batch size mismatch"));
         }
         if k != rhs_k {
-            return Err(OpError::IncompatibleInputShapes("K size mismatch"));
+            return Err(OpError::incompatible_input_shapes("K size mismatch"));
         }
         if rhs_heads * self.repeats != heads {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "Repeated axis size mismatch",
             ));
         }
@@ -329,7 +331,7 @@ pub fn split_attention_heads<'a>(
 ) -> Result<CowNdTensor<'a, f32, 4>, OpError> {
     let [batch_size, seq_len, hidden] = input.shape();
     if hidden != num_heads * head_size {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Hidden size does not match number of attention heads",
         ));
     }
@@ -452,7 +454,7 @@ fn take_past_kv(
         } else if index == past_value_index {
             past_value = Some(cache);
         } else {
-            return Err(OpError::InvalidValue("unexpected in-place input"));
+            return Err(OpError::invalid_value("unexpected in-place input"));
         }
     }
     Ok((past_key, past_value))
@@ -488,7 +490,7 @@ fn concat_past_kv<'a, 'b>(
                 || pv_head_size != v_head_size
                 || pk_seq != pv_seq
             {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "past_key/past_value shape does not match key/value shape",
                 ));
             }
@@ -501,7 +503,7 @@ fn concat_past_kv<'a, 'b>(
             Ok(pk_seq)
         }
         (None, None) => Ok(0),
-        _ => Err(OpError::InvalidValue(
+        _ => Err(OpError::invalid_value(
             "past_key and past_value must either both be present or both be absent",
         )),
     }
@@ -681,11 +683,11 @@ impl Attention {
             3 => true,
             4 => false,
             _ => {
-                return Err(OpError::InvalidValue("query must have 3 or 4 dimensions"));
+                return Err(OpError::invalid_value("query must have 3 or 4 dimensions"));
             }
         };
         if key.ndim() != query.ndim() || value.ndim() != query.ndim() {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "query, key and value must have the same rank",
             ));
         }
@@ -694,14 +696,14 @@ impl Attention {
 
         // Reshape inputs to (batch, heads, seq, head_size) layout.
         let (query, key, value) = if input_3d {
-            let q_num_heads = self.q_num_heads.ok_or(OpError::InvalidValue(
+            let q_num_heads = self.q_num_heads.ok_or(OpError::invalid_value(
                 "q_num_heads is required for 3D inputs",
             ))? as usize;
-            let kv_num_heads = self.kv_num_heads.ok_or(OpError::InvalidValue(
+            let kv_num_heads = self.kv_num_heads.ok_or(OpError::invalid_value(
                 "kv_num_heads is required for 3D inputs",
             ))? as usize;
             if q_num_heads == 0 || kv_num_heads == 0 {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "q_num_heads and kv_num_heads must be positive",
                 ));
             }
@@ -714,28 +716,28 @@ impl Attention {
             let [key_batch, kv_seq, k_hidden] = key.shape();
             let [value_batch, v_seq, v_hidden] = value.shape();
             if key_batch != batch || value_batch != batch {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "query, key and value must have the same batch size",
                 ));
             }
             if kv_seq != v_seq {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "key and value must have the same sequence length",
                 ));
             }
             if q_hidden % q_num_heads != 0 {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "query hidden size must be divisible by q_num_heads",
                 ));
             }
             let head_size = q_hidden / q_num_heads;
             if k_hidden % kv_num_heads != 0 || v_hidden % kv_num_heads != 0 {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "key/value hidden size must be divisible by kv_num_heads",
                 ));
             }
             if k_hidden / kv_num_heads != head_size {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "key head size must match query head size",
                 ));
             }
@@ -755,17 +757,17 @@ impl Attention {
             let [key_batch, kv_heads, kv_seq, k_head_size] = key.shape();
             let [value_batch, v_kv_heads, value_seq, _v_head_size] = value.shape();
             if key_batch != batch || value_batch != batch {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "query, key and value must have the same batch size",
                 ));
             }
             if kv_heads != v_kv_heads || kv_seq != value_seq {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "key and value must have the same number of heads and sequence length",
                 ));
             }
             if k_head_size != head_size {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "key head size must match query head size",
                 ));
             }
@@ -781,7 +783,7 @@ impl Attention {
         let kv_num_heads = key.size(1);
 
         if q_num_heads == 0 || kv_num_heads == 0 || !q_num_heads.is_multiple_of(kv_num_heads) {
-            return Err(OpError::IncompatibleInputShapes(
+            return Err(OpError::incompatible_input_shapes(
                 "q_num_heads must be a positive multiple of kv_num_heads",
             ));
         }
@@ -796,12 +798,12 @@ impl Attention {
 
         if let Some(nonpad) = nonpad_kv_seqlen.as_ref() {
             if has_past_kv {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "nonpad_kv_seqlen cannot be combined with past_key/past_value",
                 ));
             }
             if nonpad.len() != batch {
-                return Err(OpError::IncompatibleInputShapes(
+                return Err(OpError::incompatible_input_shapes(
                     "nonpad_kv_seqlen must have batch_size elements",
                 ));
             }
@@ -809,7 +811,7 @@ impl Attention {
                 .iter()
                 .any(|&len| len < 0 || len as usize > total_seq)
             {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "nonpad_kv_seqlen entry is out of range",
                 ));
             }
@@ -829,7 +831,7 @@ impl Attention {
                 mask.try_broadcast(target).map_err(|_| BROADCAST_ERROR)?,
             )),
             Some(_) => {
-                return Err(OpError::InvalidValue(
+                return Err(OpError::invalid_value(
                     "attn_mask must have a float or bool (int32) type",
                 ));
             }
@@ -1723,7 +1725,7 @@ mod tests {
         let err = run_attention(&op, &inputs).unwrap_err();
         assert_eq!(
             err,
-            OpError::IncompatibleInputShapes("key and value must have the same sequence length")
+            OpError::incompatible_input_shapes("key and value must have the same sequence length")
         );
     }
 
@@ -1829,26 +1831,26 @@ mod tests {
             Case {
                 nonpad: vec![3, 3],
                 with_past: true,
-                expected: OpError::InvalidValue(
+                expected: OpError::invalid_value(
                     "nonpad_kv_seqlen cannot be combined with past_key/past_value",
                 ),
             },
             Case {
                 nonpad: vec![3],
                 with_past: false,
-                expected: OpError::IncompatibleInputShapes(
+                expected: OpError::incompatible_input_shapes(
                     "nonpad_kv_seqlen must have batch_size elements",
                 ),
             },
             Case {
                 nonpad: vec![-1, 3],
                 with_past: false,
-                expected: OpError::InvalidValue("nonpad_kv_seqlen entry is out of range"),
+                expected: OpError::invalid_value("nonpad_kv_seqlen entry is out of range"),
             },
             Case {
                 nonpad: vec![4, 3],
                 with_past: false,
-                expected: OpError::InvalidValue("nonpad_kv_seqlen entry is out of range"),
+                expected: OpError::invalid_value("nonpad_kv_seqlen entry is out of range"),
             },
         ];
 

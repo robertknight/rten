@@ -59,7 +59,7 @@ impl Operator for SequenceAt {
         let seq: &Sequence = ctx.inputs().require_as(0)?;
         let pos: i32 = ctx.inputs().require_as(1)?;
         let pos = resolve_index(seq.len(), pos as isize)
-            .ok_or(OpError::InvalidValue("Sequence position is invalid"))?;
+            .ok_or(OpError::invalid_value("Sequence position is invalid"))?;
         seq.at(pos)
             .unwrap()
             .to_owned_in(ctx.pool())
@@ -119,7 +119,7 @@ impl Operator for SequenceConstruct {
 
 fn sequence_erase(mut seq: Sequence, pos: Option<i32>) -> Result<Sequence, OpError> {
     let Some(max_index) = seq.len().checked_sub(1) else {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Cannot remove element from empty sequence",
         ));
     };
@@ -127,7 +127,7 @@ fn sequence_erase(mut seq: Sequence, pos: Option<i32>) -> Result<Sequence, OpErr
     let pos = pos
         .map(|pos| {
             resolve_index(seq.len(), pos as isize)
-                .ok_or(OpError::InvalidValue("Sequence position is invalid"))
+                .ok_or(OpError::invalid_value("Sequence position is invalid"))
         })
         .transpose()?
         .unwrap_or(max_index);
@@ -188,18 +188,18 @@ fn sequence_insert(
     val: ValueView,
 ) -> Result<Sequence, OpError> {
     let ValueType::Tensor(val_dtype) = val.dtype() else {
-        return Err(OpError::InvalidValue("expected input to be a tensor"));
+        return Err(OpError::invalid_value("expected input to be a tensor"));
     };
 
     if seq.dtype() != val_dtype {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Tensor type does not match sequence type",
         ));
     }
     let pos = pos
         .map(|pos| {
             resolve_index(seq.len() + 1, pos as isize)
-                .ok_or(OpError::InvalidValue("Sequence position is invalid"))
+                .ok_or(OpError::invalid_value("Sequence position is invalid"))
         })
         .transpose()?
         .unwrap_or(seq.len());
@@ -374,12 +374,14 @@ impl Operator for SplitToSequence {
                     if size >= 1 {
                         SplitSizes::Size(size)
                     } else {
-                        return Err(OpError::InvalidValue("Split size must be >= 1"));
+                        return Err(OpError::invalid_value("Split size must be >= 1"));
                     }
                 }
                 (1, _) => SplitSizes::Sizes(splits.nd_view()),
                 _ => {
-                    return Err(OpError::InvalidValue("Split size must be scalar or vector"));
+                    return Err(OpError::invalid_value(
+                        "Split size must be scalar or vector",
+                    ));
                 }
             }
         } else {
@@ -484,7 +486,7 @@ mod tests {
             Case {
                 seq: [1., 2.].map(Tensor::from).into(),
                 pos: 2,
-                expected: Err(OpError::InvalidValue("Sequence position is invalid")),
+                expected: Err(OpError::invalid_value("Sequence position is invalid")),
             },
         ];
 
@@ -568,13 +570,13 @@ mod tests {
             Case {
                 seq: test_seq.clone(),
                 pos: Some(5),
-                expected: Err(OpError::InvalidValue("Sequence position is invalid")),
+                expected: Err(OpError::invalid_value("Sequence position is invalid")),
             },
             // Removal from empty sequence
             Case {
                 seq: Sequence::new(DataType::Int32),
                 pos: None,
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Cannot remove element from empty sequence",
                 )),
             },
@@ -637,14 +639,14 @@ mod tests {
                 seq: [1., 2.].map(Tensor::from).into(),
                 pos: Some(5),
                 value: Tensor::from(3.).into(),
-                expected: Err(OpError::InvalidValue("Sequence position is invalid")),
+                expected: Err(OpError::invalid_value("Sequence position is invalid")),
             },
             // Data type mismatch
             Case {
                 seq: [1., 2.].map(Tensor::from).into(),
                 pos: Some(2),
                 value: Tensor::from(3i32).into(),
-                expected: Err(OpError::InvalidValue(
+                expected: Err(OpError::invalid_value(
                     "Tensor type does not match sequence type",
                 )),
             },
@@ -702,7 +704,7 @@ mod tests {
                 seq: [[0], [1], [2]].map(Tensor::from).into(),
                 axis: 3,
                 new_axis: true,
-                expected: Err(OpError::InvalidValue("Axis is invalid")),
+                expected: Err(OpError::invalid_value("Axis is invalid")),
             },
         ];
 
@@ -771,7 +773,7 @@ mod tests {
                 splits: Some(Tensor::from(0)),
                 axis: 0,
                 keep_dims: true,
-                expected: Err(OpError::InvalidValue("Split size must be >= 1")),
+                expected: Err(OpError::invalid_value("Split size must be >= 1")),
             },
             // Invalid split rank
             Case {
@@ -779,7 +781,9 @@ mod tests {
                 splits: Some(Tensor::from([[1]])),
                 axis: 0,
                 keep_dims: true,
-                expected: Err(OpError::InvalidValue("Split size must be scalar or vector")),
+                expected: Err(OpError::invalid_value(
+                    "Split size must be scalar or vector",
+                )),
             },
         ];
 

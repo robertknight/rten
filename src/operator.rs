@@ -128,22 +128,42 @@ pub enum OpError {
 
     /// Input tensor shapes are not compatible with each other or operator
     /// attributes.
-    IncompatibleInputShapes(&'static str),
+    IncompatibleInputShapes(Cow<'static, str>),
 
     /// The number of inputs was less than the required number.
     MissingInputs,
 
     /// An input has a value that is incorrect.
-    InvalidValue(&'static str),
+    InvalidValue(Cow<'static, str>),
 
     /// An input or attribute has a value that is valid, but not currently supported.
-    UnsupportedValue(&'static str),
+    UnsupportedValue(Cow<'static, str>),
 
     /// An output was requested that is currently unsupported.
-    UnsupportedOutput(&'static str),
+    UnsupportedOutput(Cow<'static, str>),
 }
 
 impl OpError {
+    /// Create an [`IncompatibleInputShapes`](OpError::IncompatibleInputShapes) error.
+    pub fn incompatible_input_shapes(details: impl Into<Cow<'static, str>>) -> OpError {
+        OpError::IncompatibleInputShapes(details.into())
+    }
+
+    /// Create an [`InvalidValue`](OpError::InvalidValue) error.
+    pub fn invalid_value(details: impl Into<Cow<'static, str>>) -> OpError {
+        OpError::InvalidValue(details.into())
+    }
+
+    /// Create an [`UnsupportedValue`](OpError::UnsupportedValue) error.
+    pub fn unsupported_value(details: impl Into<Cow<'static, str>>) -> OpError {
+        OpError::UnsupportedValue(details.into())
+    }
+
+    /// Create an [`UnsupportedOutput`](OpError::UnsupportedOutput) error.
+    pub fn unsupported_output(name: impl Into<Cow<'static, str>>) -> OpError {
+        OpError::UnsupportedOutput(name.into())
+    }
+
     /// Associate this error with a given operator input.
     pub fn with_input_index(self, index: usize) -> OpError {
         match self {
@@ -212,7 +232,7 @@ macro_rules! static_dims {
         use rten_tensor::prelude::*;
 
         if $tensor.ndim() != $ndim {
-            Err(OpError::InvalidValue(concat!(
+            Err(OpError::invalid_value(concat!(
                 stringify!($tensor),
                 " must have ",
                 stringify!($ndim),
@@ -229,7 +249,7 @@ macro_rules! static_dims {
         use rten_tensor::prelude::*;
 
         if $tensor.ndim() != $ndim {
-            Err(OpError::InvalidValue(concat!(
+            Err(OpError::invalid_value(concat!(
                 stringify!($tensor),
                 " must have ",
                 stringify!($ndim),
@@ -261,7 +281,7 @@ macro_rules! check_eq {
     };
     ($actual:expr, $expected:expr, $msg:expr) => {{
         if $actual != $expected {
-            return Err(OpError::IncompatibleInputShapes($msg));
+            return Err(OpError::incompatible_input_shapes($msg));
         }
         Ok::<_, OpError>(())
     }};
@@ -324,9 +344,13 @@ impl OutputMask {
 
     /// Return [`OpError::UnsupportedOutput`] if the unsupported output at the
     /// given index is requested.
-    pub fn check_unsupported(&self, idx: usize, name: &'static str) -> Result<(), OpError> {
+    pub fn check_unsupported(
+        &self,
+        idx: usize,
+        name: impl Into<Cow<'static, str>>,
+    ) -> Result<(), OpError> {
         if self.is_used(idx) {
-            Err(OpError::UnsupportedOutput(name))
+            Err(OpError::unsupported_output(name))
         } else {
             Ok(())
         }
@@ -590,7 +614,7 @@ pub trait Operator: Any + Debug {
         #[allow(unused)] in_place: InPlaceInputs,
         #[allow(unused)] ctx: &OpRunContext,
     ) -> Result<OutputList, OpError> {
-        Err(OpError::InvalidValue("In-place execution not supported"))
+        Err(OpError::invalid_value("In-place execution not supported"))
     }
 
     /// Return the IDs of inputs which can be pre-packed using [`prepack`](Operator::prepack).

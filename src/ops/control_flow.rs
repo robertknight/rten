@@ -43,7 +43,7 @@ impl Operator for If {
     }
 
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        Err(OpError::InvalidValue(
+        Err(OpError::invalid_value(
             "operator must be run with `run_subgraph`",
         ))
     }
@@ -84,7 +84,7 @@ impl SubgraphOperator for If {
         let Some(cond_bool) = cond.item().copied() else {
             return Err(RunError::op_error(
                 node_name,
-                OpError::InvalidValue("cond must be a single value"),
+                OpError::invalid_value("cond must be a single value"),
                 ctx,
             ));
         };
@@ -141,7 +141,7 @@ impl Operator for Loop {
     }
 
     fn run(&self, _ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        Err(OpError::InvalidValue(
+        Err(OpError::invalid_value(
             "operator must be run with `run_subgraph`",
         ))
     }
@@ -199,14 +199,14 @@ impl SubgraphOperator for Loop {
 
         let input_ids = self.body.input_ids();
         if input_ids.len() != 2 + loop_carried_deps.len() {
-            return Err(make_run_error(OpError::InvalidValue(
+            return Err(make_run_error(OpError::invalid_value(
                 "loop body has too few inputs",
             )));
         }
 
         let output_ids = self.body.output_ids();
         if output_ids.len() < 1 + loop_carried_deps.len() {
-            return Err(make_run_error(OpError::InvalidValue(
+            return Err(make_run_error(OpError::invalid_value(
                 "loop body has too few outputs",
             )));
         }
@@ -238,10 +238,12 @@ impl SubgraphOperator for Loop {
 
             // Extract condition.
             let next_cond: Tensor<i32> = step_outputs.remove(0).try_into().map_err(|_| {
-                make_run_error(OpError::InvalidValue("condition output has incorrect type"))
+                make_run_error(OpError::invalid_value(
+                    "condition output has incorrect type",
+                ))
             })?;
             let Some(&next_cond) = next_cond.item() else {
-                return Err(make_run_error(OpError::InvalidValue(
+                return Err(make_run_error(OpError::invalid_value(
                     "condition output should be a scalar",
                 )));
             };
@@ -307,11 +309,11 @@ where
 
     for output in rest {
         let mut typed_output: Tensor<T> = output.try_into().map_err(|_| {
-            OpError::InvalidValue("scan output has different type across iterations")
+            OpError::invalid_value("scan output has different type across iterations")
         })?;
         typed_output.insert_axis(0);
         tensor.append(0, &typed_output).map_err(|_| {
-            OpError::InvalidValue("scan output has different shape across iterations")
+            OpError::invalid_value("scan output has different shape across iterations")
         })?;
     }
 

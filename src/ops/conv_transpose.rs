@@ -155,19 +155,19 @@ fn conv_transpose_output_size_and_padding(
     let [out_pad_h, out_pad_w] = output_padding;
 
     if stride_h == 0 || stride_w == 0 {
-        return Err(OpError::InvalidValue("Strides must be > 0"));
+        return Err(OpError::invalid_value("Strides must be > 0"));
     }
 
     if dilation_h == 0 || dilation_w == 0 {
-        return Err(OpError::InvalidValue("Dilations must be > 0"));
+        return Err(OpError::invalid_value("Dilations must be > 0"));
     }
 
     if kernel_shape.contains(&0) {
-        return Err(OpError::InvalidValue("Kernel size must be > 0"));
+        return Err(OpError::invalid_value("Kernel size must be > 0"));
     }
 
     if in_h == 0 || in_w == 0 {
-        return Err(OpError::InvalidValue("Input width and height must be > 0"));
+        return Err(OpError::invalid_value("Input width and height must be > 0"));
     }
 
     // Effective kernel size after dilation.
@@ -188,7 +188,7 @@ fn conv_transpose_output_size_and_padding(
             let (Some(pad_h), Some(pad_w)) = (pad_h, pad_w) else {
                 // We can't achieve an output size of (out_h, out_w) even with
                 // no padding.
-                return Err(OpError::InvalidValue("Input is too small"));
+                return Err(OpError::invalid_value("Input is too small"));
             };
 
             // If the total padding is not even, we assign the remaining unit to
@@ -209,12 +209,12 @@ fn conv_transpose_output_size_and_padding(
                     ((in_w - 1) * stride_w + out_pad_w + k_w).checked_sub(pad_left + pad_right);
 
                 let (Some(out_h), Some(out_w)) = (out_h, out_w) else {
-                    return Err(OpError::InvalidValue("Input is too small"));
+                    return Err(OpError::invalid_value("Input is too small"));
                 };
 
                 Ok(([out_h, out_w], [pad_top, pad_left, pad_bottom, pad_right]))
             }
-            _ => Err(OpError::InvalidValue("Wrong number of pad values")),
+            _ => Err(OpError::invalid_value("Wrong number of pad values")),
         },
     }
 }
@@ -251,14 +251,14 @@ pub fn conv_transpose(
         let strides_2d = match strides {
             &[stride] => [1, stride],
             _ => {
-                return Err(OpError::InvalidValue("expected 1 stride value"));
+                return Err(OpError::invalid_value("expected 1 stride value"));
             }
         };
 
         let dilations_2d = match dilations {
             &[dilation] => [1, dilation],
             _ => {
-                return Err(OpError::InvalidValue("expected 1 dilation value"));
+                return Err(OpError::invalid_value("expected 1 dilation value"));
             }
         };
 
@@ -266,7 +266,7 @@ pub fn conv_transpose(
             Some(&[pad]) => [0, pad],
             None => [0, 0],
             _ => {
-                return Err(OpError::InvalidValue("expected 1 output_padding value"));
+                return Err(OpError::invalid_value("expected 1 output_padding value"));
             }
         };
 
@@ -290,7 +290,7 @@ pub fn conv_transpose(
     }
 
     if groups == 0 {
-        return Err(OpError::InvalidValue("Group count must be > 0"));
+        return Err(OpError::invalid_value("Group count must be > 0"));
     }
 
     let input = static_dims!(input, 4, "NCHW")?;
@@ -306,28 +306,28 @@ pub fn conv_transpose(
     let bias = bias.map(|b| b.nd_view());
 
     if in_c != k_in_c {
-        return Err(OpError::IncompatibleInputShapes(
+        return Err(OpError::incompatible_input_shapes(
             "Input channels does not match kernel input channels",
         ));
     }
 
     if k_in_c % groups != 0 {
-        return Err(OpError::InvalidValue(
+        return Err(OpError::invalid_value(
             "Input channel count not divisible by groups",
         ));
     }
 
     let &[stride_h, stride_w] = strides else {
-        return Err(OpError::InvalidValue("expected 2 stride values"));
+        return Err(OpError::invalid_value("expected 2 stride values"));
     };
     let &[dilation_h, dilation_w] = dilations else {
-        return Err(OpError::InvalidValue("expected 2 dilation values"));
+        return Err(OpError::invalid_value("expected 2 dilation values"));
     };
     let [out_pad_h, out_pad_w] = match output_padding {
         Some(&[h, w]) => [h, w],
         None => [0, 0],
         _ => {
-            return Err(OpError::InvalidValue("expected 2 output_padding values"));
+            return Err(OpError::invalid_value("expected 2 output_padding values"));
         }
     };
 
@@ -781,7 +781,7 @@ mod tests {
                     strides: [1, 1],
                     dilations: [1, 1],
                     output_padding: [0, 0],
-                    expected: Err(OpError::InvalidValue("default value")),
+                    expected: Err(OpError::invalid_value("default value")),
                 }
             }
         }
@@ -856,7 +856,7 @@ mod tests {
                 kernel_shape: [1, 1],
                 padding: Padding::Same,
                 strides: [3, 3],
-                expected: Err(OpError::InvalidValue("Input is too small")),
+                expected: Err(OpError::invalid_value("Input is too small")),
                 ..Default::default()
             },
             // Padding too large
@@ -865,7 +865,7 @@ mod tests {
                 kernel_shape: [3, 3],
                 padding: Padding::Fixed([4, 4, 4, 4].into()),
                 strides: [1, 1],
-                expected: Err(OpError::InvalidValue("Input is too small")),
+                expected: Err(OpError::invalid_value("Input is too small")),
                 ..Default::default()
             },
             // Dilations, stride of 1
@@ -900,7 +900,7 @@ mod tests {
                 kernel_shape: [3, 3],
                 padding: Padding::zero::<2>(),
                 strides: [0, 0],
-                expected: Err(OpError::InvalidValue("Strides must be > 0")),
+                expected: Err(OpError::invalid_value("Strides must be > 0")),
                 ..Default::default()
             },
             // Invalid dilations
@@ -908,14 +908,14 @@ mod tests {
                 input_shape: [5, 5],
                 kernel_shape: [3, 3],
                 dilations: [0, 0],
-                expected: Err(OpError::InvalidValue("Dilations must be > 0")),
+                expected: Err(OpError::invalid_value("Dilations must be > 0")),
                 ..Default::default()
             },
             // Empty kernel
             Case {
                 input_shape: [5, 5],
                 kernel_shape: [0, 0],
-                expected: Err(OpError::InvalidValue("Kernel size must be > 0")),
+                expected: Err(OpError::invalid_value("Kernel size must be > 0")),
                 ..Default::default()
             },
             // Empty input
@@ -924,7 +924,7 @@ mod tests {
                 kernel_shape: [3, 3],
                 padding: Padding::zero::<2>(),
                 strides: [1, 1],
-                expected: Err(OpError::InvalidValue("Input width and height must be > 0")),
+                expected: Err(OpError::invalid_value("Input width and height must be > 0")),
                 ..Default::default()
             },
             // Wrong padding size for input spatial shape.
@@ -933,7 +933,7 @@ mod tests {
                 kernel_shape: [3, 3],
                 padding: Padding::zero::<1>(),
                 strides: [1, 1],
-                expected: Err(OpError::InvalidValue("Wrong number of pad values")),
+                expected: Err(OpError::invalid_value("Wrong number of pad values")),
                 ..Default::default()
             },
             // Output padding on Y axis
