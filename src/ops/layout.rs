@@ -1016,12 +1016,16 @@ mod tests {
             Case {
                 shape: [2, 3, 4].into(),
                 axis: 4,
-                expected: Err(OpError::invalid_value("Axis is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Axis 4 is out of range. Must be in [-3, 3)",
+                )),
             },
             Case {
                 shape: [2, 3, 4].into(),
                 axis: -4,
-                expected: Err(OpError::invalid_value("Axis is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Axis -4 is out of range. Must be in [-3, 3)",
+                )),
             },
         ];
 
@@ -1437,7 +1441,9 @@ mod tests {
         let result = unsqueeze(&pool, input.view(), &NdTensor::from([3]).view());
         assert_eq!(
             result.err(),
-            Some(OpError::invalid_value("Axis is invalid"))
+            Some(OpError::invalid_value(
+                "Axis 3 is out of range. Must be in [-3, 3)"
+            ))
         );
 
         // Repeated dimension index

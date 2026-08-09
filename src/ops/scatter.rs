@@ -11,7 +11,7 @@ use crate::operator::{
     OutputTypesContext,
 };
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
-use crate::ops::{map_value_view, resolve_axis, resolve_index};
+use crate::ops::{map_value_view, resolve_axis, try_resolve_index};
 use crate::value::ValueView;
 
 // Specifies how to combine an existing element value with an update in a
@@ -88,9 +88,7 @@ pub fn scatter_elements<
         let mut output_lane = output_lane.into_view();
 
         for (idx, update) in index_lane.zip(update_lane) {
-            let Some(idx) = resolve_index(axis_size, *idx as isize) else {
-                return Err(OpError::invalid_value("Index is invalid"));
-            };
+            let idx = try_resolve_index(axis_size, *idx)?;
             let out_el = &mut output_lane[[idx]];
             *out_el = scatter_reduce(*out_el, *update, reduction);
         }
@@ -225,8 +223,7 @@ pub fn scatter_nd<
             .iter()
             .zip(output.shape().iter().zip(output.strides().iter()))
         {
-            let idx = resolve_index(*size, *i as isize)
-                .ok_or(OpError::invalid_value("invalid scatter index"))?;
+            let idx = try_resolve_index(*size, *i)?;
             output_slice_offset += idx * stride;
         }
         let out_data = output.data_mut().unwrap();
@@ -317,7 +314,9 @@ mod tests {
                 indices: Tensor::from([4]),
                 updates: Tensor::from([1.]),
                 axis: 0,
-                expected: Err(OpError::invalid_value("Index is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Index 4 is out of range. Must be in [-3, 3)",
+                )),
             },
             // Rank mismatch
             Case {
@@ -547,7 +546,7 @@ mod tests {
                 data: Tensor::arange(1., 5., None),
                 indices: [[0], [1], [2], [4]].into(),
                 updates: [1., 2., 3., 4.].into(),
-                expected: OpError::invalid_value("invalid scatter index"),
+                expected: OpError::invalid_value("Index 4 is out of range. Must be in [-4, 4)"),
             },
         ];
 

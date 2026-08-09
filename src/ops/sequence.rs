@@ -13,6 +13,18 @@ use crate::ops::split::split;
 use crate::ops::{Concat, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Sequence, Value, ValueType, ValueView};
 
+/// Resolve a sequence position in `[-len, len)` to an index in `[0, len)`.
+fn try_resolve_position(len: usize, pos: i32) -> Result<usize, OpError> {
+    resolve_index(len, pos as isize).ok_or_else(|| {
+        OpError::invalid_value(format!(
+            "Sequence position {} is out of range. Must be in [{}, {})",
+            pos,
+            -(len as isize),
+            len
+        ))
+    })
+}
+
 #[derive(Debug)]
 pub struct SequenceEmpty {
     pub dtype: Option<DataType>,
@@ -58,8 +70,7 @@ impl Operator for SequenceAt {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let seq: &Sequence = ctx.inputs().require_as(0)?;
         let pos: i32 = ctx.inputs().require_as(1)?;
-        let pos = resolve_index(seq.len(), pos as isize)
-            .ok_or(OpError::invalid_value("Sequence position is invalid"))?;
+        let pos = try_resolve_position(seq.len(), pos)?;
         seq.at(pos)
             .unwrap()
             .to_owned_in(ctx.pool())
@@ -125,10 +136,7 @@ fn sequence_erase(mut seq: Sequence, pos: Option<i32>) -> Result<Sequence, OpErr
     };
 
     let pos = pos
-        .map(|pos| {
-            resolve_index(seq.len(), pos as isize)
-                .ok_or(OpError::invalid_value("Sequence position is invalid"))
-        })
+        .map(|pos| try_resolve_position(seq.len(), pos))
         .transpose()?
         .unwrap_or(max_index);
 
@@ -197,10 +205,7 @@ fn sequence_insert(
         ));
     }
     let pos = pos
-        .map(|pos| {
-            resolve_index(seq.len() + 1, pos as isize)
-                .ok_or(OpError::invalid_value("Sequence position is invalid"))
-        })
+        .map(|pos| try_resolve_position(seq.len() + 1, pos))
         .transpose()?
         .unwrap_or(seq.len());
 
@@ -486,7 +491,9 @@ mod tests {
             Case {
                 seq: [1., 2.].map(Tensor::from).into(),
                 pos: 2,
-                expected: Err(OpError::invalid_value("Sequence position is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Sequence position 2 is out of range. Must be in [-2, 2)",
+                )),
             },
         ];
 
@@ -570,7 +577,9 @@ mod tests {
             Case {
                 seq: test_seq.clone(),
                 pos: Some(5),
-                expected: Err(OpError::invalid_value("Sequence position is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Sequence position 5 is out of range. Must be in [-3, 3)",
+                )),
             },
             // Removal from empty sequence
             Case {
@@ -639,7 +648,9 @@ mod tests {
                 seq: [1., 2.].map(Tensor::from).into(),
                 pos: Some(5),
                 value: Tensor::from(3.).into(),
-                expected: Err(OpError::invalid_value("Sequence position is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Sequence position 5 is out of range. Must be in [-3, 3)",
+                )),
             },
             // Data type mismatch
             Case {
@@ -704,7 +715,9 @@ mod tests {
                 seq: [[0], [1], [2]].map(Tensor::from).into(),
                 axis: 3,
                 new_axis: true,
-                expected: Err(OpError::invalid_value("Axis is invalid")),
+                expected: Err(OpError::invalid_value(
+                    "Axis 3 is out of range. Must be in [-1, 1)",
+                )),
             },
         ];
 

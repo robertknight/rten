@@ -242,12 +242,34 @@ fn resolve_index(len: usize, index: isize) -> Option<usize> {
     }
 }
 
+/// Create an error for an index which is out of range.
+fn invalid_index_err(index: i32, size: usize) -> OpError {
+    OpError::invalid_value(format!(
+        "Index {} is out of range. Must be in [{}, {})",
+        index,
+        -(size as isize),
+        size
+    ))
+}
+
+/// Resolve a signed index to a positive index in `[0, size)`.
+fn try_resolve_index(size: usize, index: i32) -> Result<usize, OpError> {
+    resolve_index(size, index as isize).ok_or_else(|| invalid_index_err(index, size))
+}
+
 /// Resolve an axis given as a value in `[-ndim, ndim-1]` to the zero-based
 /// dimension of a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
 fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
-    resolve_index(ndim, axis).ok_or(OpError::invalid_value("Axis is invalid"))
+    resolve_index(ndim, axis).ok_or_else(|| {
+        OpError::invalid_value(format!(
+            "Axis {} is out of range. Must be in [{}, {})",
+            axis,
+            -(ndim as isize),
+            ndim
+        ))
+    })
 }
 
 /// Resolve a sequence of axes values in `[-ndim, ndim-1]` to zero-based dimension
