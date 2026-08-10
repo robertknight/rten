@@ -53,12 +53,15 @@ impl Operator for If {
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        // Type inference is not implemented for ops with subgraphs yet.
+        // TODO - Use inferred output types from `then` branch, which must be
+        // the same as the `else` branch.
         None
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support ops with subgraphs yet.
+        // TODO - Unify inferred output shapes from `then` branch and `else`
+        // branch. Tensors are allowed to have different shapes across the
+        // `then` and `else` branches.
         None
     }
 }
@@ -151,12 +154,16 @@ impl Operator for Loop {
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        // Type inference is not implemented for ops with subgraphs yet.
+        // TODO - Output is `[loop_carried_dependencies..., scan_outputs...]`
+        // where `loop_carried_dependencies` are inputs from index 2 and
+        // `scan_outputs` are `self.body` outputs from index (1 + N).
         None
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support ops with subgraphs yet.
+        // TODO - Output is `[loop_carried_dependencies..., scan_outputs...]`
+        // where `loop_carried_dependencies` are inputs from index 2 and
+        // `scan_outputs` are `self.body` outputs from index (1 + N).
         None
     }
 }
