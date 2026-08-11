@@ -47,6 +47,28 @@ impl fmt::Display for InferShapesError {
 
 impl Error for InferShapesError {}
 
+#[derive(Clone)]
+struct SubgraphOutputs<'a> {
+    /// Number of outputs for each subgraph.
+    output_lens: Cow<'a, [usize]>,
+    /// Concatenated output shapes for each subgraph.
+    outputs: Cow<'a, [SymTensor]>,
+}
+
+impl<'a> SubgraphOutputs<'_> {
+    fn len(&self, subgraph_idx: usize) -> Option<usize> {
+        self.output_lens.get(subgraph_idx).copied()
+    }
+
+    fn get(&self, subgraph_idx: usize, idx: usize) -> Option<&SymTensor> {
+        if subgraph_idx >= self.output_lens.len() {
+            return None;
+        }
+        let base_idx: usize = self.output_lens.iter().take(subgraph_idx).sum();
+        self.outputs.get(base_idx + idx)
+    }
+}
+
 /// Inputs to an operator's shape inference.
 ///
 /// This provides access to the shapes and (optionally) values of an operator's
@@ -55,6 +77,9 @@ pub struct InferShapesContext<'a> {
     /// Shapes or values of operator inputs. Can be `None` for optional inputs
     /// that are not set.
     inputs: Cow<'a, [Option<SymTensor>]>,
+
+    /// Inferred output shapes for subgraphs.
+    subgraph_outputs: Option<SubgraphOutputs<'a>>,
 }
 
 impl<'a> InferShapesContext<'a> {
@@ -62,7 +87,21 @@ impl<'a> InferShapesContext<'a> {
     pub fn new(inputs: &'a [Option<SymTensor>]) -> Self {
         Self {
             inputs: Cow::Borrowed(inputs),
+            subgraph_outputs: None,
         }
+    }
+
+    /// Add information about the inferred shapes and values of subgraph outputs.
+    pub fn with_subgraph_outputs(
+        mut self,
+        output_lens: &'a [usize],
+        outputs: &'a [SymTensor],
+    ) -> Self {
+        self.subgraph_outputs = Some(SubgraphOutputs {
+            output_lens: Cow::Borrowed(output_lens),
+            outputs: Cow::Borrowed(outputs),
+        });
+        self
     }
 
     /// Return the number of inputs.
@@ -82,6 +121,24 @@ impl<'a> InferShapesContext<'a> {
         self.inputs.get(idx).and_then(|t| t.as_ref())
     }
 
+    /// Get the number of outputs for a subgraph.
+    pub fn get_subgraph_output_len(&self, subgraph_idx: usize) -> Option<usize> {
+        self.subgraph_outputs
+            .as_ref()
+            .and_then(|sg| sg.len(subgraph_idx))
+    }
+
+    /// Get a subgraph output by index.
+    pub fn get_subgraph_output(
+        &self,
+        subgraph_idx: usize,
+        output_idx: usize,
+    ) -> Option<&SymTensor> {
+        self.subgraph_outputs
+            .as_ref()
+            .and_then(|sg| sg.get(subgraph_idx, output_idx))
+    }
+
     /// Get a required input by index.
     ///
     /// Returns an error if the input was omitted or the index is out of range.
@@ -99,6 +156,7 @@ impl From<Vec<SymTensor>> for InferShapesContext<'static> {
     fn from(inputs: Vec<SymTensor>) -> Self {
         Self {
             inputs: Cow::Owned(inputs.into_iter().map(Some).collect()),
+            subgraph_outputs: None,
         }
     }
 }
@@ -107,6 +165,7 @@ impl<const N: usize> From<[SymTensor; N]> for InferShapesContext<'static> {
     fn from(inputs: [SymTensor; N]) -> Self {
         Self {
             inputs: Cow::Owned(inputs.into_iter().map(Some).collect()),
+            subgraph_outputs: None,
         }
     }
 }
@@ -115,6 +174,7 @@ impl From<Vec<Option<SymTensor>>> for InferShapesContext<'static> {
     fn from(inputs: Vec<Option<SymTensor>>) -> Self {
         Self {
             inputs: Cow::Owned(inputs),
+            subgraph_outputs: None,
         }
     }
 }
@@ -123,6 +183,7 @@ impl<const N: usize> From<[Option<SymTensor>; N]> for InferShapesContext<'static
     fn from(inputs: [Option<SymTensor>; N]) -> Self {
         Self {
             inputs: Cow::Owned(inputs.into()),
+            subgraph_outputs: None,
         }
     }
 }

@@ -434,6 +434,8 @@ pub enum OutputType {
     ElementTypeOfInputSequence(u32),
     /// The output is a sequence whose element type matches an input.
     SequenceWithElementTypeOfInput(u32),
+    /// The output is a subgraph's output.
+    SubgraphOutput { graph_index: u32, output_index: u32 },
 }
 
 /// List of type rules for each operator output.
@@ -441,6 +443,8 @@ pub type OutputTypeList = SmallVec<[OutputType; 1]>;
 
 /// Context passed to [`Operator::output_types`].
 pub struct OutputTypesContext {
+    /// Number of input value nodes connected to this operator.
+    pub num_inputs: usize,
     /// Number of output value nodes connected to this operator.
     pub num_outputs: usize,
 }

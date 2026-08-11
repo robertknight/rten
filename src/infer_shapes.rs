@@ -323,6 +323,7 @@ impl InferredShapes {
         // Perform type inference
         let types_ctx = OutputTypesContext {
             num_outputs: op.output_ids().len(),
+            num_inputs: op.input_ids().len(),
         };
         if let Some(output_type_list) = op.operator().output_types(&types_ctx) {
             for (id, output_type) in op.output_ids().iter().zip(output_type_list) {
@@ -349,6 +350,12 @@ impl InferredShapes {
                     OutputType::SequenceWithElementTypeOfInput(index) => {
                         get_input_type(index).map(|t| t.to_sequence_type())
                     }
+                    OutputType::SubgraphOutput {
+                        graph_index,
+                        output_index,
+                    } => {
+                        todo!("get inferred output type for subgraph")
+                    }
                 };
                 if let Some(dtype) = dtype {
                     self.types.insert(*id, dtype);
@@ -372,8 +379,21 @@ impl InferredShapes {
                     .map(|input_id| input_id.and_then(|id| env.lookup_value(id))),
             );
 
-            let out_shapes =
-                infer.infer_shapes(InferShapesContext::new(&input_shapes), &mut self.symbol_gen);
+            let mut ctx = InferShapesContext::new(&input_shapes);
+
+            // Provide shape inference with inferred output shapes of subgraphs.
+            let subgraph_lens: Vec<usize>;
+            let subgraph_outs;
+            if let Some(sg_op) = op.operator().as_subgraph_op() {
+                let subgraphs = sg_op.subgraphs();
+
+                subgraph_lens = subgraphs.iter().map(|sg| sg.output_ids().len()).collect();
+                subgraph_outs = Vec::new();
+
+                ctx = ctx.with_subgraph_outputs(&subgraph_lens, &subgraph_outs);
+            }
+
+            let out_shapes = infer.infer_shapes(ctx, &mut self.symbol_gen);
 
             self.input_shapes = input_shapes;
 
