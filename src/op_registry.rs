@@ -353,6 +353,7 @@ pub mod op_types {
     declare_op!(Reshape);
     declare_op!(Resize);
     declare_op!(ReverseSequence);
+    declare_op!(RoiAlign, onnx_only);
     declare_op!(RotaryEmbedding);
     declare_op!(Round);
     declare_op!(Scatter);

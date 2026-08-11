@@ -49,6 +49,7 @@ mod random;
 mod reduce;
 mod resize;
 mod rnn;
+mod roi_align;
 mod scatter;
 mod sequence;
 mod slice;
@@ -102,6 +103,7 @@ pub(crate) use {
     },
     resize::{Resize, Upsample},
     rnn::{GRU, LSTM},
+    roi_align::{RoiAlign, RoiAlignCoordTransformMode, RoiAlignMode},
     scatter::{Scatter, ScatterElements, ScatterND, ScatterReduction},
     sequence::{
         ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,

@@ -20,7 +20,7 @@ use crate::ops;
 use crate::ops::AccuracyLevel;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
-    ResizeMode, ScatterReduction,
+    ResizeMode, RoiAlignCoordTransformMode, RoiAlignMode, ScatterReduction,
 };
 use crate::value::{DataType, Scalar};
 
@@ -233,6 +233,7 @@ impl OnnxOpRegistry {
         register_op!(Reshape);
         register_op!(Resize);
         register_op!(ReverseSequence);
+        register_op!(RoiAlign);
         register_op!(RotaryEmbedding);
         register_op!(Round);
         register_op!(Scatter);
@@ -488,7 +489,6 @@ impl<'a> Attrs<'a> {
 
     /// Return the opset version the operator was exported against, or `None` if
     /// it was not specified.
-    #[allow(dead_code)] // Only used by feature-gated deserializers (eg. DFT).
     fn opset_version(&self) -> Option<u16> {
         self.opset_version
     }
@@ -1830,6 +1830,55 @@ impl_read_op!(ReverseSequence, |attrs: &Attrs| {
     })
 });
 
+impl_read_op!(RoiAlign, |attrs: &Attrs| {
+    let coord_mode = attrs
+        .get("coordinate_transformation_mode")
+        .map(|v| {
+            v.as_string_enum(|val| match val {
+                "half_pixel" => Some(RoiAlignCoordTransformMode::HalfPixel),
+                "output_half_pixel" => Some(RoiAlignCoordTransformMode::OutputHalfPixel),
+                _ => None,
+            })
+        })
+        .transpose()?
+        .unwrap_or_else(|| {
+            // `coordinate_transformation_mode` was added in opset 16. Earlier
+            // opsets have the un-shifted behavior that the attribute calls
+            // "output_half_pixel".
+            if attrs.opset_version().is_some_and(|v| v < 16) {
+                RoiAlignCoordTransformMode::OutputHalfPixel
+            } else {
+                RoiAlignCoordTransformMode::HalfPixel
+            }
+        });
+
+    let mode = attrs
+        .get("mode")
+        .map(|v| {
+            v.as_string_enum(|val| match val {
+                "avg" => Some(RoiAlignMode::Avg),
+                "max" => Some(RoiAlignMode::Max),
+                _ => None,
+            })
+        })
+        .transpose()?
+        .unwrap_or(RoiAlignMode::Avg);
+
+    let output_height = attrs.get_as_int("output_height")?.unwrap_or(1);
+    let output_width = attrs.get_as_int("output_width")?.unwrap_or(1);
+    let sampling_ratio = attrs.get_as_int("sampling_ratio")?.unwrap_or(0);
+    let spatial_scale = attrs.get_as("spatial_scale").unwrap_or(1.0);
+
+    Ok(ops::RoiAlign {
+        coord_mode,
+        mode,
+        output_height,
+        output_width,
+        sampling_ratio,
+        spatial_scale,
+    })
+});
+
 impl_read_op!(Upsample, |attrs: &Attrs| {
     let mode = attrs
         .get("mode")
@@ -2109,7 +2158,8 @@ mod tests {
     #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding, Upsample,
+        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RoiAlign,
+        RoiAlignCoordTransformMode, RoiAlignMode, RotaryEmbedding, Upsample,
     };
     #[cfg(feature = "contrib")]
     use crate::ops::{
@@ -2285,6 +2335,77 @@ mod tests {
 
         let rotary = op.downcast_ref::<RotaryEmbedding>().unwrap();
         assert_eq!(rotary.num_heads, 2);
+    }
+
+    #[test]
+    fn test_read_roi_align() {
+        let reg = OnnxOpRegistry::with_all_ops();
+
+        // Attributes which are all unset default per the ONNX spec.
+        let node = create_node("RoiAlign");
+        let ctx = FakeOpLoadContext {
+            opset_version: Some(16),
+        };
+        let op = reg.read_op(&node, &ctx).unwrap().op;
+        let roi_align = op.downcast_ref::<RoiAlign>().unwrap();
+        assert_eq!(roi_align.coord_mode, RoiAlignCoordTransformMode::HalfPixel);
+        assert_eq!(roi_align.mode, RoiAlignMode::Avg);
+        assert_eq!(roi_align.output_height, 1);
+        assert_eq!(roi_align.output_width, 1);
+        assert_eq!(roi_align.sampling_ratio, 0);
+        assert_eq!(roi_align.spatial_scale, 1.0);
+
+        // Before opset 16 there was no `coordinate_transformation_mode`
+        // attribute and the coordinates were not shifted.
+        let node = create_node("RoiAlign");
+        let ctx = FakeOpLoadContext {
+            opset_version: Some(15),
+        };
+        let op = reg.read_op(&node, &ctx).unwrap().op;
+        let roi_align = op.downcast_ref::<RoiAlign>().unwrap();
+        assert_eq!(
+            roi_align.coord_mode,
+            RoiAlignCoordTransformMode::OutputHalfPixel
+        );
+
+        // An explicit attribute takes precedence over the opset default.
+        let node = create_node("RoiAlign")
+            .with_attr("coordinate_transformation_mode", "half_pixel".to_string());
+        let op = reg.read_op(&node, &ctx).unwrap().op;
+        let roi_align = op.downcast_ref::<RoiAlign>().unwrap();
+        assert_eq!(roi_align.coord_mode, RoiAlignCoordTransformMode::HalfPixel);
+
+        let node = create_node("RoiAlign")
+            .with_attr(
+                "coordinate_transformation_mode",
+                "output_half_pixel".to_string(),
+            )
+            .with_attr("mode", "max".to_string())
+            .with_attr("output_height", 7i64)
+            .with_attr("output_width", 5i64)
+            .with_attr("sampling_ratio", 2i64)
+            .with_attr("spatial_scale", 0.25f32);
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
+        let roi_align = op.downcast_ref::<RoiAlign>().unwrap();
+        assert_eq!(
+            roi_align.coord_mode,
+            RoiAlignCoordTransformMode::OutputHalfPixel
+        );
+        assert_eq!(roi_align.mode, RoiAlignMode::Max);
+        assert_eq!(roi_align.output_height, 7);
+        assert_eq!(roi_align.output_width, 5);
+        assert_eq!(roi_align.sampling_ratio, 2);
+        assert_eq!(roi_align.spatial_scale, 0.25);
+
+        let node = create_node("RoiAlign").with_attr("mode", "median".to_string());
+        let result = reg.read_op(&node, &FakeOpLoadContext::default());
+        assert!(matches!(
+            result,
+            Err(ReadOpError::AttrError { attr, .. }) if attr == "mode"
+        ));
     }
 
     #[test]
