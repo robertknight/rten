@@ -466,7 +466,6 @@ struct Attrs<'a> {
     unused_attrs: Cell<BitSet<u32>>,
 
     /// Opset version the operator uses.
-    #[allow(dead_code)] // May be unused depending on enabled features.
     opset_version: Option<u16>,
 }
 
@@ -489,6 +488,23 @@ impl<'a> Attrs<'a> {
     #[allow(dead_code)] // Only used by feature-gated deserializers (eg. DFT).
     fn opset_version(&self) -> Option<u16> {
         self.opset_version
+    }
+
+    /// Report an error if the operator uses an opset version older than
+    /// `min_version`.
+    ///
+    /// This is for operators where an older version of the spec differs in
+    /// ways that cannot easily be handled when deserializing. An unspecified
+    /// opset version is treated as a current one.
+    fn require_min_opset(&self, name: &str, min_version: u16) -> Result<(), ReadOpError> {
+        match self.opset_version {
+            Some(version) if version < min_version => Err(ReadOpError::UnsupportedOldVersion {
+                name: name.to_string(),
+                version,
+                min_version,
+            }),
+            _ => Ok(()),
+        }
     }
 
     /// Get an optional attribute.
@@ -1719,6 +1735,11 @@ impl_read_op!(Reshape, |attrs: &Attrs| {
 });
 
 impl_read_op!(Resize, |attrs: &Attrs| {
+    // Opset 10 was the first version of `Resize`. It takes only the `X` and
+    // `scales` inputs. Opset 11 inserted the `roi` input before `scales`, so
+    // the inputs of an opset 10 operator are in a different order.
+    attrs.require_min_opset("Resize", 11)?;
+
     attrs.check_eq("antialias", 0)?;
 
     // rten-convert treats differences from the default as a warning rather than
@@ -2003,7 +2024,13 @@ impl_read_op!(Swish, |attrs: &Attrs| {
 
 impl_read_op!(Tan);
 impl_read_op!(Tanh);
-impl_read_op!(Tile);
+impl_read_op!(Tile, |attrs: &Attrs| {
+    // Opset 1 `Tile` takes `tiles` and `axis` inputs which repeat the input
+    // along a single axis. Opset 6 replaced them with the `repeats` input.
+    attrs.require_min_opset("Tile", 6)?;
+
+    Ok(ops::Tile {})
+});
 
 impl_read_op!(TopK, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?;
@@ -2779,6 +2806,70 @@ mod tests {
                 .unwrap();
             assert_eq!(op.const_inputs, case.expected_inputs);
         });
+    }
+
+    #[test]
+    fn test_unsupported_old_opset() {
+        #[derive(Debug)]
+        struct Case {
+            op_type: &'static str,
+            opset_version: Option<u16>,
+            expected: Result<(), &'static str>,
+        }
+
+        let cases = [
+            Case {
+                op_type: "Resize",
+                opset_version: Some(10),
+                expected: Err(
+                    "Resize operator uses opset version 10 but only version 11 and later are supported",
+                ),
+            },
+            Case {
+                op_type: "Resize",
+                opset_version: Some(11),
+                expected: Ok(()),
+            },
+            Case {
+                op_type: "Tile",
+                opset_version: Some(1),
+                expected: Err(
+                    "Tile operator uses opset version 1 but only version 6 and later are supported",
+                ),
+            },
+            Case {
+                op_type: "Tile",
+                opset_version: Some(6),
+                expected: Ok(()),
+            },
+            // An unspecified opset is treated as a current one.
+            Case {
+                op_type: "Resize",
+                opset_version: None,
+                expected: Ok(()),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let node = create_node(case.op_type);
+            let result = reg.read_op(
+                &node,
+                &FakeOpLoadContext {
+                    opset_version: case.opset_version,
+                },
+            );
+
+            match (result, case.expected) {
+                (Ok(_), Ok(())) => {}
+                (Err(err), Err(expected)) => {
+                    assert_eq!(err.to_string(), expected);
+                }
+                (result, expected) => {
+                    panic!("expected {:?} but got {:?}", expected, result.map(|_| ()))
+                }
+            }
+        })
     }
 
     #[cfg(feature = "fft")]

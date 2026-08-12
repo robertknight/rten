@@ -108,6 +108,21 @@ pub enum ReadOpError {
         /// Crate feature needed to enable it.
         feature: String,
     },
+    /// The operator version is older than the minimum supported version.
+    ///
+    /// This is reported for operators where an older version of the spec
+    /// differs in ways that cannot easily be handled when deserializing.
+    #[allow(unused)] // Only constructed when the "onnx_format" feature is enabled.
+    UnsupportedOldVersion {
+        /// Name of the operator.
+        name: String,
+
+        /// Version that the operator uses.
+        version: u16,
+
+        /// Minimum version of this operator that is supported.
+        min_version: u16,
+    },
     /// An error occurred deserializing a subgraph.
     SubgraphError(Box<dyn Error + Send + Sync>),
 }
@@ -136,6 +151,16 @@ impl Display for ReadOpError {
                 } else {
                     write!(f, "operator not supported")
                 }
+            }
+            ReadOpError::UnsupportedOldVersion {
+                name,
+                version,
+                min_version,
+            } => {
+                write!(
+                    f,
+                    "{name} operator uses opset version {version} but only version {min_version} and later are supported"
+                )
             }
             ReadOpError::FeatureNotEnabled { name, feature } => {
                 write!(
