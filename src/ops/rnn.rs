@@ -4,13 +4,13 @@ use std::ops::Range;
 use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmOptions};
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext, check_eq, static_dims,
+    OutputTypesContext, check_eq,
 };
 use crate::ops::binary_elementwise::{add_in_place, mul_in_place};
 use crate::ops::unary_elementwise::{sigmoid, tanh};
@@ -104,20 +104,6 @@ fn zip4<T1, T2, T3, T4>(
 /// TODO: This value was chosen because it seemed reasonable. It needs tuning.
 const PREPACK_MIN_SEQ_LEN: usize = 5;
 
-/// Gated Recurrent Unit operator.
-#[derive(Debug)]
-#[allow(clippy::upper_case_acronyms)]
-pub struct GRU {
-    pub direction: Direction,
-
-    #[allow(unused)] // Currently inferred from operator inputs.
-    pub hidden_size: usize,
-
-    /// When computing the output of the hidden gate, apply the linear
-    /// transformation before multiplying by the output of the reset gate.
-    pub linear_before_reset: bool,
-}
-
 /// Compute the output for a single GRU layer.
 ///
 /// `input` has shape [sequence_length, batch, input_size].
@@ -138,11 +124,11 @@ pub struct GRU {
 pub fn gru(
     pool: &BufferPool,
     direction: Direction,
-    input: TensorView,
-    weights: TensorView,
-    recurrent_weights: TensorView,
-    bias: Option<TensorView>,
-    initial_hidden: Option<TensorView>,
+    input: NdTensorView<f32, 3>,
+    weights: NdTensorView<f32, 3>,
+    recurrent_weights: NdTensorView<f32, 3>,
+    bias: Option<NdTensorView<f32, 2>>,
+    initial_hidden: Option<NdTensorView<f32, 3>>,
     linear_before_reset: bool,
 ) -> Result<Vec<Tensor>, OpError> {
     // PyTorch and cuDNN only support the `linear_before_reset=true` case, as
@@ -157,12 +143,9 @@ pub fn gru(
         ));
     }
 
-    let input = static_dims!(input, 3, "seq, batch, input")?;
     let [seq_len, batch, input_size] = input.shape();
 
-    let weights = static_dims!(weights, 3, "dir, hidden x 3, input")?;
     let hidden_x3 = weights.size(1);
-
     if hidden_x3 % 3 != 0 {
         return Err(OpError::invalid_value(
             "weights dim 1 must be 3 * hidden_size",
@@ -174,22 +157,15 @@ pub fn gru(
     check_eq!(weights.size(0), num_directions)?;
     check_eq!(weights.size(2), input_size)?;
 
-    let recurrent_weights = static_dims!(recurrent_weights, 3, "dir, hidden x 3, hidden")?;
     check_eq!(recurrent_weights.size(0), num_directions)?;
     check_eq!(recurrent_weights.size(1), hidden_size * 3)?;
     check_eq!(recurrent_weights.size(2), hidden_size)?;
 
-    let bias = bias
-        .map(|bias| static_dims!(bias, 2, "dir, hidden x 6"))
-        .transpose()?;
     if let Some(bias) = bias.as_ref() {
         check_eq!(bias.size(0), num_directions)?;
         check_eq!(bias.size(1), hidden_size * 6)?;
     }
 
-    let initial_hidden = initial_hidden
-        .map(|initial_hidden| static_dims!(initial_hidden, 3, "dir, batch, hidden"))
-        .transpose()?;
     if let Some(initial_hidden) = initial_hidden.as_ref() {
         check_eq!(initial_hidden.size(0), num_directions)?;
         check_eq!(initial_hidden.size(1), batch)?;
@@ -349,6 +325,20 @@ pub fn gru(
     Ok([hidden_seq.into_dyn(), hidden.into_dyn()].into())
 }
 
+/// Gated Recurrent Unit operator.
+#[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
+pub struct GRU {
+    pub direction: Direction,
+
+    #[allow(unused)] // Currently inferred from operator inputs.
+    pub hidden_size: usize,
+
+    /// When computing the output of the hidden gate, apply the linear
+    /// transformation before multiplying by the output of the reset gate.
+    pub linear_before_reset: bool,
+}
+
 impl Operator for GRU {
     fn name(&self) -> &str {
         "GRU"
@@ -404,16 +394,6 @@ impl_infer_shapes!(
     }
 );
 
-/// Long Short-Term Memory operator.
-#[derive(Debug)]
-#[allow(clippy::upper_case_acronyms)]
-pub struct LSTM {
-    pub direction: Direction,
-
-    #[allow(unused)]
-    pub hidden_size: usize, // Currently inferred from operator inputs.
-}
-
 /// Compute the output for a single LSTM layer.
 ///
 /// `input` has shape [sequence_length, batch, input_size].
@@ -435,55 +415,41 @@ pub struct LSTM {
 pub fn lstm(
     pool: &BufferPool,
     direction: Direction,
-    input: TensorView,
-    weights: TensorView,
-    recurrent_weights: TensorView,
-    bias: Option<TensorView>,
-    initial_hidden: Option<TensorView>,
-    initial_cell: Option<TensorView>,
+    input: NdTensorView<f32, 3>,
+    weights: NdTensorView<f32, 3>,
+    recurrent_weights: NdTensorView<f32, 3>,
+    bias: Option<NdTensorView<f32, 2>>,
+    initial_hidden: Option<NdTensorView<f32, 3>>,
+    initial_cell: Option<NdTensorView<f32, 3>>,
 ) -> Result<Vec<Tensor>, OpError> {
-    let input = static_dims!(input, 3, "seq, batch, input")?;
     let [seq_len, batch, input_size] = input.shape();
+    let num_directions = direction.num_directions();
 
-    let weights = static_dims!(weights, 3, "dir, hidden x 4, input")?;
     let hidden_x4 = weights.size(1);
-
     if hidden_x4 % 4 != 0 {
         return Err(OpError::invalid_value(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
     let hidden_size = hidden_x4 / 4;
-    let num_directions = direction.num_directions();
-
     check_eq!(weights.size(0), num_directions)?;
     check_eq!(weights.size(2), input_size)?;
 
-    let recurrent_weights = static_dims!(recurrent_weights, 3, "dir, hidden x 4, hidden")?;
     check_eq!(recurrent_weights.size(0), num_directions)?;
     check_eq!(recurrent_weights.size(1), hidden_size * 4)?;
     check_eq!(recurrent_weights.size(2), hidden_size)?;
 
-    let bias = bias
-        .map(|bias| static_dims!(bias, 2, "dir, hidden x 8"))
-        .transpose()?;
     if let Some(bias) = bias.as_ref() {
         check_eq!(bias.size(0), num_directions)?;
         check_eq!(bias.size(1), hidden_size * 8)?;
     }
 
-    let initial_hidden = initial_hidden
-        .map(|initial_hidden| static_dims!(initial_hidden, 3, "dir, batch, hidden"))
-        .transpose()?;
     if let Some(initial_hidden) = initial_hidden.as_ref() {
         check_eq!(initial_hidden.size(0), num_directions)?;
         check_eq!(initial_hidden.size(1), batch)?;
         check_eq!(initial_hidden.size(2), hidden_size)?;
     }
 
-    let initial_cell = initial_cell
-        .map(|initial_cell| static_dims!(initial_cell, 3, "dir, batch, hidden"))
-        .transpose()?;
     if let Some(initial_cell) = initial_cell.as_ref() {
         check_eq!(initial_cell.size(0), num_directions)?;
         check_eq!(initial_cell.size(1), batch)?;
@@ -632,6 +598,16 @@ pub fn lstm(
     }
 
     Ok([hidden_seq.into_dyn(), hidden.into_dyn(), cell.into_dyn()].into())
+}
+
+/// Long Short-Term Memory operator.
+#[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
+pub struct LSTM {
+    pub direction: Direction,
+
+    #[allow(unused)]
+    pub hidden_size: usize, // Currently inferred from operator inputs.
 }
 
 impl Operator for LSTM {
@@ -826,22 +802,22 @@ mod tests {
                 Op::Lstm => lstm(
                     &pool,
                     dir,
-                    input.as_dyn(),
-                    weights.as_dyn(),
-                    recurrent_weights.as_dyn(),
-                    case.with_bias.then_some(bias.as_dyn()),
-                    case.with_hidden_init.then_some(initial_hidden.as_dyn()),
-                    case.with_initial_cell.then_some(initial_cell.as_dyn()),
+                    input.view(),
+                    weights.view(),
+                    recurrent_weights.view(),
+                    case.with_bias.then_some(bias.view()),
+                    case.with_hidden_init.then_some(initial_hidden.view()),
+                    case.with_initial_cell.then_some(initial_cell.view()),
                 )
                 .expect("lstm op failed"),
                 Op::Gru => gru(
                     &pool,
                     dir,
-                    input.as_dyn(),
-                    weights.as_dyn(),
-                    recurrent_weights.as_dyn(),
-                    case.with_bias.then_some(bias.as_dyn()),
-                    case.with_hidden_init.then_some(initial_hidden.as_dyn()),
+                    input.view(),
+                    weights.view(),
+                    recurrent_weights.view(),
+                    case.with_bias.then_some(bias.view()),
+                    case.with_hidden_init.then_some(initial_hidden.view()),
                     true, /* linear_before_reset */
                 )
                 .expect("gru op failed"),
@@ -1098,22 +1074,22 @@ mod tests {
                 Op::Lstm => lstm(
                     &pool,
                     case.dir,
-                    data.input.view(),
-                    data.weights.view(),
-                    data.hidden_weights.view(),
-                    data.bias.as_ref().map(|b| b.view()),
-                    data.initial_hidden.as_ref().map(|ih| ih.view()),
-                    data.initial_cell.as_ref().map(|ic| ic.view()),
+                    data.input.nd_view(),
+                    data.weights.nd_view(),
+                    data.hidden_weights.nd_view(),
+                    data.bias.as_ref().map(|b| b.nd_view()),
+                    data.initial_hidden.as_ref().map(|ih| ih.nd_view()),
+                    data.initial_cell.as_ref().map(|ic| ic.nd_view()),
                 )
                 .expect("LSTM op failed"),
                 Op::Gru => gru(
                     &pool,
                     case.dir,
-                    data.input.view(),
-                    data.weights.view(),
-                    data.hidden_weights.view(),
-                    data.bias.as_ref().map(|b| b.view()),
-                    data.initial_hidden.as_ref().map(|ih| ih.view()),
+                    data.input.nd_view(),
+                    data.weights.nd_view(),
+                    data.hidden_weights.nd_view(),
+                    data.bias.as_ref().map(|b| b.nd_view()),
+                    data.initial_hidden.as_ref().map(|ih| ih.nd_view()),
                     true, /* linear_before_reset */
                 )
                 .expect("GRU op failed"),
@@ -1134,12 +1110,12 @@ mod tests {
         /// Shapes of the inputs to an RNN operator.
         #[derive(Debug)]
         struct Shapes {
-            input: Vec<usize>,
-            weights: Vec<usize>,
-            recurrent_weights: Vec<usize>,
-            bias: Vec<usize>,
-            initial_hidden: Vec<usize>,
-            initial_cell: Vec<usize>,
+            input: [usize; 3],
+            weights: [usize; 3],
+            recurrent_weights: [usize; 3],
+            bias: [usize; 2],
+            initial_hidden: [usize; 3],
+            initial_cell: [usize; 3],
         }
 
         /// Return valid input shapes for an RNN operator.
@@ -1150,12 +1126,12 @@ mod tests {
             };
             let dirs = dir.num_directions();
             Shapes {
-                input: vec![SEQ_LEN, BATCH, FEATURES],
-                weights: vec![dirs, n_gates * HIDDEN, FEATURES],
-                recurrent_weights: vec![dirs, n_gates * HIDDEN, HIDDEN],
-                bias: vec![dirs, 2 * n_gates * HIDDEN],
-                initial_hidden: vec![dirs, BATCH, HIDDEN],
-                initial_cell: vec![dirs, BATCH, HIDDEN],
+                input: [SEQ_LEN, BATCH, FEATURES],
+                weights: [dirs, n_gates * HIDDEN, FEATURES],
+                recurrent_weights: [dirs, n_gates * HIDDEN, HIDDEN],
+                bias: [dirs, 2 * n_gates * HIDDEN],
+                initial_hidden: [dirs, BATCH, HIDDEN],
+                initial_cell: [dirs, BATCH, HIDDEN],
             }
         }
 
@@ -1303,12 +1279,12 @@ mod tests {
                 let mut shapes = valid_shapes(op, case.dir);
                 (case.invalidate)(&mut shapes);
 
-                let input = Tensor::zeros(&shapes.input);
-                let weights = Tensor::zeros(&shapes.weights);
-                let recurrent_weights = Tensor::zeros(&shapes.recurrent_weights);
-                let bias = Tensor::zeros(&shapes.bias);
-                let initial_hidden = Tensor::zeros(&shapes.initial_hidden);
-                let initial_cell = Tensor::zeros(&shapes.initial_cell);
+                let input = NdTensor::zeros(shapes.input);
+                let weights = NdTensor::zeros(shapes.weights);
+                let recurrent_weights = NdTensor::zeros(shapes.recurrent_weights);
+                let bias = NdTensor::zeros(shapes.bias);
+                let initial_hidden = NdTensor::zeros(shapes.initial_hidden);
+                let initial_cell = NdTensor::zeros(shapes.initial_cell);
 
                 let result = match op {
                     Op::Lstm => lstm(
