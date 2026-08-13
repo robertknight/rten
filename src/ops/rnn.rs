@@ -146,7 +146,7 @@ pub fn gru(
     let [seq_len, batch, input_size] = input.shape();
 
     let hidden_x3 = weights.size(1);
-    if hidden_x3 % 3 != 0 {
+    if !hidden_x3.is_multiple_of(3) {
         return Err(OpError::invalid_value(
             "weights dim 1 must be 3 * hidden_size",
         ));
@@ -154,22 +154,21 @@ pub fn gru(
     let hidden_size = hidden_x3 / 3;
     let num_directions = direction.num_directions();
 
-    check_eq!(weights.size(0), num_directions)?;
-    check_eq!(weights.size(2), input_size)?;
-
-    check_eq!(recurrent_weights.size(0), num_directions)?;
-    check_eq!(recurrent_weights.size(1), hidden_size * 3)?;
-    check_eq!(recurrent_weights.size(2), hidden_size)?;
+    check_eq!(
+        weights.shape(),
+        [num_directions, hidden_size * 3, input_size]
+    )?;
+    check_eq!(
+        recurrent_weights.shape(),
+        [num_directions, hidden_size * 3, hidden_size]
+    )?;
 
     if let Some(bias) = bias.as_ref() {
-        check_eq!(bias.size(0), num_directions)?;
-        check_eq!(bias.size(1), hidden_size * 6)?;
+        check_eq!(bias.shape(), [num_directions, hidden_size * 6])?;
     }
 
     if let Some(initial_hidden) = initial_hidden.as_ref() {
-        check_eq!(initial_hidden.size(0), num_directions)?;
-        check_eq!(initial_hidden.size(1), batch)?;
-        check_eq!(initial_hidden.size(2), hidden_size)?;
+        check_eq!(initial_hidden.shape(), [num_directions, batch, hidden_size])?;
     }
 
     let mut hidden = initial_hidden
@@ -426,34 +425,31 @@ pub fn lstm(
     let num_directions = direction.num_directions();
 
     let hidden_x4 = weights.size(1);
-    if hidden_x4 % 4 != 0 {
+    if !hidden_x4.is_multiple_of(4) {
         return Err(OpError::invalid_value(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
     let hidden_size = hidden_x4 / 4;
-    check_eq!(weights.size(0), num_directions)?;
-    check_eq!(weights.size(2), input_size)?;
-
-    check_eq!(recurrent_weights.size(0), num_directions)?;
-    check_eq!(recurrent_weights.size(1), hidden_size * 4)?;
-    check_eq!(recurrent_weights.size(2), hidden_size)?;
+    check_eq!(
+        weights.shape(),
+        [num_directions, hidden_size * 4, input_size]
+    )?;
+    check_eq!(
+        recurrent_weights.shape(),
+        [num_directions, hidden_size * 4, hidden_size]
+    )?;
 
     if let Some(bias) = bias.as_ref() {
-        check_eq!(bias.size(0), num_directions)?;
-        check_eq!(bias.size(1), hidden_size * 8)?;
+        check_eq!(bias.shape(), [num_directions, hidden_size * 8])?;
     }
 
     if let Some(initial_hidden) = initial_hidden.as_ref() {
-        check_eq!(initial_hidden.size(0), num_directions)?;
-        check_eq!(initial_hidden.size(1), batch)?;
-        check_eq!(initial_hidden.size(2), hidden_size)?;
+        check_eq!(initial_hidden.shape(), [num_directions, batch, hidden_size])?;
     }
 
     if let Some(initial_cell) = initial_cell.as_ref() {
-        check_eq!(initial_cell.size(0), num_directions)?;
-        check_eq!(initial_cell.size(1), batch)?;
-        check_eq!(initial_cell.size(2), hidden_size)?;
+        check_eq!(initial_cell.shape(), [num_directions, batch, hidden_size])?;
     }
 
     // Contiguous input and bias needed to allow reshaping below.
@@ -1135,6 +1131,43 @@ mod tests {
             }
         }
 
+        fn weights_err(op: Op) -> OpError {
+            OpError::incompatible_input_shapes(match op {
+                Op::Lstm => "weights.shape() != [num_directions, hidden_size * 4, input_size]",
+                Op::Gru => "weights.shape() != [num_directions, hidden_size * 3, input_size]",
+            })
+        }
+
+        fn rec_weights_err(op: Op) -> OpError {
+            OpError::incompatible_input_shapes(match op {
+                Op::Lstm => {
+                    "recurrent_weights.shape() != [num_directions, hidden_size * 4, hidden_size]"
+                }
+                Op::Gru => {
+                    "recurrent_weights.shape() != [num_directions, hidden_size * 3, hidden_size]"
+                }
+            })
+        }
+
+        fn bias_err(op: Op) -> OpError {
+            OpError::incompatible_input_shapes(match op {
+                Op::Lstm => "bias.shape() != [num_directions, hidden_size * 8]",
+                Op::Gru => "bias.shape() != [num_directions, hidden_size * 6]",
+            })
+        }
+
+        fn initial_hidden_err(_op: Op) -> OpError {
+            OpError::incompatible_input_shapes(
+                "initial_hidden.shape() != [num_directions, batch, hidden_size]",
+            )
+        }
+
+        fn initial_cell_err(_op: Op) -> OpError {
+            OpError::incompatible_input_shapes(
+                "initial_cell.shape() != [num_directions, batch, hidden_size]",
+            )
+        }
+
         #[derive(Debug)]
         struct Case {
             /// Operators the case applies to.
@@ -1145,7 +1178,8 @@ mod tests {
             /// Change applied to a set of otherwise-valid input shapes.
             invalidate: fn(&mut Shapes),
 
-            expected: OpError,
+            /// Error expected for a given operator.
+            expected: fn(Op) -> OpError,
         }
 
         let cases = &[
@@ -1154,121 +1188,107 @@ mod tests {
                 ops: &[Op::Lstm],
                 dir: Direction::Forward,
                 invalidate: |s| s.weights[1] += 1,
-                expected: OpError::invalid_value("weights dim 1 must be 4 * hidden_size"),
+                expected: |_| OpError::invalid_value("weights dim 1 must be 4 * hidden_size"),
             },
             Case {
                 ops: &[Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.weights[1] += 1,
-                expected: OpError::invalid_value("weights dim 1 must be 3 * hidden_size"),
+                expected: |_| OpError::invalid_value("weights dim 1 must be 3 * hidden_size"),
             },
             // Inputs disagree with the `direction` attribute.
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Bidirectional,
                 invalidate: |s| s.weights[0] = 1,
-                expected: OpError::incompatible_input_shapes("weights.size(0) != num_directions"),
+                expected: weights_err,
             },
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.recurrent_weights[0] = 2,
-                expected: OpError::incompatible_input_shapes(
-                    "recurrent_weights.size(0) != num_directions",
-                ),
+                expected: rec_weights_err,
             },
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.bias[0] = 2,
-                expected: OpError::incompatible_input_shapes("bias.size(0) != num_directions"),
+                expected: bias_err,
             },
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.initial_hidden[0] = 2,
-                expected: OpError::incompatible_input_shapes(
-                    "initial_hidden.size(0) != num_directions",
-                ),
+                expected: initial_hidden_err,
             },
             Case {
                 ops: &[Op::Lstm],
                 dir: Direction::Forward,
                 invalidate: |s| s.initial_cell[0] = 2,
-                expected: OpError::incompatible_input_shapes(
-                    "initial_cell.size(0) != num_directions",
-                ),
+                expected: initial_cell_err,
             },
             // Inputs disagree about the input size.
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.weights[2] += 1,
-                expected: OpError::incompatible_input_shapes("weights.size(2) != input_size"),
+                expected: weights_err,
             },
             // Inputs disagree about the hidden size.
             Case {
                 ops: &[Op::Lstm],
                 dir: Direction::Forward,
                 invalidate: |s| s.recurrent_weights[1] += 4,
-                expected: OpError::incompatible_input_shapes(
-                    "recurrent_weights.size(1) != hidden_size * 4",
-                ),
+                expected: rec_weights_err,
             },
             Case {
                 ops: &[Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.recurrent_weights[1] += 3,
-                expected: OpError::incompatible_input_shapes(
-                    "recurrent_weights.size(1) != hidden_size * 3",
-                ),
+                expected: rec_weights_err,
             },
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.recurrent_weights[2] += 1,
-                expected: OpError::incompatible_input_shapes(
-                    "recurrent_weights.size(2) != hidden_size",
-                ),
+                expected: rec_weights_err,
             },
             Case {
                 ops: &[Op::Lstm],
                 dir: Direction::Forward,
                 invalidate: |s| s.bias[1] += 8,
-                expected: OpError::incompatible_input_shapes("bias.size(1) != hidden_size * 8"),
+                expected: bias_err,
             },
             Case {
                 ops: &[Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.bias[1] += 6,
-                expected: OpError::incompatible_input_shapes("bias.size(1) != hidden_size * 6"),
+                expected: bias_err,
             },
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.initial_hidden[2] += 1,
-                expected: OpError::incompatible_input_shapes(
-                    "initial_hidden.size(2) != hidden_size",
-                ),
+                expected: initial_hidden_err,
             },
             Case {
                 ops: &[Op::Lstm],
                 dir: Direction::Forward,
                 invalidate: |s| s.initial_cell[2] += 1,
-                expected: OpError::incompatible_input_shapes("initial_cell.size(2) != hidden_size"),
+                expected: initial_cell_err,
             },
             // Inputs disagree about the batch size.
             Case {
                 ops: &[Op::Lstm, Op::Gru],
                 dir: Direction::Forward,
                 invalidate: |s| s.initial_hidden[1] += 1,
-                expected: OpError::incompatible_input_shapes("initial_hidden.size(1) != batch"),
+                expected: initial_hidden_err,
             },
             Case {
                 ops: &[Op::Lstm],
                 dir: Direction::Forward,
                 invalidate: |s| s.initial_cell[1] += 1,
-                expected: OpError::incompatible_input_shapes("initial_cell.size(1) != batch"),
+                expected: initial_cell_err,
             },
         ];
 
@@ -1309,7 +1329,8 @@ mod tests {
                     ),
                 };
 
-                assert_eq!(result.err().as_ref(), Some(&case.expected), "op {:?}", op);
+                let expected = (case.expected)(op);
+                assert_eq!(result.err().as_ref(), Some(&expected), "op {:?}", op);
             }
         })
     }
