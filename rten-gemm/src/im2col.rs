@@ -4,6 +4,7 @@ use std::ops::Range;
 use rten_base::byte_cast::{AsBytes, cast_uninit_mut_slice};
 use rten_simd::ops::{BitOps, MaskOps, NumOps};
 use rten_simd::{Isa, Mask, Simd};
+use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Storage};
 
 use super::packing::int8::{PackedBMeta, shift_cast_i8_u8};
@@ -98,6 +99,81 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         self.n_cols
     }
 
+    /// Pack one column panel of the matrix, for the case where each row of
+    /// the panel maps to a contiguous run of pixels in the source image.
+    ///
+    /// `col_y_offset` is the (shared) Y offset of the columns and `col_x_start`
+    /// the X offset of the first column. Both are premultiplied by the
+    /// corresponding image stride. The image's column stride must be one.
+    #[inline(always)]
+    fn pack_panel_contiguous(
+        &self,
+        out: &mut [MaybeUninit<T>],
+        panel_width: usize,
+        rows: Range<usize>,
+        col_y_offset: i32,
+        col_x_start: i32,
+    ) {
+        assert_eq!(self.image.stride(2), 1);
+
+        let row_chan_offsets = &self.row_offsets.chan[rows.clone()];
+        let row_y_offsets = &self.row_offsets.y[rows.clone()];
+        let row_x_offsets = &self.row_offsets.x[rows.clone()];
+
+        let img_data = self.image.storage();
+        let img_ptr = img_data.as_ptr();
+        let img_len = img_data.len();
+
+        for (i, ((&row_chan_offset, &row_y_offset), &row_x_offset)) in row_chan_offsets
+            .iter()
+            .zip(row_y_offsets.iter())
+            .zip(row_x_offsets.iter())
+            .enumerate()
+        {
+            let out_row = &mut out[i * panel_width..(i + 1) * panel_width];
+
+            let y_offset = col_y_offset + row_y_offset;
+            if y_offset < 0 || y_offset > self.max_y_offset {
+                // The whole panel row lies in the vertical padding region.
+                out_row.fill(MaybeUninit::new(T::default()));
+                continue;
+            }
+
+            // Since X offsets increase by one across the panel, the columns
+            // which are inside the image form a contiguous range `lo..hi`.
+            let x_start = col_x_start + row_x_offset;
+            let width = panel_width as i32;
+            let lo = (-x_start).clamp(0, width);
+            let hi = (self.max_x_offset - x_start + 1).clamp(lo, width);
+
+            let (lo, hi) = (lo as usize, hi as usize);
+            out_row[..lo].fill(MaybeUninit::new(T::default()));
+            out_row[hi..].fill(MaybeUninit::new(T::default()));
+
+            let non_pad_out_row = &mut out_row[lo..hi];
+
+            if non_pad_out_row.is_empty() {
+                continue;
+            }
+
+            let src_offset = row_chan_offset + y_offset + x_start + lo as i32;
+
+            // The offsets are computed from the image's shape and strides, so
+            // this should always hold. It is checked because an incorrect
+            // offset would make the copy below unsound.
+            assert!(src_offset >= 0 && src_offset as usize + non_pad_out_row.len() <= img_len);
+
+            // Safety: We checked above that `src_offset..src_offset + len` is
+            // in bounds for the image storage.
+            let src = unsafe {
+                std::slice::from_raw_parts(img_ptr.add(src_offset as usize), non_pad_out_row.len())
+            };
+            for (out_el, src_el) in non_pad_out_row.iter_mut().zip(src) {
+                out_el.write(*src_el);
+            }
+        }
+    }
+
     /// Pack part of an image into a packing buffer.
     ///
     /// This method is for use by kernels using the "standard" packing buffer
@@ -119,6 +195,11 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         let mask_ops = isa.m32();
 
         assert_eq!(panel_width, ops.len() * NR_REGS);
+
+        // Use the value derived from the ISA rather than the argument, as it
+        // is a compile-time constant. This lets the packing loops below be
+        // specialized for the panel width.
+        let panel_width = ops.len() * NR_REGS;
 
         let col_range = cols.start..cols.end.next_multiple_of(panel_width);
         let used_size = rows.len() * col_range.len();
@@ -143,6 +224,32 @@ impl<T: Copy + Default> Im2Col<'_, T> {
         let mut out_offset = 0;
 
         for start_col in (0..col_y_offsets.len()).step_by(ops.len() * NR_REGS) {
+            // Fast path for case where the source pixels for each panel row are
+            // contiguous. This happens when the input is contiguous and the
+            // convolution stride is 1.
+            if self.image.stride(2) == 1 {
+                let panel_y = &col_y_offsets[start_col..start_col + panel_width];
+                let panel_x = &col_x_offsets[start_col..start_col + panel_width];
+                let x_start = panel_x[0];
+                let same_row = panel_y.iter().all(|&y| y == panel_y[0]);
+                let contiguous = panel_x
+                    .iter()
+                    .enumerate()
+                    .all(|(i, &x)| x == x_start + i as i32);
+
+                if same_row && contiguous {
+                    self.pack_panel_contiguous(
+                        &mut out[out_offset..out_offset + rows.len() * panel_width],
+                        panel_width,
+                        rows.clone(),
+                        panel_y[0],
+                        x_start,
+                    );
+                    out_offset += rows.len() * panel_width;
+                    continue;
+                }
+            }
+
             let col_y_offset: [I::I32; NR_REGS] =
                 std::array::from_fn(|i| ops.load(&col_y_offsets[start_col + ops.len() * i..]));
             let col_x_offset: [I::I32; NR_REGS] =

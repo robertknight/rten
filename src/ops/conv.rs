@@ -1128,6 +1128,71 @@ mod tests {
         Ok(())
     }
 
+    /// Test convolutions over images which are wide enough that a column
+    /// panel of the im2col matrix can fit within a single output row.
+    ///
+    /// This exercises the fast path used when packing the im2col matrix.
+    #[test]
+    fn test_conv_wide_image() -> Result<(), Box<dyn Error>> {
+        #[derive(Debug)]
+        struct Case {
+            kernel_size: [usize; 2],
+            input_size: [usize; 2],
+            pad: usize,
+            strides: [usize; 2],
+            dilations: [usize; 2],
+        }
+
+        let mut cases = Vec::new();
+        for kernel_size in [[3, 3], [2, 2], [1, 1], [5, 3]] {
+            // Widths which are a multiple of the panel width, and widths which
+            // are not, so that panels straddle output row boundaries.
+            for input_size in [[4, 32], [4, 64], [3, 33], [2, 47], [1, 128]] {
+                for pad in [0, 1] {
+                    for strides in [[1, 1], [2, 2], [1, 2]] {
+                        for dilations in [[1, 1], [2, 2]] {
+                            cases.push(Case {
+                                kernel_size,
+                                input_size,
+                                pad,
+                                strides,
+                                dilations,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut rng = XorShiftRng::new(1234);
+        for case in cases {
+            let [k_h, k_w] = case.kernel_size;
+            let [in_h, in_w] = case.input_size;
+
+            // Skip cases where the dilated kernel does not fit in the input.
+            let eff_k_h = (k_h - 1) * case.dilations[0] + 1;
+            let eff_k_w = (k_w - 1) * case.dilations[1] + 1;
+            if in_h + 2 * case.pad < eff_k_h || in_w + 2 * case.pad < eff_k_w {
+                continue;
+            }
+
+            let kernel = Tensor::rand(&[8, 3, k_h, k_w], &mut rng);
+            let input = Tensor::rand(&[2, 3, in_h, in_w], &mut rng);
+            check_conv(
+                input.view(),
+                kernel.view(),
+                None,
+                [case.pad, case.pad, case.pad, case.pad].into(),
+                1, /* groups */
+                &case.strides,
+                &case.dilations,
+            )
+            .map_err(|err| format!("{:?} failed: {}", case, err))?;
+        }
+
+        Ok(())
+    }
+
     #[test]
     fn test_conv_strided() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
