@@ -5,6 +5,8 @@
 use rten_simd::ops::{BitOps, FloatOps, IntOps, NumOps};
 use rten_simd::{Isa, Simd, SimdUnaryOp};
 
+use crate::log::ln_1p_finite;
+
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
 const ROUNDING_MAGIC: f32 = 12582912.; // 0x3 << 22
 
@@ -272,19 +274,41 @@ impl SimdUnaryOp<f32> for Elu {
     }
 }
 
+/// Computes the softplus function, `ln(1 + exp(x))`.
+///
+/// This has a maximum error of 3 ULPs compared to a reference implementation
+/// using `x.max(0.) + (-x.abs()).exp().ln_1p()`.
+pub struct Softplus {}
+
+impl SimdUnaryOp<f32> for Softplus {
+    #[inline(always)]
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
+        let ops = isa.f32();
+
+        // Evaluating `ln(1 + exp(x))` directly overflows for `x` above ~88.
+        // Instead use the equivalent `max(x, 0) + ln(1 + exp(-|x|))`, where the
+        // argument of the logarithm is always in `(0, 1]`.
+        let exp_neg_abs_x = Exp::apply(isa, ops.neg(ops.abs(x)));
+        ops.add(ops.max(x, ops.zero()), ln_1p_finite(isa, exp_neg_abs_x))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::SimdUnaryOp;
 
     use super::{EXP_LOWER_CUTOFF, ReducedRangeExp};
     use crate::testing::{AllF32s, Tolerance, UnaryOpTester, arange, benchmark_op};
-    use crate::{Elu, Exp, Sigmoid, Silu, Swish};
+    use crate::{Elu, Exp, Sigmoid, Silu, Softplus, Swish};
 
     // Maximum error of `Exp` compared to Rust standard library implementation.
     const MAX_EXP_ERROR_ULPS: f32 = 1.0;
 
     // Maximum error of `Sigmoid` compared to reference implementation below.
     const MAX_SIGMOID_ERROR_ULPS: f32 = 4.0;
+
+    // Maximum error of `Softplus` compared to reference implementation below.
+    const MAX_SOFTPLUS_ERROR_ULPS: f32 = 3.0;
 
     fn reference_elu(x: f32, alpha: f32) -> f32 {
         if x >= 0. { x } else { alpha * (x.exp() - 1.) }
@@ -296,6 +320,10 @@ mod tests {
 
     fn reference_silu(x: f32) -> f32 {
         x * reference_sigmoid(x)
+    }
+
+    fn reference_softplus(x: f32) -> f32 {
+        x.max(0.) + (-x.abs()).exp().ln_1p()
     }
 
     fn reference_swish(x: f32, alpha: f32) -> f32 {
@@ -405,6 +433,46 @@ mod tests {
     }
 
     #[test]
+    fn test_softplus() {
+        let test = UnaryOpTester {
+            reference: reference_softplus,
+            simd: Softplus {},
+            range: arange(-100., 100., 0.001),
+            tolerance: Tolerance::Ulp(MAX_SOFTPLUS_ERROR_ULPS),
+        };
+        test.run();
+    }
+
+    #[test]
+    #[ignore] // Ignored by default due to long runtime
+    fn test_softplus_exhaustive() {
+        let test = UnaryOpTester {
+            reference: reference_softplus,
+            simd: Softplus {},
+            range: AllF32s::new(),
+            tolerance: Tolerance::Ulp(MAX_SOFTPLUS_ERROR_ULPS),
+        };
+        test.run_with_progress();
+    }
+
+    #[test]
+    fn test_softplus_special_values() {
+        // `softplus(x)` saturates to `x` for large `x` and zero for very
+        // negative `x`.
+        let cases = [
+            (f32::INFINITY, f32::INFINITY),
+            (f32::NEG_INFINITY, 0.),
+            (1000., 1000.),
+            (-1000., 0.),
+        ];
+        let op = Softplus {};
+        for (x, expected) in cases {
+            assert_eq!(op.scalar_eval(x), expected, "mismatch for x = {x}");
+        }
+        assert!(op.scalar_eval(f32::NAN).is_nan());
+    }
+
+    #[test]
     fn test_swish() {
         let alpha = 1.7;
         let test = UnaryOpTester {
@@ -439,6 +507,21 @@ mod tests {
             |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.exp()),
             |xs, ys| {
                 Exp {}.map(xs, ys);
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_softplus() {
+        benchmark_op(
+            |xs, ys| {
+                xs.iter()
+                    .zip(ys.iter_mut())
+                    .for_each(|(x, y)| *y = reference_softplus(*x))
+            },
+            |xs, ys| {
+                Softplus {}.map(xs, ys);
             },
         );
     }

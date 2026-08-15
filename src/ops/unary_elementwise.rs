@@ -545,7 +545,7 @@ pub fn leaky_relu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
 
 declare_operator!(Log);
 impl_operator!(Log, [FloatTensor]);
-impl_get_kernel!(Log, f32, |val: f32| val.ln());
+impl_get_kernel!(Log, f32, SimdKernel(vecmath::Ln {}));
 
 declare_operator!(Neg);
 impl_operator!(Neg, [FloatTensor, Int32Tensor], Some(&shape_ops::Neg));
@@ -745,7 +745,7 @@ impl_get_kernel!(Sqrt, f32, |val: f32| val.sqrt());
 
 declare_operator!(Softplus);
 impl_operator!(Softplus, [FloatTensor]);
-impl_get_kernel!(Softplus, f32, |val: f32| val.exp().ln_1p());
+impl_get_kernel!(Softplus, f32, SimdKernel(vecmath::Softplus {}));
 
 declare_operator!(Softsign);
 impl_operator!(Softsign, [FloatTensor]);
@@ -1189,6 +1189,11 @@ mod tests {
         1. / (1. + (-x).exp())
     }
 
+    // Compute `ln(1 + exp(x))` in a way that does not overflow for large `x`.
+    fn reference_softplus(x: f32) -> f32 {
+        x.max(0.) + (-x.abs()).exp().ln_1p()
+    }
+
     test_unary_op!(
         test_sigmoid,
         Sigmoid {},
@@ -1198,7 +1203,7 @@ mod tests {
     test_unary_op!(test_silu, Silu {}, |x: &f32| x * reference_sigmoid(*x));
     test_unary_op!(test_sin, Sin {}, |x: &f32| x.sin());
     test_unary_op!(test_sinh, Sinh {}, |x: &f32| x.sinh());
-    test_unary_op!(test_softplus, Softplus {}, |x: &f32| { x.exp().ln_1p() });
+    test_unary_op!(test_softplus, Softplus {}, |x: &f32| reference_softplus(*x));
     test_unary_op!(test_softsign, Softsign {}, |x: &f32| x / (1. + x.abs()));
     test_unary_op!(
         test_sqrt,
