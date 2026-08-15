@@ -545,7 +545,7 @@ pub fn leaky_relu(pool: &BufferPool, input: TensorView, alpha: f32) -> Tensor {
 
 declare_operator!(Log);
 impl_operator!(Log, [FloatTensor]);
-impl_get_kernel!(Log, f32, |val: f32| val.ln());
+impl_get_kernel!(Log, f32, SimdKernel(vecmath::Ln {}));
 
 declare_operator!(Neg);
 impl_operator!(Neg, [FloatTensor, Int32Tensor], Some(&shape_ops::Neg));
@@ -746,7 +746,7 @@ impl_get_kernel!(Sqrt, f32, |val: f32| val.sqrt());
 
 declare_operator!(Softplus);
 impl_operator!(Softplus, [FloatTensor]);
-impl_get_kernel!(Softplus, f32, |val: f32| val.exp().ln_1p());
+impl_get_kernel!(Softplus, f32, SimdKernel(vecmath::Softplus {}));
 
 declare_operator!(Tan);
 impl_operator!(Tan, [FloatTensor]);
@@ -1126,6 +1126,20 @@ mod tests {
         Tensor::from([0.1, 0.5, 1., 10.])
     );
 
+    #[test]
+    fn test_log_special_values() {
+        let input = Tensor::from([0., -0., -1., f32::INFINITY, f32::NAN]);
+        let expected = Tensor::from([
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NAN,
+        ]);
+        let result: Tensor = Log {}.run_simple(input.view()).unwrap();
+        assert!(eq_with_nans(result.view(), expected.view()));
+    }
+
     test_unary_op!(test_neg, Neg {}, |x| -x, Tensor::from([0, 1, -1, 2]));
 
     test_unary_op!(
@@ -1192,6 +1206,11 @@ mod tests {
         1. / (1. + (-x).exp())
     }
 
+    // Compute `ln(1 + exp(x))` in a way that does not overflow for large `x`.
+    fn reference_softplus(x: f32) -> f32 {
+        x.max(0.) + (-x.abs()).exp().ln_1p()
+    }
+
     test_unary_op!(
         test_sigmoid,
         Sigmoid {},
@@ -1201,7 +1220,13 @@ mod tests {
     test_unary_op!(test_silu, Silu {}, |x: &f32| x * reference_sigmoid(*x));
     test_unary_op!(test_sin, Sin {}, |x: &f32| x.sin());
     test_unary_op!(test_sinh, Sinh {}, |x: &f32| x.sinh());
-    test_unary_op!(test_softplus, Softplus {}, |x: &f32| { x.exp().ln_1p() });
+    test_unary_op!(test_softplus, Softplus {}, |x: &f32| reference_softplus(*x));
+    test_unary_op!(
+        test_softplus_large_values,
+        Softplus {},
+        |x: &f32| reference_softplus(*x),
+        Tensor::from([-1000., -100., -50., 50., 100., 1000.])
+    );
     test_unary_op!(
         test_sqrt,
         Sqrt {},
