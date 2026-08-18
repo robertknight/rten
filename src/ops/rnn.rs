@@ -435,6 +435,9 @@ impl_infer_shapes!(
     }
 );
 
+/// Number of gates in an LSTM.
+pub(super) const LSTM_GATES: usize = 4;
+
 /// Compute the output for a single LSTM layer.
 ///
 /// `input` has shape [sequence_length, batch, input_size].
@@ -541,7 +544,7 @@ pub fn lstm(
         .zip(hidden_seq.axis_iter_mut(1))
         .enumerate()
         .for_each(|(dir, ((mut hidden, mut cell), mut hidden_seq))| {
-            let n_gates = 4;
+            let n_gates = LSTM_GATES;
             let input_bias = bias
                 .as_ref()
                 .map(|b| b.slice((dir, ..(n_gates * hidden_size))).data().unwrap());
@@ -612,7 +615,7 @@ pub fn lstm(
 /// `out` have shape `[batch, hidden_size]`.
 ///
 /// All inputs must be contiguous in the last dimension.
-fn lstm_step(
+pub(super) fn lstm_step(
     hidden_size: usize,
     mut gates: NdTensorViewMut<f32, 2>,
     mut hidden: NdTensorViewMut<f32, 2>,
@@ -732,6 +735,12 @@ impl_infer_shapes!(
         direction: op.direction.into(),
     }
 );
+
+#[cfg(feature = "contrib")]
+pub use contrib::DynamicQuantizeLSTM;
+
+#[cfg(feature = "contrib")]
+mod contrib;
 
 #[cfg(test)]
 mod tests {

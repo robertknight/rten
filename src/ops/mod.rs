@@ -130,6 +130,7 @@ pub(crate) use {
     norm::{
         SimplifiedLayerNormalization, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
     },
+    rnn::DynamicQuantizeLSTM,
     unary_elementwise::{BiasGelu, FastGelu, GeluMicrosoft, QuickGelu},
 };
 

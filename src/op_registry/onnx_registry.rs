@@ -277,6 +277,7 @@ impl OnnxOpRegistry {
 
         // com.microsoft ops.
         register_op!("com.microsoft", BiasGelu, feature = "contrib");
+        register_op!("com.microsoft", DynamicQuantizeLSTM, feature = "contrib");
         register_op!("com.microsoft", FastGelu, feature = "contrib");
         register_op!("com.microsoft", "Gelu", GeluMicrosoft, feature = "contrib");
         register_op!("com.microsoft", GroupQueryAttention, feature = "contrib");
@@ -1391,6 +1392,21 @@ impl_read_op!(LSTM, |attrs: &Attrs| {
     })
 });
 
+#[cfg(feature = "contrib")]
+impl_read_op!("com.microsoft", DynamicQuantizeLSTM, |attrs: &Attrs| {
+    let RnnAttrs {
+        direction,
+        hidden_size,
+    } = get_common_rnn_attrs(attrs, &["Sigmoid", "Tanh", "Tanh"])?;
+
+    attrs.check_eq("input_forget", 0)?;
+
+    Ok(ops::DynamicQuantizeLSTM {
+        direction,
+        hidden_size,
+    })
+});
+
 impl_read_op!(MatMul);
 impl_read_op!(MatMulInteger);
 
@@ -2094,7 +2110,9 @@ mod tests {
         ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding, Upsample,
     };
     #[cfg(feature = "contrib")]
-    use crate::ops::{GroupQueryAttention, RotaryEmbeddingMicrosoft};
+    use crate::ops::{
+        Direction, DynamicQuantizeLSTM, GroupQueryAttention, RotaryEmbeddingMicrosoft,
+    };
     use crate::value::Scalar;
 
     #[derive(Default)]
@@ -2204,6 +2222,25 @@ mod tests {
 
         let rotary = op.downcast_ref::<RotaryEmbedding>().unwrap();
         assert_eq!(rotary.num_heads, 0);
+    }
+
+    #[cfg(feature = "contrib")]
+    #[test]
+    fn test_read_dynamic_quantize_lstm() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("DynamicQuantizeLSTM")
+            .with_domain("com.microsoft")
+            .with_attr("hidden_size", 4i64)
+            .with_attr("direction", "bidirectional".to_string());
+
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
+
+        let lstm = op.downcast_ref::<DynamicQuantizeLSTM>().unwrap();
+        assert_eq!(lstm.hidden_size, 4);
+        assert!(matches!(lstm.direction, Direction::Bidirectional));
     }
 
     #[cfg(feature = "contrib")]
