@@ -84,8 +84,9 @@ struct Args {
     #[argh(switch, short = 'q')]
     quiet: bool,
 
-    /// specify the range of randomly generated values for an input in the form `input_name=min:max`. Can be specified multiple times.
-    /// Input names may be quoted (eg. `"input.one"=0:10`).
+    /// specify `[min, max)` range of randomly generated values for an input in
+    /// the form `input_name=min:max`. Input names may be quoted (eg.
+    /// `"input.one"=0:10`).
     #[argh(option, short = 'r')]
     range: Vec<String>,
 
