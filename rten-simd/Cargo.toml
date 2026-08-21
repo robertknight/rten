@@ -17,3 +17,11 @@ crate-type = ["lib"]
 # See comments about `needless_range_loop` in root Cargo.toml.
 needless_range_loop = "allow"
 manual_memcpy = "allow"
+
+[package.metadata.docs.rs]
+# As of August 2026, docs.rs only builds x86_64 Linux by default. Add other
+# supported architectures so their types appear.
+additional-targets = ["aarch64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+# WASM SIMD support requires the `simd128` target feature to be enabled.
+# Other targets ignore this flag with a warning.
+rustdoc-args = ["-C", "target-feature=+simd128"]
