@@ -80,6 +80,9 @@ jobs:
     - name: Docs
       run: |
         make docs
+    - name: Docs (WASM)
+      run: make wasm-docs
+      if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Setup Python
       run: |
         python -m venv .venv

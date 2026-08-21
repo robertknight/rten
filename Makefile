@@ -68,6 +68,10 @@ wasm-nosimd:
 .PHONY: wasm-all
 wasm-all: wasm wasm-nosimd
 
+.PHONY: wasm-docs
+wasm-docs:
+	RUSTDOCFLAGS="-D warnings $(WASM_TARGET_FEATURES)" cargo doc -p rten-simd --target wasm32-unknown-unknown
+
 # Run wasm tests using `make wasm-test PACKAGE={package_name}`
 #
 # WASM tests run with `--nocapture` as otherwise assertion failure panic messages
