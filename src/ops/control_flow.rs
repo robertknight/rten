@@ -1,3 +1,4 @@
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 use smallvec::SmallVec;
@@ -5,7 +6,7 @@ use smallvec::SmallVec;
 use crate::graph::{CaptureEnv, Graph, NodeId, RunError, RunOptions};
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
+    OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList, OutputTypesContext,
     SubgraphOperator,
 };
 use crate::ops::map_value;
@@ -53,13 +54,22 @@ impl Operator for If {
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        // Type inference is not implemented for ops with subgraphs yet.
-        None
+        let n_outputs = self.then_branch.output_ids().len();
+
+        // The `then` and `else` branches must return outputs of the same types.
+        // Here we take the outputs from the `then` branch.
+        let types = (0..n_outputs)
+            .map(|i| OutputType::SubgraphOutput {
+                graph_index: 0,
+                output_index: i as u32,
+            })
+            .collect();
+
+        Some(types)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support ops with subgraphs yet.
-        None
+        Some(&shape_ops::If)
     }
 }
 
@@ -150,14 +160,31 @@ impl Operator for Loop {
         Some(self as &dyn SubgraphOperator)
     }
 
-    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        // Type inference is not implemented for ops with subgraphs yet.
-        None
+    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        let mut types = OutputTypeList::new();
+
+        // The output is `[loop_carried_dependencies..., scan_outputs...]`
+        // where `loop_carried_dependencies` are inputs from index 2 and
+        // `scan_outputs` are `self.body` outputs from index (1 + N).
+        let loop_carried_deps = ctx.num_inputs.saturating_sub(2) as u32;
+        for i in 0..loop_carried_deps {
+            types.push(OutputType::CopyFromInput(i as u32 + 2));
+        }
+
+        let n_outputs = self.body.output_ids().len() as u32;
+        let scan_outputs = n_outputs.saturating_sub(1 + loop_carried_deps);
+        for i in 0..scan_outputs {
+            types.push(OutputType::SubgraphOutput {
+                graph_index: 0,
+                output_index: 1 + loop_carried_deps + i,
+            });
+        }
+
+        Some(types)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support ops with subgraphs yet.
-        None
+        Some(&shape_ops::Loop)
     }
 }
 

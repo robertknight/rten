@@ -877,21 +877,23 @@ impl ModelOptions {
     /// to the graph optimizer.
     fn optimize_mode(&self) -> OptimizeMode {
         if self.optimize {
-            OptimizeMode::On(OptimizeOptions {
-                infer_shapes: match self.infer_shapes {
-                    ShapeInferenceMode::Off => None,
-                    ShapeInferenceMode::On => Some(InferShapeOptions {
-                        strict: false,
-                        ..Default::default()
-                    }),
-                    ShapeInferenceMode::Strict => Some(InferShapeOptions {
-                        strict: true,
-                        ..Default::default()
-                    }),
-                },
-            })
+            OptimizeMode::On(OptimizeOptions {})
         } else {
             OptimizeMode::Off
+        }
+    }
+
+    fn infer_shapes_options(&self) -> Option<InferShapeOptions> {
+        match self.infer_shapes {
+            ShapeInferenceMode::Off => None,
+            ShapeInferenceMode::On => Some(InferShapeOptions {
+                strict: false,
+                ..Default::default()
+            }),
+            ShapeInferenceMode::Strict => Some(InferShapeOptions {
+                strict: true,
+                ..Default::default()
+            }),
         }
     }
 }
