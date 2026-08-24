@@ -2,6 +2,17 @@
 all:
 	cargo build --workspace
 
+.PHONY: cli
+cli:
+	cargo build -p rten-cli --release
+
+# Build with ThinLTO disabled. This makes the build faster but the binary will
+# be larger and slower. Performance is still usable though, unlike a debug
+# build.
+.PHONY: cli-no-lto
+cli-no-lto:
+	CARGO_PROFILE_RELEASE_LTO=off cargo build -p rten-cli --release
+
 .PHONY: schema
 schema: rten-model-file/src/schema_generated.rs rten-convert/rten_convert/schema_generated.py
 
