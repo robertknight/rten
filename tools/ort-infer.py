@@ -5,6 +5,13 @@ from time import perf_counter
 import numpy as np
 import onnxruntime as ort
 
+# See https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html#python
+try:
+    import onnxruntime_ep_webgpu as webgpu_ep
+except ImportError:
+    webgpu_ep = None
+    pass
+
 OPT_LEVELS = {
     "none": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
     "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
@@ -164,7 +171,7 @@ parser.add_argument(
     help="Specify size for dynamic input dim as `dim_name=size`",
 )
 parser.add_argument(
-    "-e", "--exec-provider", type=str, help='Execution provider (eg. "CPU", "CoreML")'
+    "-e", "--exec-provider", type=str, help='Execution provider (eg. "CPU", "CoreML", "WebGpu")'
 )
 parser.add_argument(
     "-n", "--n_evals", type=int, help="Number of inference iterations", default=10
@@ -189,6 +196,13 @@ parser.add_argument(
     help="Number of threads to use to run ops in parallel",
 )
 args = parser.parse_args()
+
+# Register WebGPU provider if available. See
+# https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html#python
+if webgpu_ep:
+    ort.register_execution_provider_library(
+        "webgpu_ep_registration", webgpu_ep.get_library_path()
+    )
 
 provider_names = ", ".join(
     p.replace("ExecutionProvider", "") for p in ort.get_available_providers()
