@@ -5,6 +5,141 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Breaking changes:**
+
+- The `--range` option in the CLI now treats the upper bound as exclusive, so
+  `--range input=0:10` generates values in `[0, 10)`
+  (https://github.com/robertknight/rten/pull/1445)
+
+### rten
+
+- Fixed NaN outputs from `Resize` when `align_corners` is used and an output
+  axis has length one (https://github.com/robertknight/rten/pull/1450)
+
+- Optimized the `GRU` and `LSTM` operators, by computing the input projection
+  for the whole sequence in one GEMM, fusing the gate and hidden state updates,
+  and evaluating both directions of a bidirectional operator in parallel
+  (https://github.com/robertknight/rten/pull/1442)
+
+- Fixed panics in the `LSTM` and `GRU` operators when input shapes did not match
+  each other or the operator's attributes
+  (https://github.com/robertknight/rten/pull/1439,
+  https://github.com/robertknight/rten/pull/1440)
+
+- Report an error when loading models which use old versions of `Resize` (opset
+  < 11) and `Tile` (opset < 6) that are not supported
+  (https://github.com/robertknight/rten/pull/1438)
+
+- Improve error messages for out-of-range indices and axes, by including the
+  invalid value and the range of valid values
+  (https://github.com/robertknight/rten/pull/1436,
+  https://github.com/robertknight/rten/pull/1437)
+
+- Unused operator outputs are now removed during graph optimization. This
+  allows operators to skip computing them, and allows models to run if they
+  request an unsupported output but never use it
+  (https://github.com/robertknight/rten/pull/1435)
+
+- Improved error messages for unsupported operator outputs. A consequence is
+  that errors for valid but unsupported outputs will now be reported during
+  inference rather than at model load time. This affects `Attention`,
+  `BatchNormalization`, `LayerNormalization` and `MaxPool`, plus the
+  `GroupQueryAttention`, `MultiHeadAttention`, `SkipLayerNormalization`,
+  `SimplifiedLayerNormalization` and `SkipSimplifiedLayerNormalization` contrib
+  operators (https://github.com/robertknight/rten/pull/1432,
+  https://github.com/robertknight/rten/pull/1433)
+
+- `QuantizeLinear` and `DequantizeLinear` now use per-tensor quantization if the
+  `scale` input is a single-element vector, for compatibility with ONNX Runtime
+  (https://github.com/robertknight/rten/pull/1429)
+
+- Accept the deprecated `spatial` attribute for `BatchNormalization` if it is
+  set to the default value (https://github.com/robertknight/rten/pull/1428)
+
+- Accept attributes which are explicitly set to their default value, rather than
+  omitted, in `Cast`, `CastLike`, `DequantizeLinear`, `GRU`, `LSTM`,
+  `QuantizeLinear` and `Range`
+  (https://github.com/robertknight/rten/pull/1427)
+
+- Support older models which specify `Reshape`'s `shape`, `TopK`'s `k` and
+  `Dropout`'s `ratio` as attributes rather than inputs
+  (https://github.com/robertknight/rten/pull/1425,
+  https://github.com/robertknight/rten/pull/1426)
+
+- Validate tensor data offsets when loading `.rten` models and prevent an
+  overflow when computing the end offset of external data
+  (https://github.com/robertknight/rten/pull/1423)
+
+- Added `ReduceLogSum` and `ReduceLogSumExp` operators
+  (https://github.com/robertknight/rten/pull/1422)
+
+- Added `QuickGelu` contrib operator
+  (https://github.com/robertknight/rten/pull/1421)
+
+- Fixed the inferred rank of `ConstantOfShape`'s output when the values of the
+  `shape` input are unknown (https://github.com/robertknight/rten/pull/1420)
+
+- Fixed a panic when `Expand`'s target shape contains negative values
+  (https://github.com/robertknight/rten/pull/1419)
+
+- Fixed incorrect `Resize` output when the scale factor is not an integer
+  (https://github.com/robertknight/rten/pull/1418)
+
+- Fixed `QuantizeLinear` and `DequantizeLinear` reading uninitialized memory if
+  the `scale` input's length did not match the size of the quantization axis,
+  and panicking if the optional `zero_point` input was omitted
+  (https://github.com/robertknight/rten/pull/1417)
+
+- Fixed the output size of `MaxPool` and `AveragePool` in ceil mode
+  (https://github.com/robertknight/rten/pull/1416)
+
+- Added `LpNormalization` operator
+  (https://github.com/robertknight/rten/pull/1415)
+
+- Support the `exclusive` and `reverse` attributes in `CumSum`
+  (https://github.com/robertknight/rten/pull/1413)
+
+- Support packed QKV inputs in `GroupQueryAttention`, and improve performance by
+  avoiding unnecessary copying of inputs
+  (https://github.com/robertknight/rten/pull/1409)
+
+- Fixed grouped `ConvTranspose` using the first group's bias values for every
+  group (https://github.com/robertknight/rten/pull/1408)
+
+- Support dilations in `ConvTranspose`
+  (https://github.com/robertknight/rten/pull/1407)
+
+- Support negative pads in the `Pad` operator
+  (https://github.com/robertknight/rten/pull/1406)
+
+### rten-convert
+
+- Fixed the default `axis` for `Softmax` and `LogSoftmax` in `.rten` format
+  models (https://github.com/robertknight/rten/pull/1414)
+
+### rten-tensor
+
+- Fixed two soundness issues in `LaneMut`, where `nth` could re-yield an element
+  that was already yielded and `into_view` could return a view aliasing
+  previously yielded references
+  (https://github.com/robertknight/rten/pull/1412)
+
+- Implemented `DoubleEndedIterator` for `Lane` and `LaneMut`, and fixed their
+  `size_hint` implementations
+  (https://github.com/robertknight/rten/pull/1411)
+
+### rten-simd
+
+- Build docs for Arm and WASM targets on docs.rs
+  (https://github.com/robertknight/rten/pull/1446)
+
+### rten-cli
+
+- Made the upper bound of `--range` exclusive
+  (https://github.com/robertknight/rten/pull/1445)
+
 ## [0.25.0] - 2026-08-01
 
 **Breaking changes:**
