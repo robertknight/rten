@@ -57,7 +57,13 @@ fn input_coord(
         Ctm::HalfPixel => scale * (dest_coord as f32 + 0.5) - 0.5,
         Ctm::Asymmetric => scale * dest_coord as f32,
         Ctm::AlignCorners => {
-            dest_coord as f32 * (length_original - 1) as f32 / (length_resized - 1) as f32
+            if length_resized > 1 {
+                dest_coord as f32 * (length_original - 1) as f32 / (length_resized - 1) as f32
+            } else {
+                // Avoid division by zero. Use zero as the input coordinate to match the ONNX
+                // reference implementation.
+                0.
+            }
         }
         Ctm::PytorchHalfPixel => {
             // There are some queries over this transform mode, see
@@ -955,6 +961,52 @@ mod tests {
             .unwrap();
 
             expect_eq_1e4(&result, &case.expected).unwrap();
+        })
+    }
+
+    // Test resize where an output axis has a length of 1. The `align_corners`
+    // and `pytorch_half_pixel` modes need special handling for this when
+    // choosing the input coordinate.
+    #[test]
+    fn test_resize_length_one_output_axis() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            coord_transform_mode: CoordTransformMode,
+            expected: &'a [f32],
+        }
+
+        // Reference values generated with ONNX Runtime.
+        let cases = [
+            Case {
+                coord_transform_mode: CoordTransformMode::AlignCorners,
+                expected: &[1., 1.5714, 2.1429, 2.7143, 3.2857, 3.8571, 4.4286, 5.],
+            },
+            Case {
+                coord_transform_mode: CoordTransformMode::PytorchHalfPixel,
+                expected: &[1., 1.4375, 2.0625, 2.6875, 3.3125, 3.9375, 4.5625, 5.],
+            },
+        ];
+
+        cases.test_each(|case| {
+            // NCHW image where the output width is 1.
+            let image = NdTensor::from([1., 2., 3., 4., 5.]).into_shape([1, 1, 5, 1].as_slice());
+            let sizes = NdTensorView::from(&[1, 1, 8, 1]);
+
+            let pool = BufferPool::new();
+            let result = resize(
+                &pool,
+                image.view(),
+                ResizeTarget::Sizes(sizes),
+                ResizeMode::Linear,
+                case.coord_transform_mode,
+                NearestMode::Floor,
+            )
+            .unwrap()
+            .into_rank::<4>()
+            .unwrap();
+
+            let expected = NdTensorView::from(case.expected).to_shape([1, 1, 8, 1]);
+            expect_eq_1e4(&result, &expected).unwrap();
         })
     }
 
