@@ -6,6 +6,7 @@ from functools import reduce
 import hashlib
 import json
 from operator import mul
+from os import unlink
 from os.path import dirname, splitext
 import sys
 import struct
@@ -1497,11 +1498,17 @@ def main():
         # file that shares the same external data (if any) as the input file.
         #
         # See also https://github.com/robertknight/rten/issues/851.
-        with tempfile.NamedTemporaryFile(
-            dir=dirname(model_path), suffix=".infer_shapes.onnx"
-        ) as tmp:
+        tmp = tempfile.NamedTemporaryFile(
+            dir=dirname(model_path), suffix=".infer_shapes.onnx", delete=False
+        )
+        # Close the file to avoid an error on Windows if onnx functions attempt
+        # to re-open an already open file with a different share mode.
+        tmp.close()
+        try:
             onnx.shape_inference.infer_shapes_path(model_path, tmp.name, data_prop=True)
             model = onnx.load(tmp.name)
+        finally:
+            unlink(tmp.name)
     else:
         model = onnx.load(model_path)
 
