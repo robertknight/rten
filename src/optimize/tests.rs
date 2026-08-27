@@ -15,10 +15,11 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf, Expand, FusedMatMul,
-    Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul,
-    MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape,
-    Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf,
+    Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN,
+    LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean,
+    RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose,
+    Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -491,6 +492,93 @@ fn test_fuse_batch_normalization() {
         assert_eq!(input_value(3), [0.; 4]);
         assert_eq!(input_value(4), [1.; 4]);
     });
+}
+
+#[test]
+fn test_fuse_conv_batch_norm() {
+    #[derive(Debug)]
+    struct Case {
+        /// Bias of the `Conv`, or `None` if it has no bias input.
+        conv_bias: Option<[f32; 2]>,
+        expected_bias: [f32; 2],
+    }
+
+    // Weights are `[1., 2.]`, and the batch norm constants below give a scale
+    // of `[3. / 2., 4. / 2.]` per output channel.
+    let cases = [
+        Case {
+            conv_bias: Some([10., 20.]),
+            // `(10. - 1.) * 1.5 + 5.`, `(20. - 2.) * 2. + 6.`
+            expected_bias: [18.5, 42.],
+        },
+        Case {
+            conv_bias: None,
+            // `(0. - 1.) * 1.5 + 5.`, `(0. - 2.) * 2. + 6.`
+            expected_bias: [3.5, 2.],
+        },
+    ];
+
+    cases.test_each(
+        |&Case {
+             conv_bias,
+             expected_bias,
+         }| {
+            let graph = {
+                let x = Expr::value("x");
+
+                // Weight shape is `[out_channels, in_channels, kernel]`.
+                let weight = Expr::constant(Tensor::from([[[1.]], [[2.]]]));
+                let mut conv_inputs = vec![weight];
+                if let Some(bias) = conv_bias {
+                    conv_inputs.push(Expr::constant(Tensor::from(bias)));
+                }
+                let conv = x.apply(
+                    Conv {
+                        groups: 1,
+                        dilations: vec![1],
+                        padding: Padding::Same,
+                        strides: vec![1],
+                    },
+                    &conv_inputs,
+                    &[OutputMeta::NoMeta],
+                );
+
+                // `(var + epsilon).sqrt()` is 2, so the per-channel scale
+                // applied to the weights is `scale / 2`.
+                conv.apply(
+                    BatchNormalization { epsilon: 1. },
+                    &[
+                        Expr::constant(Tensor::from([3., 4.])),
+                        Expr::constant(Tensor::from([5., 6.])),
+                        Expr::constant(Tensor::from([1., 2.])),
+                        Expr::constant(Tensor::from([3., 3.])),
+                    ],
+                    &[OutputMeta::NoMeta],
+                )
+                .build_graph(["x"])
+            };
+
+            let graph = optimize_graph(graph).unwrap();
+
+            let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+            assert_eq!(op.operator().name(), "Conv");
+
+            let constant_value = |index: usize| -> Vec<f32> {
+                let input_id = op.input_ids()[index].expect("input should be present");
+                let constant = graph
+                    .get_node(input_id)
+                    .and_then(|n| n.as_constant())
+                    .expect("input should be a constant");
+                TypedConstant::<f32>::as_typed_view(constant)
+                    .expect("input should be an f32 constant")
+                    .iter()
+                    .copied()
+                    .collect()
+            };
+            assert_eq!(constant_value(1), [1.5, 4.]);
+            assert_eq!(constant_value(2), expected_bias);
+        },
+    );
 }
 
 #[test]

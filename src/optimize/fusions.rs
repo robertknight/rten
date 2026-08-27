@@ -1703,13 +1703,18 @@ fn channel_count(shape: &[usize]) -> Option<usize> {
         .then(|| shape[1])
 }
 
-/// Create a constant containing a vector.
-fn vector_constant(data: Vec<f32>) -> Constant {
+/// Create a constant containing a tensor.
+fn tensor_constant(shape: &[usize], data: Vec<f32>) -> Constant {
     ConstantNode::new(
         None,
-        ConstantNodeData::Arc(ArcTensor::from_data(&[data.len()], Arc::new(data))),
+        ConstantNodeData::Arc(ArcTensor::from_data(shape, Arc::new(data))),
     )
     .into()
+}
+
+/// Create a constant containing a vector.
+fn vector_constant(data: Vec<f32>) -> Constant {
+    tensor_constant(&[data.len()], data)
 }
 
 /// Convert a constant with shape `[1, C, 1, ...]` into a `[C]` vector.
@@ -1885,6 +1890,125 @@ impl FusionVisitor for ConvAddFusion {
             fused_op: conv_op.clone_operator(),
             input_ids: vec![Some(conv_input), Some(conv_weight), None],
             new_constant_inputs: vec![(2, bias_const)],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
+    }
+}
+
+/// Fuse `BatchNormalization(Conv(X, W, b))` into `Conv(X, W', b')`.
+///
+/// Fuse `BatchNormalization(Conv(X, W, b), scale, bias, mean, var)` into a
+/// `Conv` operator with adjusted weights and bias. For each channel the new
+/// weights `W'` and bias `b'` are computed as:
+///
+///    a = scale / (var + epsilon).sqrt()
+///    W' = W * a
+///    b' = (b - mean) * a + bias
+///
+/// This requires the weights, bias, scale and variance to all be constants.
+pub struct ConvBatchNormFusion {}
+
+impl FusionVisitor for ConvBatchNormFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "ConvBatchNormFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let Some(batch_norm) = op_node.operator().downcast_ref::<BatchNormalization>() else {
+            return Err(FusionError::NoMatch);
+        };
+        let [
+            Some(bn_input),
+            Some(scale),
+            Some(bn_bias),
+            Some(mean),
+            Some(var),
+        ] = op_node.input_ids()
+        else {
+            return Err(FusionError::NoMatch);
+        };
+
+        // The normalized input must be the output of a `Conv`.
+        let Some((_, conv_op)) = graph
+            .get_source_node(*bn_input)
+            .filter(|(_, op)| op.operator().downcast_ref::<Conv>().is_some())
+        else {
+            return Err(FusionError::NoMatch);
+        };
+        let (conv_input, conv_weight, conv_bias) = match conv_op.input_ids() {
+            [Some(input), Some(weight)] | [Some(input), Some(weight), None] => {
+                (*input, *weight, None)
+            }
+            [Some(input), Some(weight), Some(bias)] => (*input, *weight, Some(*bias)),
+            _ => return Err(FusionError::NoMatch),
+        };
+
+        // Weights have shape `[out_channels, in_channels / groups, ...kernel]`.
+        let Some(Node::Constant(weight_const)) = graph.get_node(conv_weight) else {
+            return Err(FusionError::CheckFailed("conv weights are not constant"));
+        };
+        let Some(weight_view) = TypedConstant::<f32>::as_typed_view(weight_const) else {
+            return Err(FusionError::CheckFailed("conv weights are not f32"));
+        };
+        let weight_shape = weight_const.shape().to_vec();
+        let Some((&out_channels, kernel_shape)) = weight_shape.split_first() else {
+            return Err(FusionError::CheckFailed("conv weights are a scalar"));
+        };
+        let elements_per_channel: usize = kernel_shape.iter().product();
+
+        let stats = [scale, bn_bias, mean, var].map(|id| graph.get_vector::<f32>(*id));
+        let [Some(scale), Some(bn_bias), Some(mean), Some(var)] = stats else {
+            return Err(FusionError::CheckFailed(
+                "batch norm inputs are not f32 vectors",
+            ));
+        };
+        if [scale, bn_bias, mean, var]
+            .iter()
+            .any(|stat| stat.len() != out_channels)
+        {
+            return Err(FusionError::CheckFailed(
+                "batch norm input size does not match conv output channels",
+            ));
+        }
+
+        let conv_bias = match conv_bias {
+            Some(bias_id) => match graph.get_vector::<f32>(bias_id) {
+                Some(bias) if bias.len() == out_channels => Some(bias),
+                _ => return Err(FusionError::CheckFailed("conv bias is not an f32 vector")),
+            },
+            None => None,
+        };
+
+        let mut weight_data = weight_view.to_vec();
+        let mut bias_data = Vec::with_capacity(out_channels);
+        for (chan, chan_weights) in weight_data.chunks_mut(elements_per_channel).enumerate() {
+            let alpha = scale[chan] / (var[chan] + batch_norm.epsilon).sqrt();
+            for weight in chan_weights {
+                *weight *= alpha;
+            }
+            let bias = conv_bias.map(|bias| bias[chan]).unwrap_or(0.);
+            bias_data.push((bias - mean[chan]) * alpha + bn_bias[chan]);
+        }
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: conv_op.clone_operator(),
+            input_ids: vec![Some(conv_input), None, None],
+            new_constant_inputs: vec![
+                (1, tensor_constant(&weight_shape, weight_data)),
+                (2, vector_constant(bias_data)),
+            ],
             output_ids: op_node.output_ids().to_vec(),
             unused_input_ids: Vec::new(),
         }))

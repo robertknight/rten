@@ -27,8 +27,8 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
-    ComputeShapeFusion, ConvAddFusion, ConvIntegerToFloatFusion, Fusion, FusionError,
-    FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvIntegerToFloatFusion, Fusion,
+    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
     LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
     PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
     RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
@@ -655,6 +655,7 @@ impl GraphOptimizer {
 
         // Convolution fusions
         fusions.push(ConvAddFusion {});
+        fusions.push(ConvBatchNormFusion {});
         fusions.push(ConvIntegerToFloatFusion {}.into_visitor());
 
         // Attention fusions.
