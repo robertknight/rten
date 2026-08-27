@@ -27,6 +27,7 @@ mod random;
 mod reduce;
 mod resize;
 mod rnn;
+mod sequence;
 mod slice;
 mod split;
 mod unary;
@@ -53,6 +54,10 @@ pub use random::{Dropout, Multinomial};
 pub use reduce::{NonZero, TopK};
 pub use resize::{Resize, Upsample};
 pub use rnn::{Direction, GRU, LSTM};
+pub use sequence::{
+    ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
+    SequenceInsert, SequenceLength, SplitToSequence,
+};
 pub use slice::Slice;
 pub use split::Split;
 pub use unary::Neg;

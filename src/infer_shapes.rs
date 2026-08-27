@@ -278,25 +278,9 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
                             continue;
                         };
 
-                        // Fail inference if any output dimension has an unknown shape.
-                        if opts.strict {
-                            let has_unknown = if let Some(mut out_shape) = out_shape.shape() {
-                                out_shape.any(|dims| {
-                                    dims.iter().any(|expr| match expr {
-                                        // If we encounter a synthetic variable, this means that
-                                        // the size of a dimension could not be computed.
-                                        SymExpr::Var(symbol) => symbol.synthetic,
-                                        _ => false,
-                                    })
-                                })
-                            } else {
-                                // Output rank is unknown.
-                                true
-                            };
-
-                            if has_unknown {
-                                return Err(InferError::ShapeInferenceIncomplete(op_info()));
-                            }
+                        // Fail inference if the output's shape is not fully known.
+                        if opts.strict && out_shape.has_unknown_shape() {
+                            return Err(InferError::ShapeInferenceIncomplete(op_info()));
                         }
 
                         // Handle excessively complex symbolic expressions in the shape.
@@ -485,11 +469,14 @@ fn sym_value_from_input(
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::NdTensor;
+    use rten_tensor::{NdTensor, Tensor};
 
     use crate::Dimension;
     use crate::graph::builder::{Expr, OutputMeta, dims};
-    use crate::ops::{Concat, Gather, Gemm, MatMul, Shape as ShapeOp, Split, Unsqueeze};
+    use crate::ops::{
+        Concat, Gather, Gemm, MatMul, SequenceAt, SequenceConstruct, SequenceLength,
+        Shape as ShapeOp, Split, SplitToSequence, Unsqueeze,
+    };
     use crate::value::{DataType, ValueType};
 
     use super::{Constant, InferError, InferShapeOptions, Shape, infer_shapes};
@@ -518,6 +505,67 @@ mod tests {
             shapes.types.get(&output_id).copied(),
             Some(ValueType::Tensor(DataType::Float))
         );
+    }
+
+    #[test]
+    fn test_infer_sequence_shapes() {
+        // Split a tensor into a sequence, then extract an item from it.
+        let graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 4, 8),
+            );
+            let seq = x.apply(
+                SplitToSequence {
+                    axis: 1,
+                    keep_dims: false,
+                },
+                &[],
+                &[OutputMeta::NoMeta],
+            );
+            let item = seq.apply(
+                SequenceAt {},
+                &[Expr::constant(Tensor::from(2i32))],
+                &[OutputMeta::NoMeta],
+            );
+            item.build_graph(&["data"])
+        };
+
+        let shapes = infer_shapes(&graph, Default::default()).unwrap();
+
+        let output_id = graph.output_ids()[0];
+        let Some(Shape::Shape(shape)) = shapes.shapes.get(&output_id) else {
+            panic!("output is not a shape");
+        };
+        assert_eq!(shape.as_slice(), dims!("batch", 8).as_slice());
+        assert_eq!(
+            shapes.types.get(&output_id).copied(),
+            Some(ValueType::Tensor(DataType::Float))
+        );
+    }
+
+    #[test]
+    fn test_infer_sequence_length() {
+        // The length of a sequence with a known number of items is a constant.
+        let graph = {
+            let x = Expr::value_with_info(
+                "data",
+                ValueType::Tensor(DataType::Float),
+                &dims!("batch", 8),
+            );
+            let seq = x.apply(SequenceConstruct {}, &[x.clone()], &[OutputMeta::NoMeta]);
+            let len = seq.unary(SequenceLength {});
+            len.build_graph(&["data"])
+        };
+
+        let shapes = infer_shapes(&graph, Default::default()).unwrap();
+
+        let output_id = graph.output_ids()[0];
+        let Some(Shape::Constant { index }) = shapes.shapes.get(&output_id) else {
+            panic!("output is not a constant");
+        };
+        assert_eq!(shapes.constants[*index], Constant::Scalar(2));
     }
 
     #[test]

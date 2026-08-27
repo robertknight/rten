@@ -58,7 +58,9 @@
 //! Symbolic values are multi-dimensional array types where the dimension sizes
 //! and elements are _symbolic expressions_. Expressions can be known integers,
 //! named symbols, or composite expressions involving these. Values are
-//! represented by [`SymValue`] and expressions by [`SymExpr`].
+//! represented by [`SymValue`] and expressions by [`SymExpr`]. A value can also
+//! be a sequence of tensors, as produced by operators such as
+//! `SplitToSequence`.
 
 pub mod einsum_parser;
 mod infer_shapes;

@@ -1,9 +1,10 @@
 use rten_base::bit_set::BitSet;
+use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
-use crate::infer_shapes::InferShapes;
+use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
     OutputType, OutputTypeList, OutputTypesContext,
@@ -50,8 +51,7 @@ impl Operator for SequenceEmpty {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(&shape_ops::SequenceEmpty)
     }
 }
 
@@ -82,8 +82,7 @@ impl Operator for SequenceAt {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(&shape_ops::SequenceAt)
     }
 }
 
@@ -123,8 +122,7 @@ impl Operator for SequenceConstruct {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(&shape_ops::SequenceConstruct)
     }
 }
 
@@ -184,8 +182,7 @@ impl Operator for SequenceErase {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(&shape_ops::SequenceErase)
     }
 }
 
@@ -257,8 +254,7 @@ impl Operator for SequenceInsert {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(&shape_ops::SequenceInsert)
     }
 }
 
@@ -285,8 +281,7 @@ impl Operator for SequenceLength {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(&shape_ops::SequenceLength)
     }
 }
 
@@ -346,10 +341,18 @@ impl Operator for ConcatFromSequence {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(self)
     }
 }
+
+impl_infer_shapes!(
+    ConcatFromSequence,
+    op,
+    shape_ops::ConcatFromSequence {
+        axis: op.axis,
+        new_axis: op.new_axis
+    }
+);
 
 #[derive(Debug)]
 pub struct SplitToSequence {
@@ -420,10 +423,18 @@ impl Operator for SplitToSequence {
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
-        // Shape inference does not support sequence types yet.
-        None
+        Some(self)
     }
 }
+
+impl_infer_shapes!(
+    SplitToSequence,
+    op,
+    shape_ops::SplitToSequence {
+        axis: op.axis,
+        keep_dims: op.keep_dims
+    }
+);
 
 #[cfg(test)]
 mod tests {
