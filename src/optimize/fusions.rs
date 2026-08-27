@@ -1965,7 +1965,6 @@ impl FusionVisitor for ConvBatchNormFusion {
         let Some((&out_channels, kernel_shape)) = weight_shape.split_first() else {
             return Err(FusionError::CheckFailed("conv weights are a scalar"));
         };
-        let elements_per_channel: usize = kernel_shape.iter().product();
 
         let stats = [scale, bn_bias, mean, var].map(|id| graph.get_vector::<f32>(*id));
         let [Some(scale), Some(bn_bias), Some(mean), Some(var)] = stats else {
@@ -1992,6 +1991,12 @@ impl FusionVisitor for ConvBatchNormFusion {
 
         let mut weight_data = weight_view.to_vec();
         let mut bias_data = Vec::with_capacity(out_channels);
+
+        let elements_per_channel: usize = kernel_shape.iter().product();
+        if elements_per_channel == 0 {
+            return Err(FusionError::CheckFailed("conv weights are empty"));
+        }
+
         for (chan, chan_weights) in weight_data.chunks_mut(elements_per_channel).enumerate() {
             let alpha = scale[chan] / (var[chan] + batch_norm.epsilon).sqrt();
             for weight in chan_weights {
