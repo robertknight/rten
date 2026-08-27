@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
+use rten_base::num::div_ceil;
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
@@ -94,30 +95,46 @@ fn output_size_and_padding_for_axis(
             start: pad_start,
             end: pad_end,
         } => {
+            let in_size = in_size as isize;
+            let pad_start = pad_start as isize;
+            let pad_end = pad_end as isize;
+            let kernel_size = kernel_size as isize;
+            let dilation = dilation as isize;
+            let stride = stride as isize;
+
             let padded_in_size = in_size + pad_start + pad_end;
             let dilated_kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1);
 
-            if padded_in_size < dilated_kernel_size {
-                return Err(OpError::invalid_value("Input too small for kernel size"));
-            }
-
             // Compute output size. The PyTorch docs provide the clearest
             // formulae for this: https://docs.pytorch.org/docs/stable/generated/torch.nn.MaxPool1d.html.
-            let windowed_in_size = padded_in_size - dilation * (kernel_size - 1) - 1;
-            let mut out_size = match round_mode {
-                RoundMode::Floor => windowed_in_size / stride + 1,
-                RoundMode::Ceil => windowed_in_size.div_ceil(stride) + 1,
+            let windowed_in_size = padded_in_size - dilated_kernel_size;
+            let out_size = match round_mode {
+                RoundMode::Floor => {
+                    if windowed_in_size < 0 {
+                        return Err(OpError::invalid_value("Input too small for kernel size"));
+                    }
+                    windowed_in_size / stride + 1
+                }
+                RoundMode::Ceil => {
+                    let mut out_size = div_ceil(windowed_in_size, stride) + 1;
+
+                    // In ceil mode, it is possible that the input for the last output
+                    // position lies entirely within the padding region. In that case
+                    // we'd have no values to pool. To avoid this, reduce the output
+                    // size. See also https://github.com/onnx/onnx/issues/5711.
+                    if (out_size - 1) * stride >= in_size + pad_start {
+                        out_size -= 1;
+                    }
+
+                    if out_size <= 0 {
+                        return Err(OpError::invalid_value("Output size is <= 0"));
+                    }
+
+                    out_size
+                }
             };
 
-            // In ceil mode, it is possible that the input for the last output
-            // position lies entirely within the padding region. In that case
-            // we'd have no values to pool. To avoid this, reduce the output
-            // size. See also https://github.com/onnx/onnx/issues/5711.
-            if round_mode == RoundMode::Ceil && (out_size - 1) * stride >= in_size + pad_start {
-                out_size -= 1;
-            }
-
-            Ok((out_size, pad_start, pad_end))
+            Ok((out_size as usize, pad_start as usize, pad_end as usize))
         }
     }
 }
@@ -1177,6 +1194,24 @@ mod tests {
                 in_size: (4, 4),
                 dilations: (2, 2),
                 expected: Err(OpError::invalid_value("Input too small for kernel size")),
+                ..Default::default()
+            },
+            // Dilated kernel size > input size in ceil mode. This is allowed
+            // as long as the output size is still > 0.
+            Case {
+                in_size: (3, 3),
+                kernel_size: (5, 5),
+                strides: (5, 5),
+                round_mode: RoundMode::Ceil,
+                expected: Ok((1, 1, [0, 0, 0, 0])),
+                ..Default::default()
+            },
+            // In ceil mode it is an error if the output size is <= 0.
+            Case {
+                in_size: (3, 3),
+                kernel_size: (5, 5),
+                round_mode: RoundMode::Ceil,
+                expected: Err(OpError::invalid_value("Output size is <= 0")),
                 ..Default::default()
             },
         ];
