@@ -178,6 +178,16 @@ pub fn calc_output_size_and_padding(
 /// Number of channels processed together by the pooling kernel.
 const CHAN_GROUP_SIZE: usize = 4;
 
+/// Counts of the elements covered by a pooling window at one output position.
+#[derive(Copy, Clone)]
+struct WindowSize {
+    /// Number of elements which come from the input, excluding padding.
+    non_padding: usize,
+
+    /// Number of elements which come from the padded input.
+    padded: usize,
+}
+
 /// Generic pooling implementation.
 ///
 /// The value of each output point is computed by:
@@ -187,8 +197,8 @@ const CHAN_GROUP_SIZE: usize = 4;
 ///   of the padding region.
 /// - Folding the values using `fold`, starting with `fold_init`
 /// - Computing an average of the accumulated value using `average(accum,
-///   non_padding_count)`
-fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Sync>(
+///   window_size)`
+fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, WindowSize) -> T + Sync>(
     pool: &BufferPool,
     input: TensorView<T>,
     kernel_size: &[usize],
@@ -256,19 +266,18 @@ where
         None, /* dilations */
         round_mode,
     )?;
-    let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
 
     // Apply pooling to the channel indexes specified by `chans`.
     // Assuming `N` is chosen appropriately the inner loop should get unrolled /
     // autovectorized.
-    fn pool_chans<T: Copy, F: Fn(T, T) -> T, A: Fn(T, usize) -> T, const N: usize>(
+    fn pool_chans<T: Copy, F: Fn(T, T) -> T, A: Fn(T, WindowSize) -> T, const N: usize>(
         mut out: NdTensorViewMut<MaybeUninit<T>, 3>,
         in_view: NdTensorView<T, 3>,
         chans: [usize; N],
         [kernel_h, kernel_w]: [usize; 2],
         [stride_h, stride_w]: [usize; 2],
-        [pad_top, pad_left]: [usize; 2],
+        [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4],
         fold_init: T,
         fold: F,
         average: A,
@@ -277,17 +286,26 @@ where
         let [in_chans, in_h, in_w] = in_view.shape();
         assert!(chans.into_iter().all(|c| c < out_chans && c < in_chans));
 
+        let padded_h = in_h + pad_top + pad_bottom;
+        let padded_w = in_w + pad_left + pad_right;
+
         for out_y in 0..out_h {
             // Compute min/max input Y coordinates for this output position.
             let min_in_y = out_y * stride_h;
             let max_in_y = min_in_y + kernel_h.saturating_sub(1);
             let y_non_pad_region = min_in_y >= pad_top && max_in_y < in_h + pad_top;
 
+            // Count the rows of the window which lie inside the padded input.
+            // Windows always start inside the padded input, but the last one
+            // along an axis may extend beyond the end of it.
+            let padded_rows = kernel_h.min(padded_h - min_in_y);
+
             for out_x in 0..out_w {
                 // Compute min/max input X coordinates for this output position.
                 let min_in_x = out_x * stride_w;
                 let max_in_x = min_in_x + kernel_w.saturating_sub(1);
                 let x_non_pad_region = min_in_x >= pad_left && max_in_x < in_w + pad_left;
+                let padded_cols = kernel_w.min(padded_w - min_in_x);
 
                 let mut accumulator = [fold_init; N];
                 let mut non_pad_elements = 0;
@@ -339,13 +357,18 @@ where
                     }
                 }
 
+                let window_size = WindowSize {
+                    non_padding: non_pad_elements,
+                    padded: padded_rows * padded_cols,
+                };
+
                 for (i, chan) in chans.into_iter().enumerate() {
                     // Safety:
                     //  - We checked all `chans` are in-bounds
                     //  - `out_y` and `out_x` are in 0..out_h, 0..out_w
                     unsafe {
                         out.get_unchecked_mut([chan, out_y, out_x])
-                            .write(average(accumulator[i], non_pad_elements));
+                            .write(average(accumulator[i], window_size));
                     }
                 }
             }
@@ -375,7 +398,7 @@ where
                     [chan, chan + 1, chan + 2, chan + 3],
                     kernel_size,
                     strides,
-                    [pad_top, pad_left],
+                    fixed_padding,
                     accum_init_val(),
                     fold,
                     average,
@@ -391,7 +414,7 @@ where
                     [chan],
                     kernel_size,
                     strides,
-                    [pad_top, pad_left],
+                    fixed_padding,
                     accum_init_val(),
                     fold,
                     average,
@@ -414,7 +437,6 @@ pub fn average_pool(
     count_include_pad: bool,
     round_mode: RoundMode,
 ) -> Result<Tensor, OpError> {
-    let kernel_len: usize = kernel_size.iter().product();
     pool_impl(
         pool,
         input,
@@ -423,12 +445,13 @@ pub fn average_pool(
         padding,
         0.,
         &|acc, x| acc + x,
-        &|acc, non_pad_elements| {
-            if count_include_pad {
-                acc / (kernel_len as f32)
+        &|acc, window| {
+            let divisor = if count_include_pad {
+                window.padded
             } else {
-                acc / (non_pad_elements as f32)
-            }
+                window.non_padding
+            };
+            acc / (divisor as f32)
         },
         round_mode,
     )
@@ -611,7 +634,7 @@ pub fn max_pool(
         padding,
         f32::NEG_INFINITY,
         &|acc, x| acc.max(x),
-        &|x, _non_pad_count| x,
+        &|x, _window_size| x,
         round_mode,
     )
 }
@@ -855,6 +878,27 @@ mod tests {
         )
         .unwrap();
         expect_eq_1e4(&result.view(), &expected_include_pad.as_dyn())?;
+
+        // As above, but in ceil mode with a kernel size which makes the last
+        // window along each axis extend beyond the end of the padded input.
+        let expected_ceil_mode = Tensor::from([
+            [0.2090, 0.4123, 0.2063],
+            [0.3916, 0.6181, 0.2155],
+            [0.1310, 0.2973, 0.1097],
+        ])
+        .broadcast([1, n_chans, 3, 3])
+        .to_tensor();
+        let result = average_pool(
+            &pool,
+            input.as_dyn(),
+            &[3, 3],
+            &[2, 2], /* stride */
+            [1, 1, 1, 1].into(),
+            true, /* count_include_pad */
+            RoundMode::Ceil,
+        )
+        .unwrap();
+        expect_eq_1e4(&result.view(), &expected_ceil_mode.as_dyn())?;
 
         Ok(())
     }
