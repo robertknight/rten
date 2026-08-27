@@ -319,7 +319,7 @@ impl Operator for ConcatFromSequence {
                 // The Concat op only supports concatenating on an existing axis, so
                 // if `new_axis` is set, add a 1-sized axis to each of the values.
                 if self.new_axis {
-                    let resolved_axis = resolve_axis(value.ndim(), self.axis as isize)?;
+                    let resolved_axis = resolve_axis(value.ndim() + 1, self.axis as isize)?;
                     map_value_view!(value, tensor, {
                         let mut tensor = tensor;
                         tensor.insert_axis(resolved_axis);
@@ -710,13 +710,33 @@ mod tests {
                 new_axis: true,
                 expected: Ok(Tensor::from([[0], [1], [2]]).into()),
             },
+            // Concat along new axis specified as a negative value.
+            Case {
+                seq: [
+                    Tensor::from([[1, 2, 3], [4, 5, 6]]),
+                    Tensor::from([[7, 8, 9], [10, 11, 12]]),
+                ]
+                .into(),
+                axis: -1,
+                new_axis: true,
+                expected: Ok(
+                    Tensor::from([[[1, 7], [2, 8], [3, 9]], [[4, 10], [5, 11], [6, 12]]]).into(),
+                ),
+            },
+            // Concat along a new axis appended to the item shape.
+            Case {
+                seq: [[0], [1], [2]].map(Tensor::from).into(),
+                axis: 1,
+                new_axis: true,
+                expected: Ok(Tensor::from([[0, 1, 2]]).into()),
+            },
             // Invalid axis
             Case {
                 seq: [[0], [1], [2]].map(Tensor::from).into(),
                 axis: 3,
                 new_axis: true,
                 expected: Err(OpError::invalid_value(
-                    "Axis 3 is out of range. Must be in [-1, 1)",
+                    "Axis 3 is out of range. Must be in [-2, 2)",
                 )),
             },
         ];
