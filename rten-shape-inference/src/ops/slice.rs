@@ -3,7 +3,7 @@ use rten_tensor::SliceRange;
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_value::{Constant, SymValue};
 
 /// Slice operator.
 ///
@@ -15,13 +15,13 @@ impl InferShapes for Slice {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let starts = inputs.require(1)?;
         let ends = inputs.require(2)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let axes = inputs
@@ -75,7 +75,7 @@ impl InferShapes for Slice {
                         && *step == 1
                     {
                         let clamped_range = range.resolve_clamped(size as usize);
-                        return Ok([SymTensor::from_vec(vals[clamped_range].to_vec())].into());
+                        return Ok([SymValue::from_vec(vals[clamped_range].to_vec())].into());
                     }
 
                     let slice_size = range.steps(size as usize) as i32;
@@ -102,12 +102,12 @@ impl InferShapes for Slice {
                 }
             }
 
-            SymTensor::from_shape(dims)
+            SymValue::from_shape(dims)
         } else {
             let shape = (0..data_dims.len())
                 .map(|_| sym_gen.gen_positive())
                 .collect();
-            SymTensor::from_shape(shape)
+            SymValue::from_shape(shape)
         };
 
         Ok([sliced_shape].into())
@@ -119,7 +119,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::Slice;
 
@@ -184,13 +184,13 @@ mod tests {
 
         // Slice with unknown input produces unknown output.
         let mut sym_gen = SymbolGen::new();
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let starts = sym_vec!(0);
         let ends = sym_vec!(0);
         let result = Slice
             .infer_shapes([data, starts, ends].into(), &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
+        assert_eq!(result[0], SymValue::unknown("unknown input shape"));
 
         // Slice of a symbolic vector along axis 0.
         let mut sym_gen = SymbolGen::new();
@@ -242,7 +242,7 @@ mod tests {
         let starts = sym_vec!(0);
         let ends = sym_vec!(i32::MAX);
         let axes = sym_vec!(1);
-        let steps = SymTensor::unknown("runtime-computed steps");
+        let steps = SymValue::unknown("runtime-computed steps");
         let result = Slice
             .infer_shapes([data, starts, ends, axes, steps].into(), &mut sym_gen)
             .unwrap();

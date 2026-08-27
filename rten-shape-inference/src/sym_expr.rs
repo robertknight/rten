@@ -1005,7 +1005,7 @@ pub enum EvalError {
     MissingSymbol,
     /// A division by zero was encountered evaluating the expression.
     DivisionByZero,
-    /// The values of a `SymTensor` are unknown.
+    /// The values of a `SymValue` are unknown.
     UnknownValues,
 }
 

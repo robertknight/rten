@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Number of directions an RNN operator traverses the input sequence in.
 ///
@@ -22,11 +22,11 @@ pub enum Direction {
 /// input shape is unknown, or an error if a known input shape has the wrong
 /// rank.
 fn rnn_output_shapes(
-    input: &SymTensor,
-    weights: &SymTensor,
+    input: &SymValue,
+    weights: &SymValue,
     direction: Direction,
     gates: i32,
-) -> Result<Option<(SymTensor, SymTensor)>, InferShapesError> {
+) -> Result<Option<(SymValue, SymValue)>, InferShapesError> {
     let num_directions = match direction {
         Direction::Unidirectional => SymExpr::Value(1),
         Direction::Bidirectional => SymExpr::Value(2),
@@ -63,8 +63,8 @@ fn rnn_output_shapes(
     let y_h_shape = vec![num_directions, batch, hidden];
 
     Ok(Some((
-        SymTensor::from_shape(y_shape),
-        SymTensor::from_shape(y_h_shape),
+        SymValue::from_shape(y_shape),
+        SymValue::from_shape(y_h_shape),
     )))
 }
 
@@ -80,7 +80,7 @@ impl InferShapes for GRU {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
         let weights = inputs.require(1)?;
         // Recurrent weights (input 2) are required, though not used here.
@@ -89,8 +89,8 @@ impl InferShapes for GRU {
         match rnn_output_shapes(input, weights, self.direction, 3)? {
             Some((y, y_h)) => Ok([y, y_h].into()),
             None => Ok([
-                SymTensor::unknown("unknown rnn shape"),
-                SymTensor::unknown("unknown rnn shape"),
+                SymValue::unknown("unknown rnn shape"),
+                SymValue::unknown("unknown rnn shape"),
             ]
             .into()),
         }
@@ -109,7 +109,7 @@ impl InferShapes for LSTM {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
         let weights = inputs.require(1)?;
         // Recurrent weights (input 2) are required, though not used here.
@@ -122,9 +122,9 @@ impl InferShapes for LSTM {
                 Ok([y, y_h, y_c].into())
             }
             None => Ok([
-                SymTensor::unknown("unknown rnn shape"),
-                SymTensor::unknown("unknown rnn shape"),
-                SymTensor::unknown("unknown rnn shape"),
+                SymValue::unknown("unknown rnn shape"),
+                SymValue::unknown("unknown rnn shape"),
+                SymValue::unknown("unknown rnn shape"),
             ]
             .into()),
         }
@@ -136,7 +136,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::{Direction, GRU, LSTM};
 
@@ -223,8 +223,8 @@ mod tests {
 
         // Unknown weights — output shapes are unknown.
         let input = sym_shape!("seq", "batch", 64);
-        let weights = SymTensor::unknown("unknown");
-        let recurrent = SymTensor::unknown("unknown");
+        let weights = SymValue::unknown("unknown");
+        let recurrent = SymValue::unknown("unknown");
         let op = LSTM {
             direction: Direction::Unidirectional,
         };

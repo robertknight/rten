@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Gemm operator.
 ///
@@ -17,13 +17,13 @@ impl InferShapes for Gemm {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let a = inputs.require(0)?;
         let b = inputs.require(1)?;
 
         let (Some(a_shape), Some(b_shape)) = (a.shape(), b.shape()) else {
             let out_shape = vec![sym_gen.gen_positive(), sym_gen.gen_positive()];
-            return Ok([SymTensor::from_shape(out_shape)].into());
+            return Ok([SymValue::from_shape(out_shape)].into());
         };
 
         if a_shape.len() != 2 || b_shape.len() != 2 {
@@ -42,7 +42,7 @@ impl InferShapes for Gemm {
 
         let m = a_shape[0].clone();
         let n = b_shape[1].clone();
-        let out_shape = SymTensor::from_shape(vec![m, n]);
+        let out_shape = SymValue::from_shape(vec![m, n]);
         Ok([out_shape].into())
     }
 }
@@ -57,14 +57,14 @@ impl InferShapes for MatMul {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let lhs = inputs.require(0)?;
         let rhs = inputs.require(1)?;
         let Some(mut lhs_dims) = lhs.shape() else {
-            return Ok([SymTensor::unknown("unknown lhs shape")].into());
+            return Ok([SymValue::unknown("unknown lhs shape")].into());
         };
         let Some(mut rhs_dims) = rhs.shape() else {
-            return Ok([SymTensor::unknown("unknown rhs shape")].into());
+            return Ok([SymValue::unknown("unknown rhs shape")].into());
         };
 
         let lhs_ndim = lhs_dims.len();
@@ -72,12 +72,12 @@ impl InferShapes for MatMul {
 
         if lhs_ndim < 2 || rhs_ndim < 2 {
             // TODO - Handle the case where the LHS or RHS is a vector.
-            return Ok([SymTensor::unknown("rank < 2")].into());
+            return Ok([SymValue::unknown("rank < 2")].into());
         };
 
         // Output shape is (broadcast(lhs_batch_dims, rhs_batch_dims), M, N)
-        let lhs_batch_dims = SymTensor::from_shape(lhs_dims.by_ref().take(lhs_ndim - 2).collect());
-        let rhs_batch_dims = SymTensor::from_shape(rhs_dims.by_ref().take(rhs_ndim - 2).collect());
+        let lhs_batch_dims = SymValue::from_shape(lhs_dims.by_ref().take(lhs_ndim - 2).collect());
+        let rhs_batch_dims = SymValue::from_shape(rhs_dims.by_ref().take(rhs_ndim - 2).collect());
 
         let [batch_dims] = BinaryOp
             .infer_shapes([lhs_batch_dims, rhs_batch_dims].into(), sym_gen)?
@@ -85,7 +85,7 @@ impl InferShapes for MatMul {
             .expect("should have one output");
 
         let Some(batch_dims) = batch_dims.shape() else {
-            return Ok(vec![SymTensor::unknown("unknown batch dims")]);
+            return Ok(vec![SymValue::unknown("unknown batch dims")]);
         };
 
         let m = lhs_dims.next().unwrap();
@@ -94,7 +94,7 @@ impl InferShapes for MatMul {
         batch_dims.push(m);
         batch_dims.push(n);
 
-        Ok(vec![SymTensor::from_shape(batch_dims)])
+        Ok(vec![SymValue::from_shape(batch_dims)])
     }
 }
 
@@ -108,14 +108,14 @@ impl InferShapes for MatMulNBits {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let lhs = inputs.require(0)?;
         let rhs = inputs.require(1)?;
         let Some(lhs_dims) = lhs.shape() else {
-            return Ok([SymTensor::unknown("unknown lhs shape")].into());
+            return Ok([SymValue::unknown("unknown lhs shape")].into());
         };
         let Some(rhs_dims) = rhs.shape() else {
-            return Ok([SymTensor::unknown("unknown rhs shape")].into());
+            return Ok([SymValue::unknown("unknown rhs shape")].into());
         };
 
         if lhs_dims.len() < 2 || rhs_dims.len() < 2 {
@@ -130,7 +130,7 @@ impl InferShapes for MatMulNBits {
         out_shape.extend(lhs_dims.take(lhs_ndim - 1));
         out_shape.extend(rhs_dims.take(1));
 
-        Ok(vec![SymTensor::from_shape(out_shape)])
+        Ok(vec![SymValue::from_shape(out_shape)])
     }
 }
 
@@ -139,7 +139,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::{Gemm, MatMul, MatMulNBits};
 
@@ -181,8 +181,8 @@ mod tests {
         assert_eq!(result[0], sym_shape!("m", "n"));
 
         // Unknown input shapes
-        let lhs = SymTensor::unknown("?");
-        let rhs = SymTensor::unknown("?");
+        let lhs = SymValue::unknown("?");
+        let rhs = SymValue::unknown("?");
         let result = Gemm {
             transpose_a: false,
             transpose_b: false,
@@ -226,7 +226,7 @@ mod tests {
         let result = MatMul
             .infer_shapes([lhs, rhs].into(), &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], SymTensor::unknown("rank < 2"));
+        assert_eq!(result[0], SymValue::unknown("rank < 2"));
     }
 
     #[test]

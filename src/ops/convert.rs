@@ -7,7 +7,7 @@ use rten_tensor::prelude::*;
 
 use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{
-    InferShapes, InferShapesContext, InferShapesError, SymTensor, SymbolGen, UnaryOp,
+    InferShapes, InferShapesContext, InferShapesError, SymValue, SymbolGen, UnaryOp,
 };
 use crate::operator::{
     InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
@@ -160,7 +160,7 @@ impl InferShapes for Cast {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         // If this is a no-op cast from int to int, preserve symbolic values.
@@ -168,9 +168,9 @@ impl InferShapes for Cast {
         let value = if data.values().is_some() && self.to == DataType::Int32 {
             data.clone()
         } else if let Some(shape) = data.shape() {
-            SymTensor::from_shape(shape.collect())
+            SymValue::from_shape(shape.collect())
         } else {
-            SymTensor::unknown("unknown input shape")
+            SymValue::unknown("unknown input shape")
         };
 
         Ok([value].into())

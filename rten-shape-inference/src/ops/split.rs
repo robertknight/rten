@@ -1,6 +1,6 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Split operator.
 ///
@@ -19,7 +19,7 @@ impl InferShapes for Split {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let Some(splits) = inputs.get(1) else {
@@ -35,16 +35,16 @@ impl InferShapes for Split {
             return Err(InferShapesError::UnknownOutputCount);
         };
 
-        let outputs: Result<Vec<SymTensor>, _> = split_sizes
+        let outputs: Result<Vec<SymValue>, _> = split_sizes
             .iter()
             .map(|size| {
                 if let Some(shape) = data.shape() {
                     let axis = resolve_axis(shape.len(), self.axis)?;
                     let mut shape: Vec<_> = shape.collect();
                     shape[axis] = size.clone();
-                    Ok(SymTensor::from_shape(shape))
+                    Ok(SymValue::from_shape(shape))
                 } else {
-                    Ok(SymTensor::unknown("unknown input shape"))
+                    Ok(SymValue::unknown("unknown input shape"))
                 }
             })
             .collect();
@@ -58,7 +58,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::Split;
 

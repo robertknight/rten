@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Return the output size for a spatial dimension in a convolution or pooling
 /// operation.
@@ -97,15 +97,15 @@ impl InferShapes for Conv<'_> {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let weights = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
         let Some(weight_dims) = weights.shape() else {
-            return Ok([SymTensor::unknown("unknown weights shape")].into());
+            return Ok([SymValue::unknown("unknown weights shape")].into());
         };
 
         if data_dims.len() < 3 {
@@ -165,7 +165,7 @@ impl InferShapes for Conv<'_> {
             out_shape.push(out_w);
         }
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -215,15 +215,15 @@ impl InferShapes for ConvTranspose<'_> {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let weights = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
         let Some(weight_dims) = weights.shape() else {
-            return Ok([SymTensor::unknown("unknown weights shape")].into());
+            return Ok([SymValue::unknown("unknown weights shape")].into());
         };
 
         if data_dims.len() < 3 {
@@ -270,7 +270,7 @@ impl InferShapes for ConvTranspose<'_> {
             ));
         }
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -292,11 +292,11 @@ impl InferShapes for Pool<'_> {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         if data_dims.len() < 3 {
@@ -356,7 +356,7 @@ impl InferShapes for Pool<'_> {
             out_shape.push(out_w);
         }
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -370,10 +370,10 @@ impl InferShapes for GlobalPool {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let Some(dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
         let spatial_dims = dims.len().saturating_sub(2);
 
@@ -382,7 +382,7 @@ impl InferShapes for GlobalPool {
             .take(2)
             .chain(std::iter::repeat_n(SymExpr::from(1), spatial_dims))
             .collect();
-        Ok([SymTensor::from_shape(shape)].into())
+        Ok([SymValue::from_shape(shape)].into())
     }
 }
 
@@ -393,7 +393,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::{Conv, ConvTranspose, GlobalPool, Padding, Pool};
 
@@ -723,11 +723,11 @@ mod tests {
             output_padding: None,
         }
         .infer_shapes(
-            [SymTensor::unknown("?"), sym_shape!("in_c", 16, 3, 3)].into(),
+            [SymValue::unknown("?"), sym_shape!("in_c", 16, 3, 3)].into(),
             &mut sym_gen,
         )
         .unwrap();
-        assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
+        assert_eq!(result[0], SymValue::unknown("unknown input shape"));
 
         // Dilation > 1: with in=5, k=3, dilation=2, no pad, stride=1 the
         // dilated kernel covers (3-1)*2 + 1 = 5 input positions, so

@@ -3,7 +3,7 @@ use crate::infer_shapes::{
 };
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_value::{Constant, SymValue};
 
 /// Gather operator.
 ///
@@ -17,12 +17,12 @@ impl InferShapes for Gather {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let indices = inputs.require(1)?;
 
         let Some(mut data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown data shape")].into());
+            return Ok([SymValue::unknown("unknown data shape")].into());
         };
 
         let data_ndim = data_dims.len();
@@ -47,18 +47,18 @@ impl InferShapes for Gather {
                         .iter()
                         .map(|idx| get(sym_vec, *idx))
                         .collect::<Result<Vec<_>, _>>()?;
-                    SymTensor::from_vec(values)
+                    SymValue::from_vec(values)
                 }
-                Constant::Scalar(idx) => SymTensor::from_scalar(get(sym_vec, idx)?),
+                Constant::Scalar(idx) => SymValue::from_scalar(get(sym_vec, idx)?),
             }
         } else if let Some(index_dims) = indices.shape() {
             let mut out_shape = Vec::with_capacity(data_dims.len() + index_dims.len() - 1);
             out_shape.extend(data_dims.by_ref().take(axis));
             out_shape.extend(index_dims);
             out_shape.extend(data_dims.skip(1));
-            SymTensor::from_shape(out_shape)
+            SymValue::from_shape(out_shape)
         } else {
-            SymTensor::unknown("unknown indices shape")
+            SymValue::unknown("unknown indices shape")
         };
 
         Ok([value].into())
@@ -75,13 +75,13 @@ impl InferShapes for GatherElements {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let indices = inputs.require(1)?;
 
         let shape = if let Some(dims) = indices.shape() {
-            SymTensor::from_shape(dims.collect())
+            SymValue::from_shape(dims.collect())
         } else {
-            SymTensor::unknown("unknown indices shape")
+            SymValue::unknown("unknown indices shape")
         };
 
         Ok([shape].into())
@@ -100,15 +100,15 @@ impl InferShapes for GatherND {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let indices = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown data shape")].into());
+            return Ok([SymValue::unknown("unknown data shape")].into());
         };
         let Some(indices_dims) = indices.shape() else {
-            return Ok([SymTensor::unknown("unknown indices shape")].into());
+            return Ok([SymValue::unknown("unknown indices shape")].into());
         };
 
         let indices_shape: Vec<SymExpr> = indices_dims.collect();
@@ -121,7 +121,7 @@ impl InferShapes for GatherND {
                 usize::try_from(v).map_err(|_| InferShapesError::InvalidValue)?
             }
             Some(_) => {
-                return Ok([SymTensor::unknown("unknown index tuple size")].into());
+                return Ok([SymValue::unknown("unknown index tuple size")].into());
             }
             None => {
                 return Err(InferShapesError::IncorrectRank);
@@ -141,7 +141,7 @@ impl InferShapes for GatherND {
             .chain(data_dims.skip(suffix_start))
             .collect();
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -150,7 +150,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::{Gather, GatherElements, GatherND};
 
@@ -164,9 +164,9 @@ mod tests {
 
         // Gather scalar from symbolic vec.
         let shape = sym_vec!("batch", 16, "seq");
-        let indices = SymTensor::from_scalar(2.into());
+        let indices = SymValue::from_scalar(2.into());
         let result = infer(shape, indices, 0).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar("seq".into()));
+        assert_eq!(result[0], SymValue::from_scalar("seq".into()));
 
         // Gather vector from symbolic vec.
         let shape = sym_vec!("batch", 16, "seq");
@@ -188,7 +188,7 @@ mod tests {
 
         // Gather with invalid index from symbolic vec.
         let shape = sym_vec!("batch", 16, "seq");
-        let indices = SymTensor::from_scalar(3.into());
+        let indices = SymValue::from_scalar(3.into());
         let result = infer(shape, indices, 0).err().unwrap();
         assert_eq!(result, InferShapesError::InvalidValue);
     }
@@ -207,7 +207,7 @@ mod tests {
 
         // Unknown indices shape.
         let data = sym_shape!(4, 3, 2);
-        let indices = SymTensor::unknown("unknown");
+        let indices = SymValue::unknown("unknown");
         let result = GatherElements
             .infer_shapes([data, indices].into(), &mut sym_gen)
             .unwrap();
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(result[0], sym_shape!("batch", "k", 64));
 
         // Unknown data shape.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let indices = sym_shape!(2, 1);
         let op = GatherND { batch_dims: 0 };
         let result = op

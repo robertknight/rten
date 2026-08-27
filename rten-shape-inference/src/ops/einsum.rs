@@ -2,7 +2,7 @@ use crate::einsum_parser::{EinsumExpr, ValidateError, expand_ellipsis};
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Einsum operator.
 ///
@@ -16,7 +16,7 @@ impl InferShapes for Einsum<'_> {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let Ok(expr) = EinsumExpr::parse(self.equation) else {
             return Err(InferShapesError::InvalidValue);
         };
@@ -29,7 +29,7 @@ impl InferShapes for Einsum<'_> {
                 // We can't determine the rank of the output without knowing the
                 // rank of an ellipsis input.
                 Err(ValidateError::UnknownRank) => {
-                    return Ok([SymTensor::unknown("unknown einsum input shape")].into());
+                    return Ok([SymValue::unknown("unknown einsum input shape")].into());
                 }
                 Err(ValidateError::IncorrectInputCount) => {
                     return Err(InferShapesError::IncorrectInputCount);
@@ -73,7 +73,7 @@ impl InferShapes for Einsum<'_> {
             })
             .collect();
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -84,11 +84,11 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::Einsum;
 
-    fn infer(equation: &str, inputs: &[SymTensor]) -> SymTensor {
+    fn infer(equation: &str, inputs: &[SymValue]) -> SymValue {
         let mut sym_gen = SymbolGen::new();
         Einsum { equation }
             .infer_shapes(inputs.to_vec().into(), &mut sym_gen)
@@ -103,8 +103,8 @@ mod tests {
         #[derive(Debug)]
         struct Case<'a> {
             equation: &'a str,
-            inputs: Vec<SymTensor>,
-            expected: SymTensor,
+            inputs: Vec<SymValue>,
+            expected: SymValue,
         }
 
         let cases = [
@@ -209,7 +209,7 @@ mod tests {
         // Without ellipsis, an unknown input doesn't prevent us from
         // determining the rank when other inputs cover the output labels.
         let a = sym_shape!("M", "K");
-        let b = SymTensor::unknown("unknown");
+        let b = SymValue::unknown("unknown");
         let result = infer("ij,jk->ik", &[a, b]);
         let shape: Vec<_> = result.shape().unwrap().collect();
         assert_eq!(shape.len(), 2);
@@ -222,7 +222,7 @@ mod tests {
     fn test_einsum_unknown_ellipsis_input() {
         // When the operand expanding `...` has unknown rank, the output
         // shape is reported as unknown.
-        let x = SymTensor::unknown("unknown");
+        let x = SymValue::unknown("unknown");
         let result = infer("...ij->...ji", &[x]);
         assert_eq!(result.ndim(), None);
     }

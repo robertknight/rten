@@ -14,7 +14,7 @@ use crate::value::ValueType;
 
 pub use rten_shape_inference::{
     BinaryOp, Constant, InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymExpr,
-    SymTensor, Symbol, SymbolGen, UnaryOp,
+    SymValue, Symbol, SymbolGen, UnaryOp,
 };
 
 /// Impl [`InferShapes`] for a type by delegating to another type which
@@ -29,10 +29,8 @@ macro_rules! impl_infer_shapes {
                 &self,
                 inputs: rten_shape_inference::InferShapesContext,
                 sym_gen: &mut rten_shape_inference::SymbolGen,
-            ) -> Result<
-                Vec<rten_shape_inference::SymTensor>,
-                rten_shape_inference::InferShapesError,
-            > {
+            ) -> Result<Vec<rten_shape_inference::SymValue>, rten_shape_inference::InferShapesError>
+            {
                 let $self = self;
                 let shape_op = $make_impl;
                 shape_op.infer_shapes(inputs, sym_gen)
@@ -187,13 +185,13 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
     //
     // Reserve initial capacity assuming each operator produces one output,
     // which is the case for most operators.
-    let mut values: HashMap<NodeId, SymTensor> = HashMap::with_capacity(ops.len());
+    let mut values: HashMap<NodeId, SymValue> = HashMap::with_capacity(ops.len());
     let mut types: HashMap<NodeId, ValueType> = HashMap::with_capacity(ops.len());
 
     let debug = env_flag("RTEN_INFER_SHAPES_DEBUG", false);
 
     // Temp buffer for shape inference operands.
-    let mut input_shapes: Vec<Option<SymTensor>> = Vec::new();
+    let mut input_shapes: Vec<Option<SymValue>> = Vec::new();
 
     for op_id in ops {
         let Some(Node::Operator(op)) = graph.get_node(op_id) else {
@@ -256,7 +254,7 @@ pub fn infer_shapes(graph: &Graph, opts: InferShapeOptions) -> Result<InferResul
             input_shapes.extend(op.input_ids().iter().map(|input_id| {
                 input_id.and_then(|id| {
                     let node = graph.get_node(id)?;
-                    Some(sym_tensor_from_input(id, node, &values))
+                    Some(sym_value_from_input(id, node, &values))
                 })
             }));
 
@@ -437,11 +435,11 @@ fn const_to_sym_vector(constant: &graph::Constant) -> Option<Vec<SymExpr>> {
 /// it is a value node and we have inferred its shape and value from shape
 /// inference of previous operators then we can use that. Otherwise use
 /// information about its shape that is baked into the model.
-fn sym_tensor_from_input(
+fn sym_value_from_input(
     input_id: NodeId,
     node: &Node,
-    values: &HashMap<NodeId, SymTensor>,
-) -> SymTensor {
+    values: &HashMap<NodeId, SymValue>,
+) -> SymValue {
     match node {
         Node::Constant(constant) => {
             // `const_to_sym_scalar` will return a value if the constant is a
@@ -450,11 +448,11 @@ fn sym_tensor_from_input(
             if let Some(scalar) = const_to_sym_scalar(constant)
                 && constant.ndim() == 0
             {
-                SymTensor::from_scalar(scalar)
+                SymValue::from_scalar(scalar)
             } else if let Some(vec) = const_to_sym_vector(constant) {
-                SymTensor::from_vec(vec)
+                SymValue::from_vec(vec)
             } else {
-                SymTensor::from_fixed_shape(constant.shape())
+                SymValue::from_fixed_shape(constant.shape())
             }
         }
         Node::Value(val) => {
@@ -475,9 +473,9 @@ fn sym_tensor_from_input(
                         Dimension::Fixed(size) => SymExpr::Value(*size as i32),
                     })
                     .collect();
-                SymTensor::from_shape(sym_shape)
+                SymValue::from_shape(sym_shape)
             } else {
-                SymTensor::unknown("unknown value shape")
+                SymValue::unknown("unknown value shape")
             }
         }
         // If we reach here, the graph was constructed incorrectly.

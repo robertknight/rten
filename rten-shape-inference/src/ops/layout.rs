@@ -3,7 +3,7 @@ use crate::infer_shapes::{
 };
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_value::{Constant, SymValue};
 
 /// Expand operator.
 ///
@@ -15,14 +15,14 @@ impl InferShapes for Expand {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let shape = inputs.require(1)?;
 
         if let Some(sizes) = shape.values() {
             let rhs_shape: Vec<SymExpr> = sizes.to_vec();
             BinaryOp.infer_shapes(
-                [data.clone(), SymTensor::from_shape(rhs_shape)].into(),
+                [data.clone(), SymValue::from_shape(rhs_shape)].into(),
                 sym_gen,
             )
         } else if let Some(data_dims) = data.shape()
@@ -59,9 +59,9 @@ impl InferShapes for Expand {
                     }
                 })
                 .collect();
-            Ok([SymTensor::from_shape(out_dims)].into())
+            Ok([SymValue::from_shape(out_dims)].into())
         } else {
-            Ok([SymTensor::unknown("unsupported shape")].into())
+            Ok([SymValue::unknown("unsupported shape")].into())
         }
     }
 }
@@ -78,10 +78,10 @@ impl InferShapes for Flatten {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
         let Some(mut dims) = input.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         // nb. Partition dims into outer and inner. Note the `axis` attribute
@@ -108,7 +108,7 @@ impl InferShapes for Flatten {
         };
 
         let out_shape = vec![dim_product(&outer_dims), dim_product(&inner_dims)];
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -124,7 +124,7 @@ impl InferShapes for Reshape {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let shape = inputs.require(1)?;
 
@@ -154,7 +154,7 @@ impl InferShapes for Reshape {
             } else if all_fixed {
                 // If all output sizes are fixed, we can generate the output shape
                 // whether we know the input shape or not.
-                SymTensor::from_shape(dim_sizes.to_vec())
+                SymValue::from_shape(dim_sizes.to_vec())
             } else if let Some(data_dims) = data.shape() {
                 let remainder_index = dim_sizes
                     .iter()
@@ -206,7 +206,7 @@ impl InferShapes for Reshape {
                     out_shape[rem_index] = remainder.simplify();
                 }
 
-                SymTensor::from_shape(out_shape)
+                SymValue::from_shape(out_shape)
             } else {
                 let out_shape = dim_sizes
                     .iter()
@@ -218,7 +218,7 @@ impl InferShapes for Reshape {
                         _ => sym_gen.gen_positive(),
                     })
                     .collect();
-                SymTensor::from_shape(out_shape)
+                SymValue::from_shape(out_shape)
             }
         } else if let Some(mut shape_dims) = shape.shape() {
             // If the shape is a vector with fixed length we can determine the
@@ -227,12 +227,12 @@ impl InferShapes for Reshape {
                 && shape.ndim() == Some(1)
             {
                 let dims = (0..size).map(|_| sym_gen.gen_positive()).collect();
-                SymTensor::from_shape(dims)
+                SymValue::from_shape(dims)
             } else {
-                SymTensor::unknown("unknown shape length")
+                SymValue::unknown("unknown shape length")
             }
         } else {
-            SymTensor::unknown("unknown shape")
+            SymValue::unknown("unknown shape")
         };
 
         Ok([out_value].into())
@@ -281,7 +281,7 @@ impl InferShapes for Shape {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
 
         let shape = input
@@ -289,9 +289,9 @@ impl InferShapes for Shape {
             .map(|dims| {
                 let std::ops::Range { start, end } = self.resolve_start_end(dims.len());
                 let dims: Vec<_> = dims.skip(start).take(end - start).collect();
-                SymTensor::from_vec(dims)
+                SymValue::from_vec(dims)
             })
-            .unwrap_or(SymTensor::unknown("unknown input shape"));
+            .unwrap_or(SymValue::unknown("unknown input shape"));
 
         Ok([shape].into())
     }
@@ -307,16 +307,16 @@ impl InferShapes for Size {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
 
         // The value of the output is the product of the input's dimensions,
         // when they are known.
         let value = if let Some(dims) = input.shape() {
             let prod = dims.fold(SymExpr::Value(1), |prod, d| prod * d).simplify();
-            SymTensor::from_scalar(prod)
+            SymValue::from_scalar(prod)
         } else {
-            SymTensor::from_shape(vec![])
+            SymValue::from_shape(vec![])
         };
 
         Ok([value].into())
@@ -335,11 +335,11 @@ impl InferShapes for DepthToSpace {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let Some(dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let dims: Vec<_> = dims.collect();
@@ -365,7 +365,7 @@ impl InferShapes for DepthToSpace {
             w.clone() * block_size,
         ];
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -379,11 +379,11 @@ impl InferShapes for Squeeze {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let Some(shape) = data.shape() else {
-            return Ok([SymTensor::unknown("Unknown input shape")].into());
+            return Ok([SymValue::unknown("Unknown input shape")].into());
         };
 
         let axes = inputs.get(1);
@@ -410,7 +410,7 @@ impl InferShapes for Squeeze {
             && values.len() == 1
             && matches!(const_axes.as_deref(), Some([0]) | None)
         {
-            return Ok([SymTensor::from_scalar(values[0].clone())].into());
+            return Ok([SymValue::from_scalar(values[0].clone())].into());
         }
 
         let out_shape = if let Some(const_axes) = const_axes {
@@ -420,16 +420,16 @@ impl InferShapes for Squeeze {
                 .filter(|(i, _dim)| !const_axes.contains(i))
                 .map(|(_i, dim)| dim)
                 .collect();
-            SymTensor::from_shape(out_shape)
+            SymValue::from_shape(out_shape)
         } else if axes.is_none() && shape.clone().all(|size| matches!(size, SymExpr::Value(_))) {
             // If axes are not specified, but we know the exact size of all
             // dimensions, then remove all the size-1 dims.
             let out_shape = shape
                 .filter(|dim| !matches!(dim, SymExpr::Value(1)))
                 .collect();
-            SymTensor::from_shape(out_shape)
+            SymValue::from_shape(out_shape)
         } else {
-            SymTensor::unknown("Unknown axes")
+            SymValue::unknown("Unknown axes")
         };
 
         Ok([out_shape].into())
@@ -448,7 +448,7 @@ impl InferShapes for Transpose<'_> {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
 
         if let Some(dims) = input.shape() {
@@ -467,14 +467,14 @@ impl InferShapes for Transpose<'_> {
                 dims.reverse();
                 dims
             };
-            Ok([SymTensor::from_shape(permuted_dims)].into())
+            Ok([SymValue::from_shape(permuted_dims)].into())
         } else if let Some(perm) = &self.perm {
             // If the input shape is unknown, but we have a permutation then
             // we can assume the output rank will match the permutation.
             let dims = (0..perm.len()).map(|_| sym_gen.gen_positive()).collect();
-            Ok([SymTensor::from_shape(dims)].into())
+            Ok([SymValue::from_shape(dims)].into())
         } else {
-            Ok([SymTensor::unknown("unknown input shape")].into())
+            Ok([SymValue::unknown("unknown input shape")].into())
         }
     }
 }
@@ -489,7 +489,7 @@ impl InferShapes for Unsqueeze {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let axes = inputs.require(1)?;
 
@@ -507,7 +507,7 @@ impl InferShapes for Unsqueeze {
         let value = if let Some(var) = data.as_scalar()
             && axes_vec.as_deref().map(|v| v == [0]).unwrap_or(false)
         {
-            SymTensor::from_vec([var.clone()].into())
+            SymValue::from_vec([var.clone()].into())
         } else if let Some(dims) = data.shape()
             && let Some(axes) = axes_vec
         {
@@ -526,9 +526,9 @@ impl InferShapes for Unsqueeze {
                 dims.insert(axis, SymExpr::Value(1));
             }
 
-            SymTensor::from_shape(dims)
+            SymValue::from_shape(dims)
         } else {
-            SymTensor::unknown("unknown data shape or axes value")
+            SymValue::unknown("unknown data shape or axes value")
         };
 
         Ok([value].into())
@@ -540,7 +540,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::{
         DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze,
@@ -666,7 +666,7 @@ mod tests {
 
         // Reshape of symbolic scalar to scalar. This is a no-op and the symbolic
         // value should be preserved.
-        let data = SymTensor::from_scalar(5.into());
+        let data = SymValue::from_scalar(5.into());
         let shape = sym_vec!();
         let result = op
             .infer_shapes([data.clone(), shape].into(), &mut sym_gen)
@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(result[0], data);
 
         // Unknown input shape, but known output shape.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let shape = sym_vec!(2, 4, 8);
         let result = allow_zero_op
             .infer_shapes([data, shape.clone()].into(), &mut sym_gen)
@@ -696,7 +696,7 @@ mod tests {
         // could be zero, in which case we'd need to copy the dimensions from
         // the input. Since we don't know the input dimensions, we have to
         // represent the dim sizes as new symbols in the output.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let shape = sym_vec!("batch", "seq");
         let result = op
             .infer_shapes([data, shape.clone()].into(), &mut sym_gen)
@@ -762,20 +762,20 @@ mod tests {
         // Fully fixed shape — result is a known scalar.
         let data = sym_shape!(2, 3, 4);
         let result = Size.infer_shapes([data].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar(SymExpr::Value(24)));
+        assert_eq!(result[0], SymValue::from_scalar(SymExpr::Value(24)));
 
         // Symbolic dims — result is a scalar product expression.
         let data = sym_shape!("batch", 16, "seq");
         let result = Size.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(
             result[0],
-            SymTensor::from_scalar(
+            SymValue::from_scalar(
                 SymExpr::from("batch") * SymExpr::from(16) * SymExpr::from("seq")
             )
         );
 
         // Unknown input shape — result is a scalar with unknown value.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let result = Size.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0].ndim(), Some(0));
     }
@@ -835,7 +835,7 @@ mod tests {
         let result = Squeeze
             .infer_shapes([shape, axes].into(), &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar("foo".into()));
+        assert_eq!(result[0], SymValue::from_scalar("foo".into()));
 
         // Symbolic vec to scalar, negative axis
         let shape = sym_vec!("bar");
@@ -843,12 +843,12 @@ mod tests {
         let result = Squeeze
             .infer_shapes([shape, axes].into(), &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar("bar".into()));
+        assert_eq!(result[0], SymValue::from_scalar("bar".into()));
 
         // Symbolic vec to scalar, no axes
         let shape = sym_vec!("bar");
         let result = Squeeze.infer_shapes([shape].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar("bar".into()));
+        assert_eq!(result[0], SymValue::from_scalar("bar".into()));
 
         // Non-const axes
         let mut sym_gen = SymbolGen::new();
@@ -857,15 +857,15 @@ mod tests {
         let result = Squeeze
             .infer_shapes([shape, axes].into(), &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], SymTensor::unknown("Unknown axes"));
+        assert_eq!(result[0], SymValue::unknown("Unknown axes"));
 
         // Unknown input shape
-        let shape = SymTensor::unknown("?");
+        let shape = SymValue::unknown("?");
         let axes = sym_vec!(0);
         let result = Squeeze
             .infer_shapes([shape, axes].into(), &mut sym_gen)
             .unwrap();
-        assert_eq!(result[0], SymTensor::unknown("Unknown input shape"));
+        assert_eq!(result[0], SymValue::unknown("Unknown input shape"));
 
         // Negative axis
         let shape = sym_shape!("foo", 32, 1);
@@ -900,7 +900,7 @@ mod tests {
         assert_eq!(result[0], sym_shape!("cols", "rows"));
 
         // Transpose with explicit permutation but unknown input shape.
-        let data = SymTensor::unknown("unknown input shape");
+        let data = SymValue::unknown("unknown input shape");
         let op = Transpose {
             perm: Some(&[0, 2, 1]),
         };
@@ -908,10 +908,10 @@ mod tests {
         assert_eq!(result[0], sym_shape!("unknown_1", "unknown_2", "unknown_3"));
 
         // Transpose with implicit permutation and unknown input shape.
-        let data = SymTensor::unknown("unknown input shape");
+        let data = SymValue::unknown("unknown input shape");
         let op = Transpose { perm: None };
         let result = op.infer_shapes([data].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::unknown("unknown input shape"));
+        assert_eq!(result[0], SymValue::unknown("unknown input shape"));
     }
 
     #[test]
@@ -929,7 +929,7 @@ mod tests {
         assert_eq!(result[0], expected);
 
         // Unsqueeze a symbolic scalar into a symbolic vec.
-        let scalar = SymTensor::from_scalar(1.into());
+        let scalar = SymValue::from_scalar(1.into());
         let axes = sym_vec!(0);
         let expected = sym_vec!(1);
         let result = Unsqueeze

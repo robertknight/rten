@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 pub use crate::{
     sym_expr::SymExpr,
     sym_gen::SymbolGen,
-    sym_tensor::{Constant, SymTensor},
+    sym_value::{Constant, SymValue},
 };
 
 /// Errors when performing shape inference.
@@ -54,12 +54,12 @@ impl Error for InferShapesError {}
 pub struct InferShapesContext<'a> {
     /// Shapes or values of operator inputs. Can be `None` for optional inputs
     /// that are not set.
-    inputs: Cow<'a, [Option<SymTensor>]>,
+    inputs: Cow<'a, [Option<SymValue>]>,
 }
 
 impl<'a> InferShapesContext<'a> {
     /// Create a context which wraps a slice of optional inputs.
-    pub fn new(inputs: &'a [Option<SymTensor>]) -> Self {
+    pub fn new(inputs: &'a [Option<SymValue>]) -> Self {
         Self {
             inputs: Cow::Borrowed(inputs),
         }
@@ -78,49 +78,49 @@ impl<'a> InferShapesContext<'a> {
     /// Get an optional input by index.
     ///
     /// Returns `None` if the input was omitted or the index is out of range.
-    pub fn get(&self, idx: usize) -> Option<&SymTensor> {
+    pub fn get(&self, idx: usize) -> Option<&SymValue> {
         self.inputs.get(idx).and_then(|t| t.as_ref())
     }
 
     /// Get a required input by index.
     ///
     /// Returns an error if the input was omitted or the index is out of range.
-    pub fn require(&self, idx: usize) -> Result<&SymTensor, InferShapesError> {
+    pub fn require(&self, idx: usize) -> Result<&SymValue, InferShapesError> {
         self.get(idx).ok_or(InferShapesError::IncorrectInputCount)
     }
 
     /// Iterate over all inputs, yielding `None` for omitted inputs.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = Option<&SymTensor>> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Option<&SymValue>> {
         self.inputs.iter().map(|t| t.as_ref())
     }
 }
 
-impl From<Vec<SymTensor>> for InferShapesContext<'static> {
-    fn from(inputs: Vec<SymTensor>) -> Self {
+impl From<Vec<SymValue>> for InferShapesContext<'static> {
+    fn from(inputs: Vec<SymValue>) -> Self {
         Self {
             inputs: Cow::Owned(inputs.into_iter().map(Some).collect()),
         }
     }
 }
 
-impl<const N: usize> From<[SymTensor; N]> for InferShapesContext<'static> {
-    fn from(inputs: [SymTensor; N]) -> Self {
+impl<const N: usize> From<[SymValue; N]> for InferShapesContext<'static> {
+    fn from(inputs: [SymValue; N]) -> Self {
         Self {
             inputs: Cow::Owned(inputs.into_iter().map(Some).collect()),
         }
     }
 }
 
-impl From<Vec<Option<SymTensor>>> for InferShapesContext<'static> {
-    fn from(inputs: Vec<Option<SymTensor>>) -> Self {
+impl From<Vec<Option<SymValue>>> for InferShapesContext<'static> {
+    fn from(inputs: Vec<Option<SymValue>>) -> Self {
         Self {
             inputs: Cow::Owned(inputs),
         }
     }
 }
 
-impl<const N: usize> From<[Option<SymTensor>; N]> for InferShapesContext<'static> {
-    fn from(inputs: [Option<SymTensor>; N]) -> Self {
+impl<const N: usize> From<[Option<SymValue>; N]> for InferShapesContext<'static> {
+    fn from(inputs: [Option<SymValue>; N]) -> Self {
         Self {
             inputs: Cow::Owned(inputs.into()),
         }
@@ -139,7 +139,7 @@ pub trait InferShapes {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError>;
+    ) -> Result<Vec<SymValue>, InferShapesError>;
 }
 
 /// Shape inference for unary operators.
@@ -155,13 +155,13 @@ impl InferShapes for UnaryOp {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let shape = if let Some(shape) = data.shape() {
-            SymTensor::from_shape(shape.collect())
+            SymValue::from_shape(shape.collect())
         } else {
-            SymTensor::unknown("unknown input shape")
+            SymValue::unknown("unknown input shape")
         };
 
         Ok([shape].into())
@@ -180,12 +180,12 @@ impl InferShapes for BinaryOp {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let a = inputs.require(0)?;
         let b = inputs.require(1)?;
 
         let (Some(a_dims), Some(b_dims)) = (a.shape(), b.shape()) else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let a_pad = b_dims.len().saturating_sub(a_dims.len());
@@ -232,7 +232,7 @@ impl InferShapes for BinaryOp {
             out_shape.push(dim);
         }
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -248,15 +248,15 @@ impl InferShapes for VariadicOp {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let first = inputs.require(0)?;
 
         let first_shape = first
             .shape()
-            .map(|shape| SymTensor::from_shape(shape.collect()))
-            .unwrap_or_else(|| SymTensor::unknown("unknown input shape"));
+            .map(|shape| SymValue::from_shape(shape.collect()))
+            .unwrap_or_else(|| SymValue::unknown("unknown input shape"));
 
-        let out_shape: Result<SymTensor, InferShapesError> =
+        let out_shape: Result<SymValue, InferShapesError> =
             (1..inputs.len()).try_fold(first_shape, |out_shape, i| {
                 let in_shape = inputs.require(i)?;
                 let mut shapes =
@@ -287,7 +287,7 @@ impl InferShapes for ReductionOp<'_> {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         match inputs.len() {
             1 | 2 => {}
             _ => {
@@ -298,7 +298,7 @@ impl InferShapes for ReductionOp<'_> {
         let data = inputs.require(0)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let ndim = data_dims.len();
@@ -310,9 +310,9 @@ impl InferShapes for ReductionOp<'_> {
                     // Each dim is either preserved or reduced to size 1, so
                     // the rank is known but the sizes are not.
                     let out_shape = (0..ndim).map(|_| sym_gen.gen_positive()).collect();
-                    SymTensor::from_shape(out_shape)
+                    SymValue::from_shape(out_shape)
                 } else {
-                    SymTensor::unknown("unknown axes")
+                    SymValue::unknown("unknown axes")
                 };
                 return Ok([out].into());
             };
@@ -342,7 +342,7 @@ impl InferShapes for ReductionOp<'_> {
             }
         }
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -391,9 +391,9 @@ mod tests {
 
     use super::{
         BinaryOp, InferShapes, InferShapesContext, InferShapesError, ReductionOp, SymExpr,
-        SymTensor, SymbolGen, UnaryOp, VariadicOp,
+        SymValue, SymbolGen, UnaryOp, VariadicOp,
     };
-    use crate::sym_tensor::{sym_elems, sym_shape};
+    use crate::sym_value::{sym_elems, sym_shape};
 
     #[test]
     fn test_unary_op_infer() {
@@ -416,9 +416,9 @@ mod tests {
     fn test_binary_op() {
         #[derive(Debug)]
         struct Case {
-            lhs: SymTensor,
-            rhs: SymTensor,
-            expected: SymTensor,
+            lhs: SymValue,
+            rhs: SymValue,
+            expected: SymValue,
         }
 
         let cases = [
@@ -485,7 +485,7 @@ mod tests {
 
         cases.test_each_clone(|case| {
             let mut sym_gen = SymbolGen::new();
-            let inputs: Vec<_> = case.inputs.into_iter().map(SymTensor::from_shape).collect();
+            let inputs: Vec<_> = case.inputs.into_iter().map(SymValue::from_shape).collect();
             let err = BinaryOp
                 .infer_shapes(inputs.into(), &mut sym_gen)
                 .err()
@@ -518,7 +518,7 @@ mod tests {
     fn test_reduction_op() {
         #[derive(Clone, Debug)]
         struct Case<'a> {
-            inputs: Vec<SymTensor>,
+            inputs: Vec<SymValue>,
             op: ReductionOp<'a>,
             expected: Vec<SymExpr>,
         }
@@ -534,8 +534,8 @@ mod tests {
             // Reduce single axis
             Case {
                 inputs: [
-                    SymTensor::from_shape(sym_elems!("batch", 4, 5)),
-                    SymTensor::from_vec(axes.clone()),
+                    SymValue::from_shape(sym_elems!("batch", 4, 5)),
+                    SymValue::from_vec(axes.clone()),
                 ]
                 .into(),
                 op: default_op.clone(),
@@ -543,7 +543,7 @@ mod tests {
             },
             // Reduce single axis specified as an attribute
             Case {
-                inputs: [SymTensor::from_shape(sym_elems!("batch", 4, 5))].into(),
+                inputs: [SymValue::from_shape(sym_elems!("batch", 4, 5))].into(),
                 op: ReductionOp {
                     axes: Some(&[1i32]),
                     ..default_op
@@ -553,8 +553,8 @@ mod tests {
             // Reduce single axis with `keep_dims=true`
             Case {
                 inputs: [
-                    SymTensor::from_shape(sym_elems!("batch", 4, 5)),
-                    SymTensor::from_vec(axes.clone()),
+                    SymValue::from_shape(sym_elems!("batch", 4, 5)),
+                    SymValue::from_vec(axes.clone()),
                 ]
                 .into(),
                 op: ReductionOp {
@@ -565,7 +565,7 @@ mod tests {
             },
             // Reduce all axes
             Case {
-                inputs: [SymTensor::from_shape(sym_elems!(3, 4, 5))].into(),
+                inputs: [SymValue::from_shape(sym_elems!(3, 4, 5))].into(),
                 op: default_op.clone(),
                 expected: sym_elems!(),
             },
@@ -578,15 +578,15 @@ mod tests {
                 .infer_shapes(case.inputs.clone().into(), &mut sym_gen)
                 .unwrap();
             assert_eq!(shapes.len(), 1);
-            assert_eq!(shapes[0], SymTensor::from_shape(case.expected.clone()));
+            assert_eq!(shapes[0], SymValue::from_shape(case.expected.clone()));
         });
     }
 
     #[test]
     fn test_reduction_op_unknown_axes() {
         let mut sym_gen = SymbolGen::new();
-        let data = SymTensor::from_shape(sym_elems!(3, 4, 5));
-        let axes = SymTensor::unknown("runtime-computed axes");
+        let data = SymValue::from_shape(sym_elems!(3, 4, 5));
+        let axes = SymValue::unknown("runtime-computed axes");
 
         // With `keep_dims=false` the output rank depends on the axes values,
         // so nothing about the output shape is known.

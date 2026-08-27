@@ -1,6 +1,6 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Identity operator.
 ///
@@ -15,7 +15,7 @@ impl InferShapes for Identity {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         Ok([data.clone()].into())
     }
@@ -26,7 +26,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_vec};
+    use crate::sym_value::{SymValue, sym_vec};
 
     use super::Identity;
 

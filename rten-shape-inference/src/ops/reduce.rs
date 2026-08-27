@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// NonZero operator.
 ///
@@ -13,7 +13,7 @@ impl InferShapes for NonZero {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         // Output is a 2D tensor of shape `(input.ndim(), num_nonzero)`.
@@ -23,7 +23,7 @@ impl InferShapes for NonZero {
             .unwrap_or_else(|| sym_gen.gen_positive());
         let out_shape = vec![first_dim, sym_gen.gen_positive()];
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -39,14 +39,14 @@ impl InferShapes for TopK {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let k = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
             return Ok([
-                SymTensor::unknown("unknown input shape"),
-                SymTensor::unknown("unknown input shape"),
+                SymValue::unknown("unknown input shape"),
+                SymValue::unknown("unknown input shape"),
             ]
             .into());
         };
@@ -64,7 +64,7 @@ impl InferShapes for TopK {
         let mut out_shape: Vec<SymExpr> = data_dims.collect();
         out_shape[axis] = k_val;
 
-        let shape = SymTensor::from_shape(out_shape);
+        let shape = SymValue::from_shape(out_shape);
         Ok([shape.clone(), shape].into())
     }
 }
@@ -74,7 +74,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::{NonZero, TopK};
 
@@ -91,7 +91,7 @@ mod tests {
         assert!(matches!(shape[1], SymExpr::Var(_)));
 
         // Unknown input shape, output is still 2D.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let result = NonZero.infer_shapes([data].into(), &mut sym_gen).unwrap();
         let shape: Vec<_> = result[0].shape().unwrap().collect();
         assert_eq!(shape.len(), 2);

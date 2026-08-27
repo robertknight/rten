@@ -45,7 +45,7 @@ impl fmt::Debug for Constant {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum SymTensorKind {
+enum SymValueKind {
     Scalar(SymExpr),
     Vector(Vec<SymExpr>),
     Shape(Vec<SymExpr>),
@@ -66,18 +66,18 @@ enum SymTensorKind {
 /// about their values or composite expressions (addition, multiplication etc.)
 ///
 /// ```
-/// use rten_shape_inference::{SymTensor, SymExpr};
+/// use rten_shape_inference::{SymValue, SymExpr};
 ///
 /// // Create a matrix with `nr` rows, `nc` columns and unknown values.
 /// let nr = SymExpr::from("nr");
 /// let nc = SymExpr::from("nc");
-/// let matrix = SymTensor::from_shape(vec![nr.clone(), nc.clone()]);
+/// let matrix = SymValue::from_shape(vec![nr.clone(), nc.clone()]);
 /// assert_eq!(matrix.ndim(), Some(2));
 /// assert_eq!(matrix.size(0), Some(nr.clone()));
 /// assert_eq!(matrix.size(1), Some(nc.clone()));
 ///
 /// // Turn the matrix's shape into a vector with values `["nr", "nc"]`.
-/// let shape = SymTensor::from_vec(matrix.shape().unwrap().collect());
+/// let shape = SymValue::from_vec(matrix.shape().unwrap().collect());
 /// assert_eq!(shape.ndim(), Some(1));
 /// assert_eq!(shape.values(), Some([nr.clone(), nc.clone()].as_slice()));
 ///
@@ -89,25 +89,25 @@ enum SymTensorKind {
 /// assert_eq!(len, Some(SymExpr::Mul(nr.into(), nc.into())));
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct SymTensor(SymTensorKind);
+pub struct SymValue(SymValueKind);
 
-impl SymTensor {
+impl SymValue {
     /// Create a new symbolic tensor with unknown shape and values.
     ///
     /// `note` is a short string indicating the reason why the tensor shape
     /// and values are unknown. This is used for debugging purposes.
     pub fn unknown(note: &'static str) -> Self {
-        Self(SymTensorKind::Unknown { note })
+        Self(SymValueKind::Unknown { note })
     }
 
     /// Create a new symbolic tensor with the given shape and unknown values.
     pub fn from_shape(shape: Vec<SymExpr>) -> Self {
-        Self(SymTensorKind::Shape(shape))
+        Self(SymValueKind::Shape(shape))
     }
 
     /// Create a new symbolic tensor with the given shape and unknown values.
     pub fn from_fixed_shape(shape: &[usize]) -> Self {
-        Self(SymTensorKind::Shape(
+        Self(SymValueKind::Shape(
             shape
                 .iter()
                 .copied()
@@ -118,18 +118,18 @@ impl SymTensor {
 
     /// Create a new symbolic vector.
     pub fn from_vec(vec: Vec<SymExpr>) -> Self {
-        Self(SymTensorKind::Vector(vec))
+        Self(SymValueKind::Vector(vec))
     }
 
     /// Create a new symbolic scalar.
     pub fn from_scalar(item: SymExpr) -> Self {
-        Self(SymTensorKind::Scalar(item))
+        Self(SymValueKind::Scalar(item))
     }
 
     /// Return this tensor's single element, if it is a scalar.
     pub fn as_scalar(&self) -> Option<&SymExpr> {
         match &self.0 {
-            SymTensorKind::Scalar(item) => Some(item),
+            SymValueKind::Scalar(item) => Some(item),
             _ => None,
         }
     }
@@ -137,7 +137,7 @@ impl SymTensor {
     /// Return this tensor's values as a slice, if it is a vector.
     pub fn as_vector(&self) -> Option<&[SymExpr]> {
         match &self.0 {
-            SymTensorKind::Vector(vec) => Some(vec),
+            SymValueKind::Vector(vec) => Some(vec),
             _ => None,
         }
     }
@@ -146,11 +146,11 @@ impl SymTensor {
     /// all values are fixed.
     pub fn to_constant(&self) -> Option<Constant> {
         match &self.0 {
-            SymTensorKind::Scalar(val) => match val {
+            SymValueKind::Scalar(val) => match val {
                 SymExpr::Value(v) => Some(Constant::Scalar(*v)),
                 _ => None,
             },
-            SymTensorKind::Vector(vec) => {
+            SymValueKind::Vector(vec) => {
                 let values = vec
                     .iter()
                     .map(|v| match v {
@@ -160,17 +160,17 @@ impl SymTensor {
                     .collect::<Option<Vec<i32>>>()?;
                 Some(Constant::Vector(values))
             }
-            SymTensorKind::Shape(_) | SymTensorKind::Unknown { .. } => None,
+            SymValueKind::Shape(_) | SymValueKind::Unknown { .. } => None,
         }
     }
 
     /// Return the number of dimensions, if known.
     pub fn ndim(&self) -> Option<usize> {
         match &self.0 {
-            SymTensorKind::Scalar(_) => Some(0),
-            SymTensorKind::Vector(_) => Some(1),
-            SymTensorKind::Shape(val) => Some(val.len()),
-            SymTensorKind::Unknown { .. } => None,
+            SymValueKind::Scalar(_) => Some(0),
+            SymValueKind::Vector(_) => Some(1),
+            SymValueKind::Shape(val) => Some(val.len()),
+            SymValueKind::Unknown { .. } => None,
         }
     }
 
@@ -180,16 +180,16 @@ impl SymTensor {
     /// is unknown.
     pub fn size(&self, index: usize) -> Option<SymExpr> {
         match &self.0 {
-            SymTensorKind::Scalar(_) => None,
-            SymTensorKind::Vector(val) => {
+            SymValueKind::Scalar(_) => None,
+            SymValueKind::Vector(val) => {
                 if index == 0 {
                     Some(SymExpr::Value(val.len() as i32))
                 } else {
                     None
                 }
             }
-            SymTensorKind::Shape(val) => val.get(index).cloned(),
-            SymTensorKind::Unknown { .. } => None,
+            SymValueKind::Shape(val) => val.get(index).cloned(),
+            SymValueKind::Unknown { .. } => None,
         }
     }
 
@@ -203,9 +203,9 @@ impl SymTensor {
     /// Return the symbolic values in this tensor, or `None` if unknown.
     pub fn values(&self) -> Option<&[SymExpr]> {
         match &self.0 {
-            SymTensorKind::Scalar(item) => Some(std::slice::from_ref(item)),
-            SymTensorKind::Vector(val) => Some(val),
-            SymTensorKind::Shape(_) | SymTensorKind::Unknown { .. } => None,
+            SymValueKind::Scalar(item) => Some(std::slice::from_ref(item)),
+            SymValueKind::Vector(val) => Some(val),
+            SymValueKind::Shape(_) | SymValueKind::Unknown { .. } => None,
         }
     }
 
@@ -214,11 +214,11 @@ impl SymTensor {
     /// See [`SymExpr::simplify`].
     pub fn simplify(self) -> Self {
         match self.0 {
-            SymTensorKind::Scalar(item) => Self::from_scalar(item.simplify()),
-            SymTensorKind::Vector(vec) => {
+            SymValueKind::Scalar(item) => Self::from_scalar(item.simplify()),
+            SymValueKind::Vector(vec) => {
                 Self::from_vec(vec.into_iter().map(|x| x.simplify()).collect())
             }
-            SymTensorKind::Shape(shape) => {
+            SymValueKind::Shape(shape) => {
                 Self::from_shape(shape.into_iter().map(|d| d.simplify()).collect())
             }
             _ => self,
@@ -240,10 +240,10 @@ impl SymTensor {
         };
 
         match &mut self.0 {
-            SymTensorKind::Scalar(item) => replace_complex(item),
-            SymTensorKind::Vector(val) => val.iter_mut().for_each(replace_complex),
-            SymTensorKind::Shape(shape) => shape.iter_mut().for_each(replace_complex),
-            SymTensorKind::Unknown { .. } => {}
+            SymValueKind::Scalar(item) => replace_complex(item),
+            SymValueKind::Vector(val) => val.iter_mut().for_each(replace_complex),
+            SymValueKind::Shape(shape) => shape.iter_mut().for_each(replace_complex),
+            SymValueKind::Unknown { .. } => {}
         }
 
         had_complex
@@ -257,8 +257,8 @@ impl SymTensor {
     /// Returns `None` if evaluation of any elements is not possible.
     pub fn eval(&self, symbols: &SymbolMap) -> Result<Constant, EvalError> {
         match &self.0 {
-            SymTensorKind::Scalar(item) => item.eval(symbols).map(Constant::Scalar),
-            SymTensorKind::Vector(vec) => {
+            SymValueKind::Scalar(item) => item.eval(symbols).map(Constant::Scalar),
+            SymValueKind::Vector(vec) => {
                 let values = vec
                     .iter()
                     .map(|item| item.eval(symbols))
@@ -275,7 +275,7 @@ pub(crate) use tests::{sym_elems, sym_scalar, sym_shape, sym_vec};
 
 #[cfg(test)]
 mod tests {
-    use super::{Constant, SymExpr, SymTensor, SymbolMap};
+    use super::{Constant, SymExpr, SymValue, SymbolMap};
 
     /// Create a `Vec<SymExpr>` from a list of symbol names and values.
     macro_rules! sym_elems {
@@ -287,21 +287,21 @@ mod tests {
     /// Create a symbolic scalar from a symbol name or value.
     macro_rules! sym_scalar {
         ($x:expr) => {
-            SymTensor::from_scalar(SymExpr::from($x))
+            SymValue::from_scalar(SymExpr::from($x))
         };
     }
 
     /// Create a symbolic vector from a list of symbol names and values.
     macro_rules! sym_vec {
         ($($x:expr),* $(,)?) => {
-            SymTensor::from_vec(vec![$(SymExpr::from($x)),*])
+            SymValue::from_vec(vec![$(SymExpr::from($x)),*])
         };
     }
 
     /// Create a symbolic shape from a list of symbol names and values.
     macro_rules! sym_shape {
         ($($x:expr),* $(,)?) => {
-            SymTensor::from_shape(vec![$(SymExpr::from($x)),*])
+            SymValue::from_shape(vec![$(SymExpr::from($x)),*])
         };
     }
 
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_scalar() {
-        let x = SymTensor::from_scalar("x".into());
+        let x = SymValue::from_scalar("x".into());
         assert_eq!(x.ndim(), Some(0));
         assert_eq!(x.size(0), None);
         assert_eq!(x.values(), Some(["x".into()].as_slice()));
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_vector() {
-        let x = SymTensor::from_vec(vec!["x".into(), 2.into()]);
+        let x = SymValue::from_vec(vec!["x".into(), 2.into()]);
         assert_eq!(x.ndim(), Some(1));
         assert_eq!(x.size(0), Some(2.into()));
         assert_eq!(x.size(1), None);
@@ -328,10 +328,10 @@ mod tests {
     fn test_eval() {
         let values = SymbolMap::new(&[("batch", 2), ("past_seq", 10), ("seq", 5)]);
 
-        let sym_scalar = SymTensor::from_scalar("batch".into());
+        let sym_scalar = SymValue::from_scalar("batch".into());
         assert_eq!(sym_scalar.eval(&values), Ok(Constant::Scalar(2)));
 
-        let sym_vec = SymTensor::from_vec(vec![
+        let sym_vec = SymValue::from_vec(vec![
             SymExpr::from("batch"),
             SymExpr::from("past_seq") + SymExpr::from("seq"),
             64.into(),
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_tensor_with_shape() {
-        let x = SymTensor::from_shape(vec!["x".into(), 2.into()]);
+        let x = SymValue::from_shape(vec!["x".into(), 2.into()]);
         assert_eq!(x.ndim(), Some(2));
         assert_eq!(x.size(0), Some("x".into()));
         assert_eq!(x.size(1), Some(2.into()));
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn test_simplify() {
         // Simplify a shape
-        let matrix = SymTensor::from_shape(vec![
+        let matrix = SymValue::from_shape(vec![
             SymExpr::pos_var("rows") + SymExpr::from(0),
             SymExpr::pos_var("cols") * SymExpr::from(1),
         ])
@@ -368,11 +368,11 @@ mod tests {
         // Simplify a scalar
         let x = SymExpr::var("x");
         let add_expr = x.clone() + SymExpr::from(0);
-        let scalar = SymTensor::from_scalar(add_expr.clone()).simplify();
+        let scalar = SymValue::from_scalar(add_expr.clone()).simplify();
         assert_eq!(scalar.as_scalar().unwrap(), &x);
 
         // Simplify a vector
-        let vec = SymTensor::from_vec(vec![add_expr.clone(), add_expr.clone()]).simplify();
+        let vec = SymValue::from_vec(vec![add_expr.clone(), add_expr.clone()]).simplify();
         assert_eq!(vec.as_vector().unwrap(), [x.clone(), x.clone()]);
     }
 
@@ -390,20 +390,20 @@ mod tests {
 
         // Scalar containing a complex expression.
         let mut sym_gen = SymbolGen::new();
-        let mut scalar = SymTensor::from_scalar(complex.clone());
+        let mut scalar = SymValue::from_scalar(complex.clone());
         assert!(scalar.replace_complex_expressions(1, &mut sym_gen));
         assert_eq!(scalar.as_scalar().unwrap(), &generated());
 
         // Vector with one complex and one simple element. Only the complex one
         // is replaced.
         let mut sym_gen = SymbolGen::new();
-        let mut vec = SymTensor::from_vec(vec![complex.clone(), simple.clone()]);
+        let mut vec = SymValue::from_vec(vec![complex.clone(), simple.clone()]);
         assert!(vec.replace_complex_expressions(1, &mut sym_gen));
         assert_eq!(vec.as_vector().unwrap(), [generated(), simple.clone()]);
 
         // Shape with one complex and one simple dimension.
         let mut sym_gen = SymbolGen::new();
-        let mut shape = SymTensor::from_shape(vec![complex.clone(), simple.clone()]);
+        let mut shape = SymValue::from_shape(vec![complex.clone(), simple.clone()]);
         assert!(shape.replace_complex_expressions(1, &mut sym_gen));
         assert_eq!(
             shape.shape().unwrap().collect::<Vec<_>>(),
@@ -412,14 +412,14 @@ mod tests {
 
         // Expressions that do not exceed the depth limit are left unchanged.
         let mut sym_gen = SymbolGen::new();
-        let mut scalar = SymTensor::from_scalar(complex.clone());
+        let mut scalar = SymValue::from_scalar(complex.clone());
         assert!(!scalar.replace_complex_expressions(2, &mut sym_gen));
         assert_eq!(scalar.as_scalar().unwrap(), &complex);
     }
 
     #[test]
     fn test_unknown_shape() {
-        let x = SymTensor::unknown("missing input shape");
+        let x = SymValue::unknown("missing input shape");
         assert!(x.shape().is_none());
         assert_eq!(x.values(), None);
     }

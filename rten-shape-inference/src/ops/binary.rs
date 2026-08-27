@@ -1,20 +1,20 @@
 use crate::infer_shapes::{BinaryOp, InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Perform a binary operation on the symbolic _values_ of two tensors or return
 /// None if a comparison is not possible.
 fn symbolic_binary_op(
-    lhs: &SymTensor,
-    rhs: &SymTensor,
+    lhs: &SymValue,
+    rhs: &SymValue,
     mut op: impl FnMut(&SymExpr, &SymExpr) -> Option<SymExpr>,
-) -> Option<SymTensor> {
+) -> Option<SymValue> {
     if let Some(x) = lhs.as_scalar()
         && let Some(y) = rhs.as_scalar()
     {
         let result = op(x, y)?;
-        Some(SymTensor::from_scalar(result))
+        Some(SymValue::from_scalar(result))
     } else if let Some(lhs_values) = lhs.values()
         && let Some(rhs_values) = rhs.values()
     {
@@ -33,7 +33,7 @@ fn symbolic_binary_op(
                 .collect(),
             _ => lhs_values.iter().zip(rhs_values).map(bin_op).collect(),
         };
-        Some(SymTensor::from_vec(elems?))
+        Some(SymValue::from_vec(elems?))
     } else {
         None
     }
@@ -47,7 +47,7 @@ fn binary_op_infer_shapes(
     inputs: InferShapesContext,
     sym_gen: &mut SymbolGen,
     op: impl FnMut(&SymExpr, &SymExpr) -> Option<SymExpr>,
-) -> Result<Vec<SymTensor>, InferShapesError> {
+) -> Result<Vec<SymValue>, InferShapesError> {
     let lhs = inputs.require(0)?;
     let rhs = inputs.require(1)?;
 
@@ -68,7 +68,7 @@ impl InferShapes for Add {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let add = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
                 (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x + y),
@@ -89,7 +89,7 @@ impl InferShapes for Sub {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let sub = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
                 (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x - y),
@@ -110,7 +110,7 @@ impl InferShapes for Div {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let div = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
                 (SymExpr::Value(x), SymExpr::Value(y)) if *y != 0 => SymExpr::Value(x / y),
@@ -131,7 +131,7 @@ impl InferShapes for Equal {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let eq = |x: &SymExpr, y: &SymExpr| {
             let (x_min, x_max) = x.range();
             let (y_min, y_max) = y.range();
@@ -163,7 +163,7 @@ impl InferShapes for Mul {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let mul = |x: &SymExpr, y: &SymExpr| {
             Some(match (x, y) {
                 (SymExpr::Value(x), SymExpr::Value(y)) => SymExpr::Value(x * y),
@@ -184,7 +184,7 @@ impl InferShapes for Where {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let cond = inputs.require(0)?;
         let x = inputs.require(1)?;
         let y = inputs.require(2)?;
@@ -223,7 +223,7 @@ impl InferShapes for Where {
                 })
                 .collect();
             if let Some(vals) = vals {
-                return Ok([SymTensor::from_vec(vals)].into());
+                return Ok([SymValue::from_vec(vals)].into());
             }
         }
 
@@ -241,7 +241,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::{Add, Div, Equal, Mul, Sub, Where};
 
@@ -250,10 +250,10 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
 
         // Symbolic scalar
-        let a = SymTensor::from_scalar(6.into());
-        let b = SymTensor::from_scalar(5.into());
+        let a = SymValue::from_scalar(6.into());
+        let b = SymValue::from_scalar(5.into());
         let result = Add.infer_shapes([a, b].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar(11.into()));
+        assert_eq!(result[0], SymValue::from_scalar(11.into()));
 
         // Symbolic vector
         let a = sym_vec!(5, "foo");
@@ -276,10 +276,10 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
 
         // Symbolic scalar
-        let a = SymTensor::from_scalar(6.into());
-        let b = SymTensor::from_scalar(5.into());
+        let a = SymValue::from_scalar(6.into());
+        let b = SymValue::from_scalar(5.into());
         let result = Sub.infer_shapes([a, b].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar(1.into()));
+        assert_eq!(result[0], SymValue::from_scalar(1.into()));
 
         // Symbolic vector
         let a = sym_vec!(5, "foo");
@@ -355,10 +355,10 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
 
         // Symbolic scalar
-        let a = SymTensor::from_scalar(6.into());
-        let b = SymTensor::from_scalar(5.into());
+        let a = SymValue::from_scalar(6.into());
+        let b = SymValue::from_scalar(5.into());
         let result = Mul.infer_shapes([a, b].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar(30.into()));
+        assert_eq!(result[0], SymValue::from_scalar(30.into()));
 
         // Symbolic vector
         let a = sym_vec!(5, "foo");

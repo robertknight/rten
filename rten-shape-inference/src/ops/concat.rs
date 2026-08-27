@@ -1,6 +1,6 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Concat operator.
 ///
@@ -14,11 +14,11 @@ impl InferShapes for Concat {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let first = inputs.require(0)?;
 
         let Some(first_dims) = first.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let axis = resolve_axis(first_dims.len(), self.axis)
@@ -36,7 +36,7 @@ impl InferShapes for Concat {
                 for inp in inputs.iter().flatten() {
                     values.extend(inp.values().expect("should have values").to_vec());
                 }
-                SymTensor::from_vec(values)
+                SymValue::from_vec(values)
             };
             return Ok([value].into());
         }
@@ -52,7 +52,7 @@ impl InferShapes for Concat {
             }
         }
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -66,12 +66,12 @@ impl InferShapes for Tile {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let repeats = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let ndim = data_dims.len();
@@ -92,7 +92,7 @@ impl InferShapes for Tile {
             sym_gen.gen_shape(ndim)
         };
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -101,11 +101,11 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_elems, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_elems, sym_shape, sym_vec};
 
     use super::{Concat, Tile};
 
-    fn extract_shape(mut result: Vec<SymTensor>) -> Vec<SymExpr> {
+    fn extract_shape(mut result: Vec<SymValue>) -> Vec<SymExpr> {
         result.remove(0).shape().unwrap().collect()
     }
 
@@ -175,7 +175,7 @@ mod tests {
         // Unknown repeats — output rank is known but dim sizes are fresh
         // symbols.
         let data = sym_shape!(2, 3);
-        let repeats = SymTensor::unknown("unknown");
+        let repeats = SymValue::unknown("unknown");
         let result = Tile
             .infer_shapes([data, repeats].into(), &mut sym_gen)
             .unwrap();

@@ -5,7 +5,7 @@
 
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 mod attention;
 mod binary;
@@ -67,8 +67,8 @@ impl InferShapes for FixedShape<'_> {
         &self,
         _inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
-        Ok([SymTensor::from_fixed_shape(self.shape)].into())
+    ) -> Result<Vec<SymValue>, InferShapesError> {
+        Ok([SymValue::from_fixed_shape(self.shape)].into())
     }
 }
 
@@ -77,7 +77,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesContext};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::FixedShape;
 

@@ -1,6 +1,6 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// GridSample operator.
 ///
@@ -12,15 +12,15 @@ impl InferShapes for GridSample {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
         let grid = inputs.require(1)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
         let Some(grid_dims) = grid.shape() else {
-            return Ok([SymTensor::unknown("unknown grid shape")].into());
+            return Ok([SymValue::unknown("unknown grid shape")].into());
         };
 
         // data is (N, C, D1, D2) and grid is (N, D1_out, D2_out, ..., r) where
@@ -39,7 +39,7 @@ impl InferShapes for GridSample {
             .chain(grid_shape.into_iter().skip(1).take(spatial_dims))
             .collect();
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -48,7 +48,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::GridSample;
 
@@ -73,7 +73,7 @@ mod tests {
         assert_eq!(result[0], sym_shape!("batch", 3, 32));
 
         // Unknown input shape.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let grid = sym_shape!(1, 32, 64, 2);
         let result = GridSample
             .infer_shapes([data, grid].into(), &mut sym_gen)

@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// ConstantOfShape operator.
 ///
@@ -17,7 +17,7 @@ impl InferShapes for ConstantOfShape {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let shape = inputs.require(0)?;
 
         let out_shape = if let Some(values) = shape.values() {
@@ -28,7 +28,7 @@ impl InferShapes for ConstantOfShape {
                     match vec_len {
                         &SymExpr::Value(vec_len) => {
                             if let Ok(vec_len) = vec_len.try_into() {
-                                SymTensor::from_vec(vec![SymExpr::Value(val); vec_len])
+                                SymValue::from_vec(vec![SymExpr::Value(val); vec_len])
                             } else {
                                 return Err(InferShapesError::InvalidValue);
                             }
@@ -42,13 +42,13 @@ impl InferShapes for ConstantOfShape {
                         | SymExpr::DivCeil(..)
                         | SymExpr::Max(..)
                         | SymExpr::Min(..)
-                        | SymExpr::Broadcast(..) => SymTensor::from_shape(vec![vec_len.clone()]),
+                        | SymExpr::Broadcast(..) => SymValue::from_shape(vec![vec_len.clone()]),
                     }
                 } else {
-                    SymTensor::from_scalar(SymExpr::Value(val))
+                    SymValue::from_scalar(SymExpr::Value(val))
                 }
             } else {
-                SymTensor::from_shape(values.to_vec())
+                SymValue::from_shape(values.to_vec())
             }
         } else if let Some(mut dims) = shape.shape()
             && dims.len() == 1
@@ -57,9 +57,9 @@ impl InferShapes for ConstantOfShape {
         {
             // The rank is known, but not the shape.
             let out_shape = (0..out_ndim).map(|_| sym_gen.gen_positive()).collect();
-            SymTensor::from_shape(out_shape)
+            SymValue::from_shape(out_shape)
         } else {
-            SymTensor::unknown("unknown shape")
+            SymValue::unknown("unknown shape")
         };
 
         Ok(vec![out_shape])
@@ -78,14 +78,14 @@ impl InferShapes for OneHot {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let indices = inputs.require(0)?;
         let depth = inputs.require(1)?;
         // `values` is required but unused for shape inference.
         inputs.require(2)?;
 
         let Some(indices_dims) = indices.shape() else {
-            return Ok([SymTensor::unknown("unknown indices shape")].into());
+            return Ok([SymValue::unknown("unknown indices shape")].into());
         };
 
         let in_ndim = indices_dims.len();
@@ -103,7 +103,7 @@ impl InferShapes for OneHot {
         let mut out_shape: Vec<SymExpr> = indices_dims.collect();
         out_shape.insert(axis, depth_value);
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -121,7 +121,7 @@ impl InferShapes for Range {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let start = inputs.require(0)?;
         let limit = inputs.require(1)?;
         let delta = inputs.require(2)?;
@@ -156,28 +156,28 @@ impl InferShapes for Range {
                     let values = (0..len)
                         .map(|i| SymExpr::Value((start + i * delta) as i32))
                         .collect();
-                    SymTensor::from_vec(values)
+                    SymValue::from_vec(values)
                 } else if let Ok(len) = i32::try_from(len) {
-                    SymTensor::from_shape(vec![SymExpr::Value(len)])
+                    SymValue::from_shape(vec![SymExpr::Value(len)])
                 } else {
-                    SymTensor::from_shape(vec![sym_gen.gen_positive()])
+                    SymValue::from_shape(vec![sym_gen.gen_positive()])
                 }
             }
             // Range(0, limit, 1) has shape [limit]
             (Some(SymExpr::Value(0)), Some(limit), Some(SymExpr::Value(1))) => {
-                SymTensor::from_shape(vec![limit])
+                SymValue::from_shape(vec![limit])
             }
             // Range(start, start + limit, 1) has shape [limit]
             (Some(start), Some(SymExpr::Add(limit_lhs, limit_rhs)), Some(SymExpr::Value(1)))
                 if start == *limit_lhs =>
             {
-                SymTensor::from_shape(vec![(*limit_rhs).clone()])
+                SymValue::from_shape(vec![(*limit_rhs).clone()])
             }
             // Range(start, limit, 1) has shape [limit - start]
             (Some(start), Some(limit), Some(SymExpr::Value(1))) => {
-                SymTensor::from_shape(vec![limit - start])
+                SymValue::from_shape(vec![limit - start])
             }
-            _ => SymTensor::from_shape(vec![sym_gen.gen_positive()]),
+            _ => SymValue::from_shape(vec![sym_gen.gen_positive()]),
         };
 
         Ok(vec![out_value])
@@ -189,7 +189,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::{ConstantOfShape, OneHot, Range};
 
@@ -201,7 +201,7 @@ mod tests {
         let shape = sym_vec!();
         let op = ConstantOfShape { value: Some(1) };
         let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
-        assert_eq!(result[0], SymTensor::from_scalar(1.into()));
+        assert_eq!(result[0], SymValue::from_scalar(1.into()));
 
         // Vector shape, int value.
         let shape = sym_vec!(3);
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(result[0].ndim(), None);
 
         // Unknown shape input.
-        let shape = SymTensor::unknown("unknown");
+        let shape = SymValue::unknown("unknown");
         let op = ConstantOfShape { value: Some(1) };
         let result = op.infer_shapes([shape].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0].ndim(), None);
@@ -247,7 +247,7 @@ mod tests {
 
         // Insert depth axis at the end with a fixed depth.
         let indices = sym_shape!("batch", 8);
-        let depth = SymTensor::from_scalar(10.into());
+        let depth = SymValue::from_scalar(10.into());
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
@@ -257,7 +257,7 @@ mod tests {
 
         // Insert depth axis at the start.
         let indices = sym_shape!("batch", 8);
-        let depth = SymTensor::from_scalar(10.into());
+        let depth = SymValue::from_scalar(10.into());
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: 0 };
         let result = op
@@ -267,7 +267,7 @@ mod tests {
 
         // Symbolic depth value.
         let indices = sym_shape!(4);
-        let depth = SymTensor::from_scalar(SymExpr::from("d"));
+        let depth = SymValue::from_scalar(SymExpr::from("d"));
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
@@ -286,8 +286,8 @@ mod tests {
         assert_eq!(result[0], sym_shape!("batch", 8, 10));
 
         // Unknown indices shape.
-        let indices = SymTensor::unknown("unknown");
-        let depth = SymTensor::from_scalar(10.into());
+        let indices = SymValue::unknown("unknown");
+        let depth = SymValue::from_scalar(10.into());
         let values = sym_vec!(0, 1);
         let op = OneHot { axis: -1 };
         let result = op
@@ -299,10 +299,10 @@ mod tests {
     #[test]
     fn test_range() {
         struct Case {
-            start: SymTensor,
-            limit: SymTensor,
-            delta: SymTensor,
-            expected: Result<SymTensor, InferShapesError>,
+            start: SymValue,
+            limit: SymValue,
+            delta: SymValue,
+            expected: Result<SymValue, InferShapesError>,
         }
 
         let cases = [
@@ -325,7 +325,7 @@ mod tests {
                 start: sym_vec!(15),
                 limit: sym_vec!(-1),
                 delta: sym_vec!(-1),
-                expected: Ok(SymTensor::from_vec(
+                expected: Ok(SymValue::from_vec(
                     (0..=15).rev().map(SymExpr::Value).collect(),
                 )),
             },

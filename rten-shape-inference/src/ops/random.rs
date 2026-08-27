@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Multinomial operator.
 ///
@@ -16,7 +16,7 @@ impl InferShapes for Multinomial {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
 
         if input.ndim().is_some_and(|ndim| ndim != 2) {
@@ -28,7 +28,7 @@ impl InferShapes for Multinomial {
         let batch_size = input.size(0).unwrap_or_else(|| sym_gen.gen_positive());
         let sample_size = SymExpr::Value(self.sample_size as i32);
         let out_shape = vec![batch_size, sample_size];
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -42,13 +42,13 @@ impl InferShapes for Dropout {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let shape = if let Some(dims) = data.shape() {
-            SymTensor::from_shape(dims.collect())
+            SymValue::from_shape(dims.collect())
         } else {
-            SymTensor::unknown("unknown input shape")
+            SymValue::unknown("unknown input shape")
         };
 
         // Output 0 is the dropped-out data; output 1 is the boolean mask. Both
@@ -62,7 +62,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::{Dropout, Multinomial};
 
@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(result, &[sym_shape!("batch", 4)]);
 
         // Unknown input shape still yields a known sample size.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let result = Multinomial { sample_size: 4 }
             .infer_shapes([data].into(), &mut sym_gen)
             .unwrap();
@@ -103,7 +103,7 @@ mod tests {
         assert_eq!(result[1], sym_shape!("batch", 16, 32));
 
         // Unknown input shape.
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let result = Dropout.infer_shapes([data].into(), &mut sym_gen).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].ndim(), None);

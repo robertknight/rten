@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::{Constant, SymTensor};
+use crate::sym_value::{Constant, SymValue};
 
 /// Pad operator.
 ///
@@ -18,13 +18,13 @@ impl InferShapes for Pad {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(DATA)?;
         let pads = inputs.require(PADS)?;
         let axes = inputs.get(AXES);
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let ndim = data_dims.len();
@@ -42,7 +42,7 @@ impl InferShapes for Pad {
                     // padded. The output rank is preserved but the sizes are
                     // unknown.
                     let out_dims = sym_gen.gen_shape(ndim);
-                    return Ok([SymTensor::from_shape(out_dims)].into());
+                    return Ok([SymValue::from_shape(out_dims)].into());
                 }
             }
         } else {
@@ -69,7 +69,7 @@ impl InferShapes for Pad {
             }
         }
 
-        Ok([SymTensor::from_shape(out_dims)].into())
+        Ok([SymValue::from_shape(out_dims)].into())
     }
 }
 
@@ -78,7 +78,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::Pad;
 
@@ -120,7 +120,7 @@ mod tests {
         // Pad only specified axes.
         let data = sym_shape!(2, 3, 4);
         let pads = sym_vec!(1, 2, 3, 4);
-        let const_val = SymTensor::unknown("unknown value");
+        let const_val = SymValue::unknown("unknown value");
         let axes = sym_vec!(0, 2);
         let result = Pad
             .infer_shapes([data, pads, const_val, axes].into(), &mut sym_gen)
@@ -130,7 +130,7 @@ mod tests {
         // Negative axis.
         let data = sym_shape!(2, 3, 4);
         let pads = sym_vec!(1, 2);
-        let const_val = SymTensor::unknown("unknown value");
+        let const_val = SymValue::unknown("unknown value");
         let axes = sym_vec!(-1);
         let result = Pad
             .infer_shapes([data, pads, const_val, axes].into(), &mut sym_gen)
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn test_pad_unknown_input_shape() {
         let mut sym_gen = SymbolGen::new();
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let pads = sym_vec!(1, 1, 1, 1);
         let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
         assert_eq!(result[0].ndim(), None);
@@ -151,7 +151,7 @@ mod tests {
     fn test_pad_unknown_pads() {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!("batch", 16, 32);
-        let pads = SymTensor::unknown("unknown");
+        let pads = SymValue::unknown("unknown");
         let result = Pad.infer_shapes([data, pads].into(), &mut sym_gen).unwrap();
 
         let shape: Vec<_> = result[0].shape().unwrap().collect();
@@ -166,8 +166,8 @@ mod tests {
         let mut sym_gen = SymbolGen::new();
         let data = sym_shape!(2, 3, 4);
         let pads = sym_vec!(1, 1);
-        let const_val = SymTensor::from_scalar(0.into());
-        let axes = SymTensor::unknown("unknown");
+        let const_val = SymValue::from_scalar(0.into());
+        let axes = SymValue::unknown("unknown");
         let result = Pad
             .infer_shapes([data, pads, const_val, axes].into(), &mut sym_gen)
             .unwrap();

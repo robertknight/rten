@@ -1,6 +1,6 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// DynamicQuantizeLinear operator.
 ///
@@ -12,17 +12,17 @@ impl InferShapes for DynamicQuantizeLinear {
         &self,
         inputs: InferShapesContext,
         _sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(0)?;
 
         let shape = if let Some(shape) = data.shape() {
-            SymTensor::from_shape(shape.collect())
+            SymValue::from_shape(shape.collect())
         } else {
-            SymTensor::unknown("unknown input shape")
+            SymValue::unknown("unknown input shape")
         };
 
-        let scale_shape = SymTensor::from_shape(vec![]);
-        let zero_point_shape = SymTensor::from_shape(vec![]);
+        let scale_shape = SymValue::from_shape(vec![]);
+        let zero_point_shape = SymValue::from_shape(vec![]);
         Ok([shape, scale_shape, zero_point_shape].into())
     }
 }
@@ -32,7 +32,7 @@ mod tests {
     use crate::infer_shapes::InferShapes;
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape};
+    use crate::sym_value::{SymValue, sym_shape};
 
     use super::DynamicQuantizeLinear;
 

@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError, resolve_axis};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// STFT operator.
 ///
@@ -15,7 +15,7 @@ impl InferShapes for STFT {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let signal = inputs.require(0)?;
         let frame_step = inputs.require(1)?;
         let window = inputs.get(2);
@@ -28,7 +28,7 @@ impl InferShapes for STFT {
         }
 
         let (Some(batch), Some(signal_len)) = (signal.size(0), signal.size(1)) else {
-            return Ok([SymTensor::unknown("unknown signal shape")].into());
+            return Ok([SymValue::unknown("unknown signal shape")].into());
         };
 
         // `n_fft` comes from `frame_length` if it's a known scalar, otherwise
@@ -66,7 +66,7 @@ impl InferShapes for STFT {
         };
 
         let out_shape = vec![batch, n_frames, dft_unique_bins, SymExpr::Value(2)];
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -83,7 +83,7 @@ impl InferShapes for DFT {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let input = inputs.require(0)?;
         let dft_length = inputs.get(1);
 
@@ -96,12 +96,12 @@ impl InferShapes for DFT {
             None => -2,
             Some(axis) => match axis.as_scalar() {
                 Some(&SymExpr::Value(val)) => val,
-                _ => return Ok([SymTensor::unknown("DFT axis is not constant")].into()),
+                _ => return Ok([SymValue::unknown("DFT axis is not constant")].into()),
             },
         };
 
         let Some(dims) = input.shape() else {
-            return Ok([SymTensor::unknown("unknown DFT input shape")].into());
+            return Ok([SymValue::unknown("unknown DFT input shape")].into());
         };
         let mut shape: Vec<SymExpr> = dims.collect();
         let ndim = shape.len();
@@ -150,7 +150,7 @@ impl InferShapes for DFT {
         shape[dft_axis] = out_len;
         shape[complex_dim] = n_components;
 
-        Ok([SymTensor::from_shape(shape)].into())
+        Ok([SymValue::from_shape(shape)].into())
     }
 }
 
@@ -161,23 +161,23 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_scalar, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_scalar, sym_shape, sym_vec};
 
     use super::{DFT, STFT};
 
     fn infer_stft(
         onesided: bool,
-        signal: SymTensor,
-        frame_step: SymTensor,
-        window: Option<SymTensor>,
-        frame_length: Option<SymTensor>,
-    ) -> SymTensor {
+        signal: SymValue,
+        frame_step: SymValue,
+        window: Option<SymValue>,
+        frame_length: Option<SymValue>,
+    ) -> SymValue {
         let mut inputs = vec![signal, frame_step];
         // `window` (input 2) is optional but positional, so a placeholder is
         // needed when `frame_length` (input 3) is present without it.
         match (window, &frame_length) {
             (Some(window), _) => inputs.push(window),
-            (None, Some(_)) => inputs.push(SymTensor::unknown("no window")),
+            (None, Some(_)) => inputs.push(SymValue::unknown("no window")),
             (None, None) => {}
         }
         if let Some(frame_length) = frame_length {
@@ -196,11 +196,11 @@ mod tests {
         #[derive(Debug)]
         struct Case {
             onesided: bool,
-            signal: SymTensor,
-            frame_step: SymTensor,
-            window: Option<SymTensor>,
-            frame_length: Option<SymTensor>,
-            expected: SymTensor,
+            signal: SymValue,
+            frame_step: SymValue,
+            window: Option<SymValue>,
+            frame_length: Option<SymValue>,
+            expected: SymValue,
         }
 
         let cases = [
@@ -258,7 +258,7 @@ mod tests {
     fn test_stft_unknown_signal() {
         let out = infer_stft(
             true,
-            SymTensor::unknown("unknown"),
+            SymValue::unknown("unknown"),
             sym_scalar!(4),
             None,
             Some(sym_scalar!(4)),
@@ -308,13 +308,13 @@ mod tests {
         axis: i32,
         inverse: bool,
         onesided: bool,
-        input: SymTensor,
-        dft_length: Option<SymTensor>,
-    ) -> SymTensor {
+        input: SymValue,
+        dft_length: Option<SymValue>,
+    ) -> SymValue {
         let inputs = vec![
             Some(input),
             dft_length,
-            Some(SymTensor::from_scalar(SymExpr::Value(axis))),
+            Some(SymValue::from_scalar(SymExpr::Value(axis))),
         ];
         let mut sym_gen = SymbolGen::new();
         let mut result = DFT { inverse, onesided }
@@ -330,9 +330,9 @@ mod tests {
             axis: i32,
             inverse: bool,
             onesided: bool,
-            input: SymTensor,
-            dft_length: Option<SymTensor>,
-            expected: SymTensor,
+            input: SymValue,
+            dft_length: Option<SymValue>,
+            expected: SymValue,
         }
 
         let cases = [
@@ -414,7 +414,7 @@ mod tests {
             false,
             false,
             sym_shape!("batch", 8, 1),
-            Some(SymTensor::unknown("runtime-computed dft_length")),
+            Some(SymValue::unknown("runtime-computed dft_length")),
         );
         let shape: Vec<_> = out.shape().unwrap().collect();
         assert_eq!(shape.len(), 3);

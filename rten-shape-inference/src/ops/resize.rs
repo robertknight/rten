@@ -1,7 +1,7 @@
 use crate::infer_shapes::{InferShapes, InferShapesContext, InferShapesError};
 use crate::sym_expr::SymExpr;
 use crate::sym_gen::SymbolGen;
-use crate::sym_tensor::SymTensor;
+use crate::sym_value::SymValue;
 
 /// Resize operator.
 ///
@@ -18,11 +18,11 @@ impl InferShapes for Resize {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(DATA)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         // `sizes` takes precedence if both are provided.
@@ -48,7 +48,7 @@ impl InferShapes for Resize {
             return Err(InferShapesError::IncorrectInputCount);
         };
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -67,11 +67,11 @@ impl InferShapes for Upsample {
         &self,
         inputs: InferShapesContext,
         sym_gen: &mut SymbolGen,
-    ) -> Result<Vec<SymTensor>, InferShapesError> {
+    ) -> Result<Vec<SymValue>, InferShapesError> {
         let data = inputs.require(DATA)?;
 
         let Some(data_dims) = data.shape() else {
-            return Ok([SymTensor::unknown("unknown input shape")].into());
+            return Ok([SymValue::unknown("unknown input shape")].into());
         };
 
         let input_scales = optional_input(&inputs, UPSAMPLE_SCALES).and_then(|s| s.as_vector());
@@ -85,7 +85,7 @@ impl InferShapes for Upsample {
             sym_gen.gen_shape(data_dims.len())
         };
 
-        Ok([SymTensor::from_shape(out_shape)].into())
+        Ok([SymValue::from_shape(out_shape)].into())
     }
 }
 
@@ -94,7 +94,7 @@ impl InferShapes for Upsample {
 /// As a special case this treats an empty vector as missing. In opset < 13, the
 /// ONNX Resize op uses an empty vector to represent missing `sizes`/`scales`
 /// inputs.
-fn optional_input<'a>(inputs: &'a InferShapesContext, idx: usize) -> Option<&'a SymTensor> {
+fn optional_input<'a>(inputs: &'a InferShapesContext, idx: usize) -> Option<&'a SymValue> {
     let input = inputs.get(idx)?;
     let is_empty_vec = input.as_vector().is_some_and(|v| v.is_empty());
     if is_empty_vec {
@@ -108,7 +108,7 @@ mod tests {
     use crate::infer_shapes::{InferShapes, InferShapesError};
     use crate::sym_expr::SymExpr;
     use crate::sym_gen::SymbolGen;
-    use crate::sym_tensor::{SymTensor, sym_shape, sym_vec};
+    use crate::sym_value::{SymValue, sym_shape, sym_vec};
 
     use super::{Resize, Upsample};
 
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_resize_unknown_input() {
-        let data = SymTensor::unknown("unknown");
+        let data = SymValue::unknown("unknown");
         let scales = sym_vec!(1, 1, 2, 2);
 
         let mut sym_gen = SymbolGen::new();
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn test_resize_unknown_scales() {
         let data = sym_shape!(1, 3, 224, 224);
-        let scales = SymTensor::unknown("unknown");
+        let scales = SymValue::unknown("unknown");
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn test_resize_unknown_sizes() {
         let data = sym_shape!(1, 3, 224, 224);
-        let sizes = SymTensor::unknown("unknown");
+        let sizes = SymValue::unknown("unknown");
 
         let mut sym_gen = SymbolGen::new();
         let result = Resize
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn test_upsample_unknown_scales() {
         let data = sym_shape!(1, 3, 224, 224);
-        let scales = SymTensor::unknown("unknown");
+        let scales = SymValue::unknown("unknown");
 
         let mut sym_gen = SymbolGen::new();
         let result = Upsample

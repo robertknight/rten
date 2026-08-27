@@ -58,18 +58,18 @@
 //! Symbolic values are multi-dimensional array types where the dimension sizes
 //! and elements are _symbolic expressions_. Expressions can be known integers,
 //! named symbols, or composite expressions involving these. Values are
-//! represented by [`SymTensor`] and expressions by [`SymExpr`].
+//! represented by [`SymValue`] and expressions by [`SymExpr`].
 
 pub mod einsum_parser;
 mod infer_shapes;
 pub mod ops;
 mod sym_expr;
 mod sym_gen;
-mod sym_tensor;
+mod sym_value;
 
 pub use infer_shapes::{
     BinaryOp, InferShapes, InferShapesContext, InferShapesError, ReductionOp, UnaryOp, VariadicOp,
 };
 pub use sym_expr::{EvalError, SymExpr, Symbol, SymbolMap};
 pub use sym_gen::SymbolGen;
-pub use sym_tensor::{Constant, SymTensor};
+pub use sym_value::{Constant, SymValue};
