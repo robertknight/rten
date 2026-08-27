@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rten_shape_inference::{SymExpr, Symbol};
-use rten_tensor::{ArcTensor, NdTensorView, SliceRange};
+use rten_tensor::{ArcTensor, AsView, NdTensorView, SliceRange};
 
 use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
@@ -14,9 +14,10 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat, FusedMatMul, Gelu,
-    GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat, RMSNormalization,
-    Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish, SymbolInfo, Transpose,
+    AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat,
+    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat,
+    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish,
+    SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -1690,6 +1691,118 @@ impl PatternFusion for GroupedQueryAttentionMatMulFusion {
     }
 }
 
+/// If `shape` has the form `[1, C, 1, ...]`, return `C`.
+fn channel_count(shape: &[usize]) -> Option<usize> {
+    if shape.len() < 2 {
+        return None;
+    }
+    shape
+        .iter()
+        .enumerate()
+        .all(|(axis, &size)| axis == 1 || size == 1)
+        .then(|| shape[1])
+}
+
+/// Create a constant containing a vector.
+fn vector_constant(data: Vec<f32>) -> Constant {
+    ConstantNode::new(
+        None,
+        ConstantNodeData::Arc(ArcTensor::from_data(&[data.len()], Arc::new(data))),
+    )
+    .into()
+}
+
+/// Convert a constant with shape `[1, C, 1, ...]` into a `[C]` vector.
+fn channel_vector(graph: &Graph, const_id: NodeId, rank: usize) -> Result<Vec<f32>, FusionError> {
+    let Some(Node::Constant(const_node)) = graph.get_node(const_id) else {
+        return Err(FusionError::NoMatch);
+    };
+    if const_node.shape().len() != rank || channel_count(const_node.shape()).is_none() {
+        return Err(FusionError::CheckFailed("constant is not per-channel"));
+    }
+    let Some(view) = TypedConstant::<f32>::as_typed_view(const_node) else {
+        return Err(FusionError::CheckFailed("constant is not an f32 constant"));
+    };
+    Ok(view.to_vec())
+}
+
+/// Fuse `Add(Mul(X, scale), bias)` into `BatchNormalization(X, scale, bias, mean, var)`.
+pub struct BatchNormalizationFusion {}
+
+impl FusionVisitor for BatchNormalizationFusion {
+    type State = Pattern;
+
+    fn name(&self) -> &str {
+        "BatchNormalizationFusion"
+    }
+
+    fn prepare(&self, _: &Graph) -> Pattern {
+        Pattern::binary_op(
+            "Add",
+            Pattern::binary_op("Mul", Pattern::symbol("x"), Pattern::const_symbol("scale")),
+            Pattern::const_symbol("bias"),
+        )
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &Pattern,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let (Some(x), Some(scale_id), Some(bias_id)) = (
+            pat_match.node_id("x"),
+            pat_match.node_id("scale"),
+            pat_match.node_id("bias"),
+        ) else {
+            return Err(FusionError::NoMatch);
+        };
+
+        // Extract `[C]` vectors from `[1, C, 1, 1]` scale and bias tensors.
+        let x_shape = graph
+            .get_node(x)
+            .and_then(|node| node.shape())
+            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
+        let scale = channel_vector(graph, scale_id, x_shape.len())?;
+        let bias = channel_vector(graph, bias_id, x_shape.len())?;
+        if scale.len() != bias.len() {
+            return Err(FusionError::CheckFailed("scale and bias sizes differ"));
+        }
+        let channels = scale.len();
+
+        // Check `C` matches channel count of input. Otherwise the `Mul` op
+        // will either fail or broadcast the input.
+        match x_shape.get(1) {
+            Some(Dimension::Fixed(size)) if *size == channels => {}
+            _ => {
+                return Err(FusionError::CheckFailed(
+                    "input channel count does not match scale",
+                ));
+            }
+        }
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(BatchNormalization { epsilon: 0. }),
+            input_ids: vec![Some(x), None, None, None, None],
+            new_constant_inputs: vec![
+                (1, vector_constant(scale)),
+                (2, vector_constant(bias)),
+                // input mean and variance. Set to 0 and 1 respectively so
+                // they have no effect.
+                (3, vector_constant(vec![0.; channels])),
+                (4, vector_constant(vec![1.; channels])),
+            ],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
+    }
+}
+
 /// Fuse `Add(Conv(X, W), bias)` into `Conv(X, W, bias)`.
 pub struct ConvAddFusion {}
 
@@ -1757,12 +1870,7 @@ impl FusionVisitor for ConvAddFusion {
             return Err(FusionError::NoMatch);
         };
         let bias_shape = bias_const.shape();
-        let is_per_channel_bias = bias_shape.len() == conv_rank
-            && bias_shape
-                .iter()
-                .enumerate()
-                .all(|(axis, &size)| size == if axis == 1 { out_channels } else { 1 });
-        if !is_per_channel_bias {
+        if bias_shape.len() != conv_rank || channel_count(bias_shape) != Some(out_channels) {
             return Err(FusionError::CheckFailed("bias is not a per-channel bias"));
         }
         let Some(bias_view) = TypedConstant::<f32>::as_typed_view(bias_const) else {
@@ -1770,12 +1878,7 @@ impl FusionVisitor for ConvAddFusion {
         };
 
         // Create the `[out_channels]` bias constant.
-        let bias_data: Vec<f32> = bias_view.iter().copied().collect();
-        let bias_const: Constant = ConstantNode::new(
-            None,
-            ConstantNodeData::Arc(ArcTensor::from_data(&[out_channels], Arc::new(bias_data))),
-        )
-        .into();
+        let bias_const = vector_constant(bias_view.iter().copied().collect());
 
         Ok(Fusion::Op(FusedOp {
             name: op_node.name().map(|s| s.to_string()),

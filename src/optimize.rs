@@ -26,12 +26,13 @@ mod pattern_matcher;
 use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
-    AddSoftmaxFusion, ApproxGeluFusion, CastElimination, ComputeShapeFusion, ConvAddFusion,
-    ConvIntegerToFloatFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
-    GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
-    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
-    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
+    ComputeShapeFusion, ConvAddFusion, ConvIntegerToFloatFusion, Fusion, FusionError,
+    FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
+    PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
+    RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
+    TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -645,6 +646,7 @@ impl GraphOptimizer {
         // Normalization fusions
         fusions.push(LayerNormalizationFusion {}.into_visitor());
         fusions.push(RMSNormalizationFusion {}.into_visitor());
+        fusions.push(BatchNormalizationFusion {});
 
         // Matmul fusions
         fusions.push(MatMulAddFusion {}.into_visitor());
