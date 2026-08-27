@@ -440,6 +440,60 @@ fn test_fuse_conv_add() {
 }
 
 #[test]
+fn test_fuse_batch_normalization() {
+    #[derive(Debug)]
+    struct Case {
+        /// Rank of the input and of the scale and bias constants.
+        rank: usize,
+    }
+
+    let cases = [Case { rank: 2 }, Case { rank: 3 }, Case { rank: 4 }];
+
+    cases.test_each(|&Case { rank }| {
+        let channels = 4;
+        let graph = {
+            let mut x_shape = vec![Dimension::from("batch"), Dimension::from(channels)];
+            x_shape.extend(std::iter::repeat_n(Dimension::from(8), rank - 2));
+            let x = Expr::value_with_info("x", ValueType::Tensor(DataType::Float), &x_shape);
+
+            // Per-channel scale and bias broadcast over `x`: `[1, C, 1, ...]`.
+            let mut const_shape = vec![1, channels];
+            const_shape.extend(std::iter::repeat_n(1, rank - 2));
+            let scale = Tensor::<f32>::full(const_shape.as_slice(), 2.);
+            let bias = Tensor::<f32>::full(const_shape.as_slice(), 3.);
+
+            (x * scale + bias).build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(op.operator().name(), "BatchNormalization");
+
+        // The scale, bias, mean and variance inputs should all be `[C]`
+        // vectors. Mean and variance are chosen so that the normalization
+        // reduces to `x * scale + bias`.
+        let input_value = |index: usize| -> Vec<f32> {
+            let input_id = op.input_ids()[index].expect("input should be present");
+            let constant = graph
+                .get_node(input_id)
+                .and_then(|n| n.as_constant())
+                .expect("input should be a constant");
+            assert_eq!(constant.shape(), [channels]);
+            TypedConstant::<f32>::as_typed_view(constant)
+                .expect("input should be an f32 constant")
+                .iter()
+                .copied()
+                .collect()
+        };
+        assert_eq!(input_value(1), [2.; 4]);
+        assert_eq!(input_value(2), [3.; 4]);
+        assert_eq!(input_value(3), [0.; 4]);
+        assert_eq!(input_value(4), [1.; 4]);
+    });
+}
+
+#[test]
 fn test_no_fuse_conv_add_non_channel_bias() {
     // A value added to the Conv output which broadcasts over a non-channel
     // axis (here the last/width axis, shape `[1, 1, 1, 4]`) is a valid add but
