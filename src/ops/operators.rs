@@ -227,7 +227,7 @@ impl<S: Storage<Elem = f32> + Sync, L: Layout + Clone + Sync> FloatOperators for
     }
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
-        run_operator(|pool| softmax(pool, self.as_dyn(), axis, NanHandling::KeepNans))
+        run_operator(|pool| softmax(pool, self.as_dyn().as_cow(), axis, NanHandling::KeepNans))
     }
 
     #[cfg(feature = "fft")]
