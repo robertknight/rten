@@ -1,18 +1,19 @@
+use rten_base::bit_set::BitSet;
 use rten_base::num::IsNaN;
 use rten_shape_inference::UnaryOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{CowTensor, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
-    IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext,
+    InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
+    OutputTypeList, OutputTypesContext,
 };
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
-use crate::ops::{map_value_view, resolve_axis, try_resolve_index};
-use crate::value::ValueView;
+use crate::ops::{map_value, map_value_view, resolve_axis, try_resolve_index};
+use crate::value::{Value, ValueView};
 
 // Specifies how to combine an existing element value with an update in a
 // scatter operation.
@@ -60,7 +61,7 @@ pub fn scatter_elements<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
 >(
     pool: &BufferPool,
-    data: TensorView<T>,
+    data: CowTensor<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,
     axis: isize,
@@ -79,7 +80,7 @@ pub fn scatter_elements<
     let axis = resolve_axis(data.ndim(), axis)?;
 
     let axis_size = data.size(axis);
-    let mut output = data.to_tensor_in(pool);
+    let mut output = data.into_owned_in(pool);
 
     for (output_lane, (update_lane, index_lane)) in output
         .lanes_mut(axis)
@@ -105,29 +106,42 @@ pub struct Scatter {
     pub axis: isize,
 }
 
+impl Scatter {
+    fn as_scatter_elements(&self) -> ScatterElements {
+        ScatterElements {
+            axis: self.axis,
+            reduction: None,
+        }
+    }
+}
+
 impl Operator for Scatter {
     fn name(&self) -> &str {
         "Scatter"
     }
 
     fn max_inputs(&self) -> Option<usize> {
-        ScatterElements {
-            axis: self.axis,
-            reduction: None,
-        }
-        .max_inputs()
+        self.as_scatter_elements().max_inputs()
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        self.as_scatter_elements().in_place_inputs()
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        ScatterElements {
-            axis: self.axis,
-            reduction: None,
-        }
-        .run(ctx)
+        self.as_scatter_elements().run(ctx)
     }
 
-    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        Some([OutputType::CopyFromInput(0)].into())
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        self.as_scatter_elements().run_in_place(in_place, ctx)
+    }
+
+    fn output_types(&self, ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        self.as_scatter_elements().output_types(ctx)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -150,6 +164,10 @@ impl Operator for ScatterElements {
         Some(3)
     }
 
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let data = inputs.require(0)?;
@@ -157,8 +175,38 @@ impl Operator for ScatterElements {
 
         map_value_view!(data, x, {
             let updates = inputs.require_as(2)?;
-            scatter_elements(ctx.pool(), x, indices, updates, self.axis, self.reduction)
-                .into_op_result()
+            scatter_elements(
+                ctx.pool(),
+                x.as_cow(),
+                indices,
+                updates,
+                self.axis,
+                self.reduction,
+            )
+            .into_op_result()
+        })
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let data = in_place.into_single();
+        let indices = inputs.require_as(1)?;
+
+        map_value!(data, x, {
+            let updates = inputs.require_as(2)?;
+            scatter_elements(
+                ctx.pool(),
+                x.into_cow(),
+                indices,
+                updates,
+                self.axis,
+                self.reduction,
+            )
+            .into_op_result()
         })
     }
 
@@ -175,7 +223,7 @@ pub fn scatter_nd<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T> + IsNaN,
 >(
     pool: &BufferPool,
-    data: TensorView<T>,
+    data: CowTensor<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,
     reduction: Option<ScatterReduction>,
@@ -216,7 +264,7 @@ pub fn scatter_nd<
     let indices = indices.to_contiguous_in(pool).auto_return(pool);
     let index_slices = indices.data().chunks(indices.size(indices.ndim() - 1));
 
-    let mut output = data.to_tensor_in(pool);
+    let mut output = data.into_owned_in(pool);
     for (index, update_slice) in index_slices.zip(update_slices) {
         let mut output_slice_offset = 0;
         for (i, (size, stride)) in index
@@ -250,6 +298,10 @@ impl Operator for ScatterND {
         Some(3)
     }
 
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
+    }
+
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let inputs = ctx.inputs();
         let data = inputs.require(0)?;
@@ -257,7 +309,22 @@ impl Operator for ScatterND {
 
         map_value_view!(data, x, {
             let updates = inputs.require_as(2)?;
-            scatter_nd(ctx.pool(), x, indices, updates, self.reduction).into_op_result()
+            scatter_nd(ctx.pool(), x.as_cow(), indices, updates, self.reduction).into_op_result()
+        })
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let inputs = ctx.inputs();
+        let data = in_place.into_single();
+        let indices = inputs.require_as(1)?;
+
+        map_value!(data, x, {
+            let updates = inputs.require_as(2)?;
+            scatter_nd(ctx.pool(), x.into_cow(), indices, updates, self.reduction).into_op_result()
         })
     }
 
@@ -344,7 +411,7 @@ mod tests {
             let pool = BufferPool::new();
             let result = scatter_elements(
                 &pool,
-                case.data.view(),
+                case.data.as_cow(),
                 case.indices.view(),
                 case.updates.view(),
                 case.axis,
@@ -365,7 +432,7 @@ mod tests {
         let scatter = |reduction: Option<ScatterReduction>| {
             scatter_elements(
                 &pool,
-                data.view(),
+                data.as_cow(),
                 indices.view(),
                 updates.view(),
                 0, /* axis */
@@ -441,7 +508,7 @@ mod tests {
             let pool = BufferPool::new();
             let result = scatter_nd(
                 &pool,
-                case.data.view(),
+                case.data.as_cow(),
                 case.indices.view(),
                 case.updates.view(),
                 None,
@@ -497,7 +564,7 @@ mod tests {
             let pool = BufferPool::new();
             let result = scatter_nd(
                 &pool,
-                case.data.view(),
+                case.data.as_cow(),
                 case.indices.view(),
                 case.updates.view(),
                 Some(case.reduction),
@@ -554,7 +621,7 @@ mod tests {
             let pool = BufferPool::new();
             let result = scatter_nd(
                 &pool,
-                case.data.view(),
+                case.data.as_cow(),
                 case.indices.view(),
                 case.updates.view(),
                 None,
