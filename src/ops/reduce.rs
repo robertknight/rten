@@ -6,7 +6,7 @@ use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
@@ -18,7 +18,6 @@ use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext,
 };
-use crate::ops::layout::squeeze_in_place;
 use crate::ops::{map_value_view, resolve_axes, resolve_axis};
 use crate::slice_reductions::{slice_fold_assoc, slice_sum};
 use crate::value::{DataType, ValueType, ValueView};
@@ -106,9 +105,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
     let mut reduced = Tensor::<i32>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
-        let axes = &[resolved_axis as i32];
-        let axes = NdTensorView::from(axes);
-        squeeze_in_place(&mut reduced, Some(axes)).expect("Invalid axis");
+        reduced.remove_axis(resolved_axis);
     }
 
     Ok(reduced)
@@ -513,9 +510,11 @@ fn reduce<T: Copy>(
     let mut reduced = Tensor::<T>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
-        let resolved_axes_i32: NdTensor<i32, 1> =
-            resolved_axes.iter().map(|axis| *axis as i32).collect();
-        squeeze_in_place(&mut reduced, Some(resolved_axes_i32.view())).expect("Invalid axis");
+        // `resolved_axes` is sorted, so each removal shifts the remaining
+        // axes down by one.
+        for (n_removed, axis) in resolved_axes.iter().enumerate() {
+            reduced.remove_axis(axis - n_removed);
+        }
     }
 
     Ok(reduced)
