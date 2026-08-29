@@ -147,13 +147,29 @@ pub trait Layout {
     /// storage length reported by [`min_data_len`](Layout::min_data_len).
     /// If a layout also implements [`TrustedLayout`] then callers can rely
     /// on this to avoid subsequent bounds checks.
-    fn offset(&self, index: Self::Index<'_>) -> Option<usize>;
+    fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        let shape = self.shape();
+        if shape.len() != index.as_ref().len()
+            || index
+                .as_ref()
+                .iter()
+                .zip(shape.iter())
+                .any(|(i, size)| *i >= size)
+        {
+            return None;
+        }
+        Some(self.offset_unchecked(index))
+    }
 
     /// Return the number of dimensions.
-    fn ndim(&self) -> usize;
+    fn ndim(&self) -> usize {
+        self.shape().len()
+    }
 
     /// Returns the number of elements in the array.
-    fn len(&self) -> usize;
+    fn len(&self) -> usize {
+        self.shape().iter().product()
+    }
 
     /// Return true if this layout describes a contiguous tensor, where the
     /// logical order of elements matches the order in which they are stored.
@@ -620,28 +636,6 @@ impl Layout for DynLayout {
     type Strides<'a> = &'a [usize];
     type Index<'a> = &'a [usize];
     type Indices = DynIndices;
-
-    /// Return the number of elements in the tensor shape described by this layout.
-    fn len(&self) -> usize {
-        self.shape().iter().product()
-    }
-
-    #[inline]
-    fn offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        let shape = self.shape();
-        let strides = self.strides();
-        let mut valid = index.as_ref().len() == shape.len();
-        let mut offset = 0;
-        for (idx, (size, stride)) in index.as_ref().iter().zip(shape.iter().zip(strides)) {
-            valid = valid && idx < size;
-            offset += idx * stride;
-        }
-        valid.then_some(offset)
-    }
-
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 
     /// Return the number of dimensions.
     #[inline]
