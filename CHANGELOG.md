@@ -15,6 +15,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
+- Optimized `ScatterElements` and `ScatterND` to run in-place when possible
+  (https://github.com/robertknight/rten/pull/1461)
+
+- Fixed `ConcatFromSequence` resolving `axis` against the input rather than the
+  output rank when `new_axis` is set (https://github.com/robertknight/rten/pull/1460)
+
+- Fuse `Conv` followed by `BatchNormalization` into a single `Conv` with
+  adjusted weights and bias (https://github.com/robertknight/rten/pull/1458,
+  https://github.com/robertknight/rten/pull/1459)
+
+- Fuse per-channel `Mul` followed by `Add` into `BatchNormalization`
+  (https://github.com/robertknight/rten/pull/1457)
+
+- Fixed incorrect output in `AveragePool` when `count_include_pad` is set and a
+  window extends beyond the end of the padded input
+  (https://github.com/robertknight/rten/pull/1456)
+
+- `AveragePool` and `MaxPool` now allow the kernel size to exceed the padded
+  input size when `ceil_mode` is enabled, matching PyTorch
+  (https://github.com/robertknight/rten/pull/1455)
+
 - Fixed NaN outputs from `Resize` when `align_corners` is used and an output
   axis has length one (https://github.com/robertknight/rten/pull/1450)
 
@@ -116,10 +137,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten-convert
 
+- Fixed model conversion failing on Windows when `--infer-shapes` is enabled
+  (https://github.com/robertknight/rten/pull/1453)
+
 - Fixed the default `axis` for `Softmax` and `LogSoftmax` in `.rten` format
   models (https://github.com/robertknight/rten/pull/1414)
 
 ### rten-tensor
+
+- Added `TensorBase::is_owned` (https://github.com/robertknight/rten/pull/1463)
 
 - Fixed two soundness issues in `LaneMut`, where `nth` could re-yield an element
   that was already yielded and `into_view` could return a view aliasing
