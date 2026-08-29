@@ -1507,6 +1507,13 @@ impl<'a, T, L: Layout> TensorBase<CowData<'a, T>, L> {
         }
     }
 
+    /// Return true if this tensor owns its data.
+    ///
+    /// If true, [`into_owned`](Self::into_owned) will not copy.
+    pub fn is_owned(&self) -> bool {
+        matches!(self.data, CowData::Owned(_))
+    }
+
     /// Convert this copy-on-write tensor into an owned tensor.
     ///
     /// This is cheap if the data is already owned or requires a copy otherwise.

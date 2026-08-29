@@ -931,6 +931,13 @@ fn test_into_dyn() {
 }
 
 #[test]
+fn test_is_owned() {
+    let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+    assert!(!tensor.as_cow().is_owned());
+    assert!(tensor.into_cow().is_owned());
+}
+
+#[test]
 fn test_into_owned() {
     // Borrowed data is copied into an owned tensor.
     let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
