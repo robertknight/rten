@@ -1,6 +1,6 @@
 [package]
 name = "rten-serialize"
-version = "0.25.0"
+version = "0.26.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Tensor serialization and deserialization library"
@@ -19,8 +19,8 @@ npz-compression = ["npz", "zip/deflate"]
 safetensors = ["dep:safetensors"]
 
 [dependencies]
-rten-base = { path = "../rten-base", version = "0.25.0" }
-rten-tensor = { path = "../rten-tensor", version = "0.25.0" }
+rten-base = { path = "../rten-base", version = "0.26.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.26.0" }
 
 # We disable default features in these crates to reduce dependencies and build
 # times.

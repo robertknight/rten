@@ -491,7 +491,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "rten"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "fastrand",
  "fastrand-contrib",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "rten-base"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rten-testing",
 ]
@@ -532,7 +532,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rten-cli"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "argh",
  "fastrand",
@@ -567,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "rten-gemm"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rayon",
  "rten-base",
@@ -580,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "rten-generate"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "fastrand",
  "rten",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "rten-imageio"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "image",
  "png",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "rten-imageproc"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rten-bench",
  "rten-tensor",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "rten-model-file"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "flatbuffers",
  "rten-base",
@@ -624,11 +624,11 @@ dependencies = [
 
 [[package]]
 name = "rten-onnx"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "rten-parallel"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rayon",
  "rten-base",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "rten-serialize"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rten-base",
  "rten-tensor",
@@ -646,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "rten-shape-inference"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rten-tensor",
  "rten-testing",
@@ -655,11 +655,11 @@ dependencies = [
 
 [[package]]
 name = "rten-simd"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "rten-tensor"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "rayon",
  "rten-base",
@@ -678,7 +678,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rten-text"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "fancy-regex",
  "rten-base",
@@ -693,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "rten-vecmath"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "fastrand",
  "libm",
