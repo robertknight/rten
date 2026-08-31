@@ -340,6 +340,7 @@ pub mod op_types {
     declare_op!(ReverseSequence);
     declare_op!(RotaryEmbedding);
     declare_op!(Round);
+    declare_op!(Scan);
     declare_op!(Scatter);
     declare_op!(ScatterElements);
     declare_op!(ScatterND);

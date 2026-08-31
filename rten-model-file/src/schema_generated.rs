@@ -11,13 +11,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 144;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 145;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 145] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 146] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -163,6 +163,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 145] = [
     OperatorType::LpNormalization,
     OperatorType::ReduceLogSum,
     OperatorType::ReduceLogSumExp,
+    OperatorType::Scan,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -315,9 +316,10 @@ impl OperatorType {
     pub const LpNormalization: Self = Self(142);
     pub const ReduceLogSum: Self = Self(143);
     pub const ReduceLogSumExp: Self = Self(144);
+    pub const Scan: Self = Self(145);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 144;
+    pub const ENUM_MAX: u8 = 145;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -464,6 +466,7 @@ impl OperatorType {
         Self::LpNormalization,
         Self::ReduceLogSum,
         Self::ReduceLogSumExp,
+        Self::Scan,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -613,6 +616,7 @@ impl OperatorType {
             Self::LpNormalization => Some("LpNormalization"),
             Self::ReduceLogSum => Some("ReduceLogSum"),
             Self::ReduceLogSumExp => Some("ReduceLogSumExp"),
+            Self::Scan => Some("Scan"),
             _ => None,
         }
     }
@@ -1248,13 +1252,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 62;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 63;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 63] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 64] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1318,6 +1322,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 63] = [
     OperatorAttrs::AttentionAttrs,
     OperatorAttrs::CumSumAttrs,
     OperatorAttrs::LpNormalizationAttrs,
+    OperatorAttrs::ScanAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1388,9 +1393,10 @@ impl OperatorAttrs {
     pub const AttentionAttrs: Self = Self(60);
     pub const CumSumAttrs: Self = Self(61);
     pub const LpNormalizationAttrs: Self = Self(62);
+    pub const ScanAttrs: Self = Self(63);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 62;
+    pub const ENUM_MAX: u8 = 63;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1455,6 +1461,7 @@ impl OperatorAttrs {
         Self::AttentionAttrs,
         Self::CumSumAttrs,
         Self::LpNormalizationAttrs,
+        Self::ScanAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1522,6 +1529,7 @@ impl OperatorAttrs {
             Self::AttentionAttrs => Some("AttentionAttrs"),
             Self::CumSumAttrs => Some("CumSumAttrs"),
             Self::LpNormalizationAttrs => Some("LpNormalizationAttrs"),
+            Self::ScanAttrs => Some("ScanAttrs"),
             _ => None,
         }
     }
@@ -1760,6 +1768,95 @@ impl<'a> ::flatbuffers::Verifiable for Scalar {
 impl ::flatbuffers::SimpleToVerifyInSlice for Scalar {}
 pub struct ScalarUnionTableOffset {}
 
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_SCAN_DIRECTION: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_SCAN_DIRECTION: u8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SCAN_DIRECTION: [ScanDirection; 2] =
+    [ScanDirection::Forward, ScanDirection::Reverse];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ScanDirection(pub u8);
+#[allow(non_upper_case_globals)]
+impl ScanDirection {
+    pub const Forward: Self = Self(0);
+    pub const Reverse: Self = Self(1);
+
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Forward, Self::Reverse];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Forward => Some("Forward"),
+            Self::Reverse => Some("Reverse"),
+            _ => None,
+        }
+    }
+}
+impl ::core::fmt::Debug for ScanDirection {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> ::flatbuffers::Follow<'a> for ScanDirection {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+        Self(b)
+    }
+}
+
+impl ::flatbuffers::Push for ScanDirection {
+    type Output = ScanDirection;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for ScanDirection {
+    type Scalar = u8;
+    #[inline]
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for ScanDirection {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        u8::run_verifier(v, pos)
+    }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for ScanDirection {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -5657,6 +5754,265 @@ impl ::core::fmt::Debug for LoopAttrs<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         let mut ds = f.debug_struct("LoopAttrs");
         ds.field("body", &self.body());
+        ds.finish()
+    }
+}
+pub enum ScanAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ScanAttrs<'a> {
+    pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ScanAttrs<'a> {
+    type Inner = ScanAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: unsafe { ::flatbuffers::Table::new(buf, loc) },
+        }
+    }
+}
+
+impl<'a> ScanAttrs<'a> {
+    pub const VT_BODY: ::flatbuffers::VOffsetT = 4;
+    pub const VT_NUM_SCAN_INPUTS: ::flatbuffers::VOffsetT = 6;
+    pub const VT_SCAN_INPUT_AXES: ::flatbuffers::VOffsetT = 8;
+    pub const VT_SCAN_INPUT_DIRECTIONS: ::flatbuffers::VOffsetT = 10;
+    pub const VT_SCAN_OUTPUT_AXES: ::flatbuffers::VOffsetT = 12;
+    pub const VT_SCAN_OUTPUT_DIRECTIONS: ::flatbuffers::VOffsetT = 14;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+        ScanAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<
+        'bldr: 'args,
+        'args: 'mut_bldr,
+        'mut_bldr,
+        A: ::flatbuffers::Allocator + 'bldr,
+    >(
+        _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args ScanAttrsArgs<'args>,
+    ) -> ::flatbuffers::WIPOffset<ScanAttrs<'bldr>> {
+        let mut builder = ScanAttrsBuilder::new(_fbb);
+        if let Some(x) = args.scan_output_directions {
+            builder.add_scan_output_directions(x);
+        }
+        if let Some(x) = args.scan_output_axes {
+            builder.add_scan_output_axes(x);
+        }
+        if let Some(x) = args.scan_input_directions {
+            builder.add_scan_input_directions(x);
+        }
+        if let Some(x) = args.scan_input_axes {
+            builder.add_scan_input_axes(x);
+        }
+        builder.add_num_scan_inputs(args.num_scan_inputs);
+        if let Some(x) = args.body {
+            builder.add_body(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn body(&self) -> Option<Graph<'a>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<::flatbuffers::ForwardsUOffset<Graph>>(ScanAttrs::VT_BODY, None)
+        }
+    }
+    #[inline]
+    pub fn num_scan_inputs(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(ScanAttrs::VT_NUM_SCAN_INPUTS, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn scan_input_axes(&self) -> Option<::flatbuffers::Vector<'a, i32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, i32>>>(
+                    ScanAttrs::VT_SCAN_INPUT_AXES,
+                    None,
+                )
+        }
+    }
+    #[inline]
+    pub fn scan_input_directions(&self) -> Option<::flatbuffers::Vector<'a, ScanDirection>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ScanDirection>>>(
+                    ScanAttrs::VT_SCAN_INPUT_DIRECTIONS,
+                    None,
+                )
+        }
+    }
+    #[inline]
+    pub fn scan_output_axes(&self) -> Option<::flatbuffers::Vector<'a, i32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, i32>>>(
+                    ScanAttrs::VT_SCAN_OUTPUT_AXES,
+                    None,
+                )
+        }
+    }
+    #[inline]
+    pub fn scan_output_directions(&self) -> Option<::flatbuffers::Vector<'a, ScanDirection>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ScanDirection>>>(
+                    ScanAttrs::VT_SCAN_OUTPUT_DIRECTIONS,
+                    None,
+                )
+        }
+    }
+}
+
+impl ::flatbuffers::Verifiable for ScanAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut ::flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+        v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<Graph>>("body", Self::VT_BODY, false)?
+     .visit_field::<u32>("num_scan_inputs", Self::VT_NUM_SCAN_INPUTS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, i32>>>("scan_input_axes", Self::VT_SCAN_INPUT_AXES, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ScanDirection>>>("scan_input_directions", Self::VT_SCAN_INPUT_DIRECTIONS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, i32>>>("scan_output_axes", Self::VT_SCAN_OUTPUT_AXES, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ScanDirection>>>("scan_output_directions", Self::VT_SCAN_OUTPUT_DIRECTIONS, false)?
+     .finish();
+        Ok(())
+    }
+}
+pub struct ScanAttrsArgs<'a> {
+    pub body: Option<::flatbuffers::WIPOffset<Graph<'a>>>,
+    pub num_scan_inputs: u32,
+    pub scan_input_axes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, i32>>>,
+    pub scan_input_directions:
+        Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ScanDirection>>>,
+    pub scan_output_axes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, i32>>>,
+    pub scan_output_directions:
+        Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ScanDirection>>>,
+}
+impl<'a> Default for ScanAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        ScanAttrsArgs {
+            body: None,
+            num_scan_inputs: 0,
+            scan_input_axes: None,
+            scan_input_directions: None,
+            scan_output_axes: None,
+            scan_output_directions: None,
+        }
+    }
+}
+
+pub struct ScanAttrsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ScanAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_body(&mut self, body: ::flatbuffers::WIPOffset<Graph<'b>>) {
+        self.fbb_
+            .push_slot_always::<::flatbuffers::WIPOffset<Graph>>(ScanAttrs::VT_BODY, body);
+    }
+    #[inline]
+    pub fn add_num_scan_inputs(&mut self, num_scan_inputs: u32) {
+        self.fbb_
+            .push_slot::<u32>(ScanAttrs::VT_NUM_SCAN_INPUTS, num_scan_inputs, 0);
+    }
+    #[inline]
+    pub fn add_scan_input_axes(
+        &mut self,
+        scan_input_axes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, i32>>,
+    ) {
+        self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(
+            ScanAttrs::VT_SCAN_INPUT_AXES,
+            scan_input_axes,
+        );
+    }
+    #[inline]
+    pub fn add_scan_input_directions(
+        &mut self,
+        scan_input_directions: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, ScanDirection>>,
+    ) {
+        self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(
+            ScanAttrs::VT_SCAN_INPUT_DIRECTIONS,
+            scan_input_directions,
+        );
+    }
+    #[inline]
+    pub fn add_scan_output_axes(
+        &mut self,
+        scan_output_axes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, i32>>,
+    ) {
+        self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(
+            ScanAttrs::VT_SCAN_OUTPUT_AXES,
+            scan_output_axes,
+        );
+    }
+    #[inline]
+    pub fn add_scan_output_directions(
+        &mut self,
+        scan_output_directions: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b, ScanDirection>>,
+    ) {
+        self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(
+            ScanAttrs::VT_SCAN_OUTPUT_DIRECTIONS,
+            scan_output_directions,
+        );
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> ScanAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        ScanAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> ::flatbuffers::WIPOffset<ScanAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        ::flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl ::core::fmt::Debug for ScanAttrs<'_> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let mut ds = f.debug_struct("ScanAttrs");
+        ds.field("body", &self.body());
+        ds.field("num_scan_inputs", &self.num_scan_inputs());
+        ds.field("scan_input_axes", &self.scan_input_axes());
+        ds.field("scan_input_directions", &self.scan_input_directions());
+        ds.field("scan_output_axes", &self.scan_output_axes());
+        ds.field("scan_output_directions", &self.scan_output_directions());
         ds.finish()
     }
 }
@@ -12076,6 +12432,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_scan_attrs(&self) -> Option<ScanAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ScanAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ScanAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl ::flatbuffers::Verifiable for OperatorNode<'_> {
@@ -12150,6 +12521,7 @@ impl ::flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::AttentionAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<AttentionAttrs>>("OperatorAttrs::AttentionAttrs", pos),
           OperatorAttrs::CumSumAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CumSumAttrs>>("OperatorAttrs::CumSumAttrs", pos),
           OperatorAttrs::LpNormalizationAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<LpNormalizationAttrs>>("OperatorAttrs::LpNormalizationAttrs", pos),
+          OperatorAttrs::ScanAttrs => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ScanAttrs>>("OperatorAttrs::ScanAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -12850,6 +13222,16 @@ impl ::core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::LpNormalizationAttrs => {
                 if let Some(x) = self.attrs_as_lp_normalization_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ScanAttrs => {
+                if let Some(x) = self.attrs_as_scan_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

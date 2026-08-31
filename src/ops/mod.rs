@@ -76,7 +76,7 @@ pub(crate) use {
     },
     compute_shape::{ComputeShape, SymbolInfo},
     concat::{Concat, Tile},
-    control_flow::{If, Loop},
+    control_flow::{If, Loop, Scan, ScanDirection},
     conv::{Conv, ConvInteger, ConvIntegerToFloat},
     conv_transpose::ConvTranspose,
     convert::{Cast, CastLike},

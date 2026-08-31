@@ -158,6 +158,7 @@ enum OperatorType: ubyte {
   LpNormalization,
   ReduceLogSum,
   ReduceLogSumExp,
+  Scan,
 }
 
 enum RNNDirection: ubyte {
@@ -272,6 +273,7 @@ union OperatorAttrs {
   AttentionAttrs,
   CumSumAttrs,
   LpNormalizationAttrs,
+  ScanAttrs,
 }
 
 table ArgMaxAttrs {
@@ -412,6 +414,28 @@ table LpNormalizationAttrs {
 
 table LoopAttrs {
   body:Graph;
+}
+
+// Direction in which a `Scan` operator reads a scan input or builds a scan
+// output.
+enum ScanDirection: ubyte {
+  Forward,
+  Reverse,
+}
+
+table ScanAttrs {
+  body:Graph;
+
+  // Number of trailing inputs which are scanned over. The remaining leading
+  // inputs are the initial values of the loop-carried state variables.
+  num_scan_inputs:uint;
+
+  // Per-input and per-output settings. Each is either empty, meaning the
+  // default applies to every entry, or has one entry per scan input or output.
+  scan_input_axes:[int];
+  scan_input_directions:[ScanDirection];
+  scan_output_axes:[int];
+  scan_output_directions:[ScanDirection];
 }
 
 table GatherAttrs {
