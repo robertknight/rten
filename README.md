@@ -124,7 +124,7 @@ classes is available in `dist/rten.d.ts`.
 To build RTen for WebAssembly you will need:
 
 - A recent stable version of Rust
-- `make`
+- [`just`](https://github.com/casey/just)
 - (Optional) The `wasm-opt` tool from [Binaryen](https://github.com/WebAssembly/binaryen)
   can be used to optimize `.wasm` binaries for improved performance
 - (Optional) A recent version of Node for running demos
@@ -134,13 +134,13 @@ To build RTen for WebAssembly you will need:
 ```sh
 git clone https://github.com/robertknight/rten.git
 cd rten
-make wasm
+just wasm
 ```
 
-The build created by `make wasm` requires support for WebAssembly SIMD,
+The build created by `just wasm` requires support for WebAssembly SIMD,
 available since Chrome 91, Firefox 89 and Safari 16.4. It is possible to
-build the library without WebAssembly SIMD support using `make wasm-nosimd`,
-or both using `make wasm-all`. The non-SIMD builds are significantly slower.
+build the library without WebAssembly SIMD support using `just wasm-nosimd`,
+or both using `just wasm-all`. The non-SIMD builds are significantly slower.
 
 At runtime, you can find out which build is supported by calling the
 `binaryName()` function exported by this package.

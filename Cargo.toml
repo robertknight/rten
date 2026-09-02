@@ -127,7 +127,7 @@ too_many_arguments = "allow"
 uninlined_format_args = "allow"
 
 [package.metadata.docs.rs]
-# These features should match the features enabled by `make docs`.
+# These features should match the features enabled by `just docs`.
 features = [
   "fft",
   "mmap",

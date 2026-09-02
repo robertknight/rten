@@ -24,7 +24,7 @@ In detail, the process is:
    add the table to the end of the `OperatorAttrs` union. Some existing
    operators share attributes tables. For new operators however it is
    recommended to use a separate type per operator.
-6. Run `make schema` to generate updated Rust and Python code to read the
+6. Run `just schema` to generate updated Rust and Python code to read the
    updated FlatBuffers schema
 7. If the new operator has attributes, edit
    `rten-convert/rten_convert/converter.py` and modify
