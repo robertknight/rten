@@ -150,34 +150,40 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
-            self.isa,
-            dest_ptr,
-            dest_row_stride,
-            a,
-            b,
-            depth,
-            alpha,
-            dest_beta,
-        );
+        let gemm = unsafe {
+            GemmDispatch::<_, MR, NR_REGS>::new(
+                self.isa,
+                dest_ptr,
+                dest_row_stride,
+                a,
+                b,
+                depth,
+                alpha,
+                dest_beta,
+            )
+        };
 
         debug_assert_eq!(MR, 4);
-        match used_rows {
-            4 => gemm.dispatch_broadcast_lane::<4>(),
-            3 => gemm.dispatch_broadcast_lane::<3>(),
-            2 => gemm.dispatch_broadcast_lane::<2>(),
-            1 => gemm.dispatch_broadcast_lane::<1>(),
-            _ => panic!("unsupported `used_rows` {}", used_rows),
+        unsafe {
+            match used_rows {
+                4 => gemm.dispatch_broadcast_lane::<4>(),
+                3 => gemm.dispatch_broadcast_lane::<3>(),
+                2 => gemm.dispatch_broadcast_lane::<2>(),
+                1 => gemm.dispatch_broadcast_lane::<1>(),
+                _ => panic!("unsupported `used_rows` {}", used_rows),
+            }
         }
 
         if used_cols != NR {
-            tmp_tile.accumulate_into(
-                tile_ptr as *mut MaybeUninit<f32>,
-                used_rows,
-                used_cols,
-                tile_row_stride,
-                beta,
-            );
+            unsafe {
+                tmp_tile.accumulate_into(
+                    tile_ptr as *mut MaybeUninit<f32>,
+                    used_rows,
+                    used_cols,
+                    tile_row_stride,
+                    beta,
+                );
+            }
         }
     }
 
@@ -331,22 +337,24 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         let (b_data, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = ArmInt8DotKernel::NR / X32_LANES;
-        simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
-            self.isa,
-            tile_ptr,
-            tile_row_stride,
-            a_data,
-            b_data,
-            used_rows,
-            used_cols,
-            depth,
-            beta != 0, // accumulate
-            a_meta.zero_points,
-            b_meta.zero_points,
-            &a_meta.row_sums,
-            &b_meta.col_sums,
-            self.dot_isa,
-        )
+        unsafe {
+            simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
+                self.isa,
+                tile_ptr,
+                tile_row_stride,
+                a_data,
+                b_data,
+                used_rows,
+                used_cols,
+                depth,
+                beta != 0, // accumulate
+                a_meta.zero_points,
+                b_meta.zero_points,
+                &a_meta.row_sums,
+                &b_meta.col_sums,
+                self.dot_isa,
+            )
+        }
     }
 
     fn gemv_kernel(
@@ -521,8 +529,9 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
         // Compute `tmp[row][0..2] += a[row] * b` where `a` and `b` are `uint16x8_t`s.
         macro_rules! compute_row {
             ($row:literal, $a:ident, $b:ident) => {
-                tmp[$row][0] = vmlal_laneq_u16::<$row>(tmp[$row][0], vget_low_u16($b), $a);
-                tmp[$row][1] = vmlal_high_laneq_u16::<$row>(tmp[$row][1], $b, $a);
+                tmp[$row][0] =
+                    unsafe { vmlal_laneq_u16::<$row>(tmp[$row][0], vget_low_u16($b), $a) };
+                tmp[$row][1] = unsafe { vmlal_high_laneq_u16::<$row>(tmp[$row][1], $b, $a) };
             };
         }
 
@@ -534,11 +543,11 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
         let depth_remainder = depth % 2;
 
         for k_block in 0..depth_blocks {
-            let a_vec = u8_ops.load_ptr(a_data.as_ptr().add(k_block * u8_ops.len()));
+            let a_vec = unsafe { u8_ops.load_ptr(a_data.as_ptr().add(k_block * u8_ops.len())) };
             let a_lo = u8_ops.extend_low(a_vec);
             let a_hi = u8_ops.extend_high(a_vec);
 
-            let b_vec = u8_ops.load_ptr(b.as_ptr().add(k_block * u8_ops.len()));
+            let b_vec = unsafe { u8_ops.load_ptr(b.as_ptr().add(k_block * u8_ops.len())) };
             let b_lo = u8_ops.extend_low(b_vec);
             let b_hi = u8_ops.extend_high(b_vec);
 
@@ -569,24 +578,24 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
         if depth_remainder != 0 {
             let a_buf: [u8; 16] = std::array::from_fn(|i| {
                 if i < MR {
-                    *a_data.as_ptr().add(depth_blocks * u8_ops.len() + i)
+                    unsafe { *a_data.as_ptr().add(depth_blocks * u8_ops.len() + i) }
                 } else {
                     0
                 }
             });
             let b_buf: [u8; 16] = std::array::from_fn(|i| {
                 if i < NR {
-                    *b.as_ptr().add(depth_blocks * u8_ops.len() + i)
+                    unsafe { *b.as_ptr().add(depth_blocks * u8_ops.len() + i) }
                 } else {
                     0
                 }
             });
 
-            let a_vec = u8_ops.load_ptr(a_buf.as_ptr());
+            let a_vec = unsafe { u8_ops.load_ptr(a_buf.as_ptr()) };
             let a_lo = u8_ops.extend_low(a_vec);
             let _a_hi = u8_ops.extend_high(a_vec);
 
-            let b_vec = u8_ops.load_ptr(b_buf.as_ptr());
+            let b_vec = unsafe { u8_ops.load_ptr(b_buf.as_ptr()) };
             let b_lo = u8_ops.extend_low(b_vec);
             let _b_hi = u8_ops.extend_high(b_vec);
 
@@ -602,24 +611,26 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
 
         // Cast accumulator from U32 to I32
         let tmp: [[I32; NR_REGS]; MR] =
-            std::mem::transmute::<[[U32; NR_REGS]; MR], [[I32; NR_REGS]; MR]>(tmp);
+            unsafe { std::mem::transmute::<[[U32; NR_REGS]; MR], [[I32; NR_REGS]; MR]>(tmp) };
 
         // Adjust accumulators to account for zero points and write to output
         // tile.
-        simd_int8_gemm_epilogue(
-            self.isa,
-            tile_ptr,
-            tile_row_stride,
-            used_rows,
-            used_cols,
-            depth,
-            accumulate,
-            a_meta.zero_points,
-            a_meta.row_sums,
-            b_meta.zero_points,
-            b_meta.col_sums,
-            tmp,
-        );
+        unsafe {
+            simd_int8_gemm_epilogue(
+                self.isa,
+                tile_ptr,
+                tile_row_stride,
+                used_rows,
+                used_cols,
+                depth,
+                accumulate,
+                a_meta.zero_points,
+                a_meta.row_sums,
+                b_meta.zero_points,
+                b_meta.col_sums,
+                tmp,
+            );
+        }
     }
 
     fn gemv_kernel(
@@ -687,12 +698,14 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
 
             // Use inline asm here because the `vdotq_u32` intrinsic is not
             // stabilized yet.
-            asm! {
-                "udot {result:v}.4s, {a:v}.16b, {b:v}.16b",
-                result = inout(vreg) c,
-                a = in(vreg) a,
-                b = in(vreg) b,
-                options(nostack)
+            unsafe {
+                asm! {
+                    "udot {result:v}.4s, {a:v}.16b, {b:v}.16b",
+                    result = inout(vreg) c,
+                    a = in(vreg) a,
+                    b = in(vreg) b,
+                    options(nostack)
+                }
             }
 
             vreinterpretq_s32_u32(c)
@@ -725,13 +738,15 @@ unsafe impl Int8DotProduct for NeonNativeDotProd {
 
             // Use inline asm here because the `vdotq_laneq_u32` intrinsic is not
             // stabilized yet.
-            asm! {
-                "udot {result:v}.4s, {a:v}.16b, {b:v}.4B[{idx}]",
-                result = inout(vreg) c,
-                a = in(vreg) a,
-                b = in(vreg) b,
-                idx = const IDX,
-                options(nostack)
+            unsafe {
+                asm! {
+                    "udot {result:v}.4s, {a:v}.16b, {b:v}.4B[{idx}]",
+                    result = inout(vreg) c,
+                    a = in(vreg) a,
+                    b = in(vreg) b,
+                    idx = const IDX,
+                    options(nostack)
+                }
             }
 
             vreinterpretq_s32_u32(c)
@@ -965,10 +980,10 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
         // B and performs ROW_TILES * COL_TILES mini matmuls (2x8 @ 8x2 => 2x2),
         // collectively updating an MR x NR x i32 output tile in registers.
         for k_block in 0..n_depth_tiles {
-            let col_tiles: [U8; COL_TILES] = std::array::from_fn(|c| {
+            let col_tiles: [U8; COL_TILES] = std::array::from_fn(|c| unsafe {
                 u8_ops.load_ptr(b_ptr.add(k_block * b_tile_size + c * u8_ops.len()))
             });
-            let row_tiles: [U8; ROW_TILES] = std::array::from_fn(|r| {
+            let row_tiles: [U8; ROW_TILES] = std::array::from_fn(|r| unsafe {
                 u8_ops.load_ptr(a_ptr.add(k_block * a_tile_size + r * u8_ops.len()))
             });
 
@@ -976,12 +991,14 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
                 for c in 0..COL_TILES {
                     // Use inline asm here because the `vmmlaq_u32` intrinsic is
                     // not stabilized yet.
-                    core::arch::asm! {
-                        "ummla {result:v}.4s, {a:v}.16b, {b:v}.16b",
-                        result = inout(vreg) tmp[r][c],
-                        a = in(vreg) row_tiles[r],
-                        b = in(vreg) col_tiles[c],
-                        options(nostack)
+                    unsafe {
+                        core::arch::asm! {
+                            "ummla {result:v}.4s, {a:v}.16b, {b:v}.16b",
+                            result = inout(vreg) tmp[r][c],
+                            a = in(vreg) row_tiles[r],
+                            b = in(vreg) col_tiles[c],
+                            options(nostack)
+                        }
                     }
                 }
             }
@@ -1015,20 +1032,22 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
             })
         });
 
-        simd_int8_gemm_epilogue(
-            self.dot_kernel.isa,
-            tile_ptr,
-            tile_row_stride,
-            used_rows,
-            used_cols,
-            depth,
-            accumulate,
-            a_meta.zero_points,
-            a_meta.row_sums,
-            b_meta.zero_points,
-            b_meta.col_sums,
-            tmp,
-        );
+        unsafe {
+            simd_int8_gemm_epilogue(
+                self.dot_kernel.isa,
+                tile_ptr,
+                tile_row_stride,
+                used_rows,
+                used_cols,
+                depth,
+                accumulate,
+                a_meta.zero_points,
+                a_meta.row_sums,
+                b_meta.zero_points,
+                b_meta.col_sums,
+                tmp,
+            );
+        }
     }
 
     fn gemv_kernel(

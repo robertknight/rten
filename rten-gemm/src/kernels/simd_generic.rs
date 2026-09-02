@@ -235,16 +235,18 @@ impl<'a, I: Isa, const MR: usize, const NR_REGS: usize> GemmDispatch<'a, I, MR, 
     /// Run the kernel to update an output tile with `ROWS` rows.
     #[inline(always)]
     pub unsafe fn dispatch<const ROWS: usize>(&self) {
-        simd_gemm::<I, MR, NR_REGS, ROWS>(
-            self.isa,
-            self.tile_ptr,
-            self.tile_row_stride,
-            self.a,
-            self.b,
-            self.depth,
-            self.alpha,
-            self.beta,
-        )
+        unsafe {
+            simd_gemm::<I, MR, NR_REGS, ROWS>(
+                self.isa,
+                self.tile_ptr,
+                self.tile_row_stride,
+                self.a,
+                self.b,
+                self.depth,
+                self.alpha,
+                self.beta,
+            )
+        }
     }
 
     /// Run the kernel to update an output tile with `ROWS` rows.
@@ -255,16 +257,18 @@ impl<'a, I: Isa, const MR: usize, const NR_REGS: usize> GemmDispatch<'a, I, MR, 
     #[cfg(target_arch = "aarch64")]
     #[inline(always)]
     pub unsafe fn dispatch_broadcast_lane<const ROWS: usize>(&self) {
-        simd_gemm_broadcast_lane::<I, MR, NR_REGS, ROWS>(
-            self.isa,
-            self.tile_ptr,
-            self.tile_row_stride,
-            self.a,
-            self.b,
-            self.depth,
-            self.alpha,
-            self.beta,
-        )
+        unsafe {
+            simd_gemm_broadcast_lane::<I, MR, NR_REGS, ROWS>(
+                self.isa,
+                self.tile_ptr,
+                self.tile_row_stride,
+                self.a,
+                self.b,
+                self.depth,
+                self.alpha,
+                self.beta,
+            )
+        }
     }
 }
 
@@ -327,14 +331,14 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
         let b_off = k * NR_REGS * ops.len();
 
         // Prefetch B for the next iteration
-        ops.prefetch(b_ptr.add((k + 1) * NR_REGS * ops.len()));
+        ops.prefetch(unsafe { b_ptr.add((k + 1) * NR_REGS * ops.len()) });
 
         for i in 0..NR_REGS {
-            b_rows[i] = ops.load_ptr(b_ptr.add(b_off + i * ops.len()));
+            b_rows[i] = unsafe { ops.load_ptr(b_ptr.add(b_off + i * ops.len())) };
         }
 
         for i in 0..ROWS {
-            let a_val = *a_ptr.add(i * a_row_stride + k);
+            let a_val = unsafe { *a_ptr.add(i * a_row_stride + k) };
             let a_broadcast = ops.splat(a_val);
 
             for j in 0..NR_REGS {
@@ -345,7 +349,7 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
 
     // Prefetch output before the final computation loop
     for i in 0..ROWS {
-        ops.prefetch_write(tile_ptr.add(tile_row_stride * i));
+        ops.prefetch_write(unsafe { tile_ptr.add(tile_row_stride * i) });
     }
 
     // Perform final outer product update.
@@ -353,11 +357,11 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
     let b_off = k * NR_REGS * ops.len();
 
     for i in 0..NR_REGS {
-        b_rows[i] = ops.load_ptr(b_ptr.add(b_off + i * ops.len()));
+        b_rows[i] = unsafe { ops.load_ptr(b_ptr.add(b_off + i * ops.len())) };
     }
 
     for i in 0..ROWS {
-        let a_val = *a_ptr.add(i * a_row_stride + k);
+        let a_val = unsafe { *a_ptr.add(i * a_row_stride + k) };
         let a_broadcast = ops.splat(a_val);
 
         for j in 0..NR_REGS {
@@ -365,7 +369,7 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
         }
     }
 
-    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * ops.len());
+    let get_out_ptr = |i, j| unsafe { tile_ptr.add(tile_row_stride * i + j * ops.len()) };
 
     // Write to output tile.
     //
@@ -377,15 +381,15 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
         for i in 0..ROWS {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
-                ops.store_ptr(tmp[i][j], out_ptr);
+                unsafe { ops.store_ptr(tmp[i][j], out_ptr) };
             }
         }
     } else if beta == 1. && alpha == 1. {
         for i in 0..ROWS {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
-                let out_val = ops.add(ops.load_ptr(out_ptr), tmp[i][j]);
-                ops.store_ptr(out_val, out_ptr);
+                let out_val = ops.add(unsafe { ops.load_ptr(out_ptr) }, tmp[i][j]);
+                unsafe { ops.store_ptr(out_val, out_ptr) };
             }
         }
     } else if beta == 0. {
@@ -395,7 +399,7 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
                 let out_val = ops.mul(tmp[i][j], alpha_broadcast);
-                ops.store_ptr(out_val, out_ptr);
+                unsafe { ops.store_ptr(out_val, out_ptr) };
             }
         }
     } else {
@@ -405,9 +409,9 @@ pub unsafe fn simd_gemm<I: Isa, const MR: usize, const NR_REGS: usize, const ROW
         for i in 0..ROWS {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
-                let out_val = ops.mul(ops.load_ptr(out_ptr), beta_broadcast);
+                let out_val = ops.mul(unsafe { ops.load_ptr(out_ptr) }, beta_broadcast);
                 let out_val = ops.mul_add(tmp[i][j], alpha_broadcast, out_val);
-                ops.store_ptr(out_val, out_ptr);
+                unsafe { ops.store_ptr(out_val, out_ptr) };
             }
         }
     }
@@ -476,7 +480,7 @@ pub unsafe fn simd_gemm_broadcast_lane<
         ($k_base:ident, $k_offset:literal) => {
             let b_off = ($k_base + $k_offset) * NR_REGS * v_len;
             for i in 0..NR_REGS {
-                b_rows[i] = ops.load_ptr(b_ptr.add(b_off + i * v_len));
+                b_rows[i] = unsafe { ops.load_ptr(b_ptr.add(b_off + i * v_len)) };
             }
             for i in 0..ROWS {
                 // On Arm, the `broadcast_lane` and `mul_add` operations can be
@@ -494,7 +498,7 @@ pub unsafe fn simd_gemm_broadcast_lane<
     let mut k_base = 0;
     while depth - k_base >= VEC_LEN {
         for i in 0..ROWS {
-            a_tiles[i] = ops.load_ptr(a_ptr.add(i * a_row_stride + k_base));
+            a_tiles[i] = unsafe { ops.load_ptr(a_ptr.add(i * a_row_stride + k_base)) };
         }
         k_step!(k_base, 0);
         k_step!(k_base, 1);
@@ -504,14 +508,14 @@ pub unsafe fn simd_gemm_broadcast_lane<
     }
     while k_base < depth {
         for i in 0..ROWS {
-            let a_val = *a_ptr.add(i * a_row_stride + k_base);
+            let a_val = unsafe { *a_ptr.add(i * a_row_stride + k_base) };
             a_tiles[i] = ops.splat(a_val);
         }
         k_step!(k_base, 0);
         k_base += 1;
     }
 
-    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * ops.len());
+    let get_out_ptr = |i, j| unsafe { tile_ptr.add(tile_row_stride * i + j * ops.len()) };
 
     // Write to output tile.
     //
@@ -523,15 +527,15 @@ pub unsafe fn simd_gemm_broadcast_lane<
         for i in 0..ROWS {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
-                ops.store_ptr(tmp[i][j], out_ptr);
+                unsafe { ops.store_ptr(tmp[i][j], out_ptr) };
             }
         }
     } else if beta == 1. && alpha == 1. {
         for i in 0..ROWS {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
-                let out_val = ops.add(ops.load_ptr(out_ptr), tmp[i][j]);
-                ops.store_ptr(out_val, out_ptr);
+                let out_val = ops.add(unsafe { ops.load_ptr(out_ptr) }, tmp[i][j]);
+                unsafe { ops.store_ptr(out_val, out_ptr) };
             }
         }
     } else if beta == 0. {
@@ -541,7 +545,7 @@ pub unsafe fn simd_gemm_broadcast_lane<
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
                 let out_val = ops.mul(tmp[i][j], alpha_broadcast);
-                ops.store_ptr(out_val, out_ptr);
+                unsafe { ops.store_ptr(out_val, out_ptr) };
             }
         }
     } else {
@@ -551,9 +555,9 @@ pub unsafe fn simd_gemm_broadcast_lane<
         for i in 0..ROWS {
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
-                let out_val = ops.mul(ops.load_ptr(out_ptr), beta_broadcast);
+                let out_val = ops.mul(unsafe { ops.load_ptr(out_ptr) }, beta_broadcast);
                 let out_val = ops.mul_add(tmp[i][j], alpha_broadcast, out_val);
-                ops.store_ptr(out_val, out_ptr);
+                unsafe { ops.store_ptr(out_val, out_ptr) };
             }
         }
     }
@@ -612,7 +616,7 @@ pub unsafe fn simd_int8_gemm<I: Isa, D, const MR: usize, const NR: usize, const 
     let n_depth_tiles = depth.div_ceil(4);
     for k_block in 0..n_depth_tiles {
         // Load `[4, NR]` microtile from B
-        let b_vec: [I::I8; NR_REGS] = std::array::from_fn(|i| {
+        let b_vec: [I::I8; NR_REGS] = std::array::from_fn(|i| unsafe {
             i8_ops.load_ptr(b_ptr.add((k_block * NR + i * ops.len()) * 4) as *const i8)
         });
 
@@ -657,20 +661,22 @@ pub unsafe fn simd_int8_gemm<I: Isa, D, const MR: usize, const NR: usize, const 
 
     // Adjust accumulators to account for zero points and write results to
     // output tile.
-    simd_int8_gemm_epilogue(
-        isa,
-        tile_ptr,
-        tile_row_stride,
-        used_rows,
-        used_cols,
-        depth,
-        accumulate,
-        a_zero_points,
-        *a_row_sums,
-        b_zero_points,
-        *b_col_sums,
-        tmp,
-    );
+    unsafe {
+        simd_int8_gemm_epilogue(
+            isa,
+            tile_ptr,
+            tile_row_stride,
+            used_rows,
+            used_cols,
+            depth,
+            accumulate,
+            a_zero_points,
+            *a_row_sums,
+            b_zero_points,
+            *b_col_sums,
+            tmp,
+        );
+    }
 }
 
 /// Common epilogue for int8 GEMM kernels which adjusts the accumulators to
@@ -732,7 +738,7 @@ pub unsafe fn simd_int8_gemm_epilogue<
 
     // Scale zero points by row and column sums and subtract from output tile.
     let b_col_sums: [I::I32; NR_REGS] =
-        std::array::from_fn(|i| ops.load_ptr(b_col_sums.as_ptr().add(i * ops.len())));
+        std::array::from_fn(|i| unsafe { ops.load_ptr(b_col_sums.as_ptr().add(i * ops.len())) });
     for row in 0..MR {
         let a_zero = ops.splat(a_zero_points[row]);
         let a_sum = ops.splat(a_row_sums[row]);
@@ -747,7 +753,7 @@ pub unsafe fn simd_int8_gemm_epilogue<
 
     // Write from accumulator in registers back to output.
     let output_tile_ptr =
-        |row, col_block| tile_ptr.add(row * tile_row_stride + col_block * ops.len());
+        |row, col_block| unsafe { tile_ptr.add(row * tile_row_stride + col_block * ops.len()) };
 
     if used_rows == MR && used_cols == NR {
         // Full output tile
@@ -755,9 +761,10 @@ pub unsafe fn simd_int8_gemm_epilogue<
             for c_block in 0..NR_REGS {
                 let tile_ptr = output_tile_ptr(row, c_block);
                 if accumulate {
-                    tmp[row][c_block] = ops.add(ops.load_ptr(tile_ptr), tmp[row][c_block]);
+                    tmp[row][c_block] =
+                        ops.add(unsafe { ops.load_ptr(tile_ptr) }, tmp[row][c_block]);
                 }
-                ops.store_ptr(tmp[row][c_block], tile_ptr);
+                unsafe { ops.store_ptr(tmp[row][c_block], tile_ptr) };
             }
         }
     } else {
@@ -770,9 +777,9 @@ pub unsafe fn simd_int8_gemm_epilogue<
 
                 for c in 0..used_cols {
                     if accumulate {
-                        tmp[c] += *tile_ptr.add(c);
+                        tmp[c] += unsafe { *tile_ptr.add(c) };
                     }
-                    tile_ptr.add(c).write(tmp[c]);
+                    unsafe { tile_ptr.add(c).write(tmp[c]) };
                 }
             }
         }
@@ -1035,14 +1042,14 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
     let one_u8 = i8_ops.splat(1);
 
     for col in 0..b.cols() {
-        let b_ptr = b_ptr.add(col * b.col_stride());
+        let b_ptr = unsafe { b_ptr.add(col * b.col_stride()) };
         let mut acc = ops.zero();
         let mut col_sum = ops.zero();
         let mut k_tiles = range_chunks_exact(0..depth, i8_ops.len());
 
         for k_tile in k_tiles.by_ref() {
-            let a = i8_ops.load_ptr(a_ptr.add(k_tile.start) as *const i8);
-            let b = i8_ops.load_ptr(b_ptr.add(k_tile.start));
+            let a = unsafe { i8_ops.load_ptr(a_ptr.add(k_tile.start) as *const i8) };
+            let b = unsafe { i8_ops.load_ptr(b_ptr.add(k_tile.start)) };
             let b = if CAST_B_U8 {
                 i8_ops.xor(b, bit_flip_mask)
             } else {
@@ -1057,8 +1064,8 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
         let mut col_sum = ops.sum(col_sum);
 
         for k in k_tiles.remainder() {
-            let a = *a_ptr.add(k) as i32;
-            let b = *b_ptr.add(k) as i32;
+            let a = unsafe { *a_ptr.add(k) } as i32;
+            let b = unsafe { *b_ptr.add(k) } as i32;
             let b = if CAST_B_U8 { b + b_zero_shift } else { b };
             acc += a * b;
             col_sum += b;
@@ -1070,11 +1077,11 @@ unsafe fn simd_int8_gemv_transposed<I: Isa, const CAST_B_U8: bool>(
             .unwrap_or(b_zero_shift);
         let acc = (depth as i32 * a_zero * b_zero) + acc - row_sum * b_zero - col_sum * a_zero;
 
-        let out_ptr = out.data.get_unchecked_mut(col);
+        let out_ptr = unsafe { out.data.get_unchecked_mut(col) };
         if !out.beta {
             out_ptr.write(acc);
         } else {
-            out_ptr.write(out_ptr.assume_init() + acc);
+            out_ptr.write(unsafe { out_ptr.assume_init() } + acc);
         }
     }
 }
