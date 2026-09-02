@@ -198,35 +198,41 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
-            self.isa,
-            dest_ptr,
-            dest_row_stride,
-            a,
-            b,
-            depth,
-            alpha,
-            dest_beta,
-        );
+        let gemm = unsafe {
+            GemmDispatch::<_, MR, NR_REGS>::new(
+                self.isa,
+                dest_ptr,
+                dest_row_stride,
+                a,
+                b,
+                depth,
+                alpha,
+                dest_beta,
+            )
+        };
 
-        match used_rows {
-            6 => gemm.dispatch::<6>(),
-            5 => gemm.dispatch::<5>(),
-            4 => gemm.dispatch::<4>(),
-            3 => gemm.dispatch::<3>(),
-            2 => gemm.dispatch::<2>(),
-            1 => gemm.dispatch::<1>(),
-            _ => panic!("unsupported `used_rows` {}", used_rows),
+        unsafe {
+            match used_rows {
+                6 => gemm.dispatch::<6>(),
+                5 => gemm.dispatch::<5>(),
+                4 => gemm.dispatch::<4>(),
+                3 => gemm.dispatch::<3>(),
+                2 => gemm.dispatch::<2>(),
+                1 => gemm.dispatch::<1>(),
+                _ => panic!("unsupported `used_rows` {}", used_rows),
+            }
         }
 
         if used_cols != NR {
-            tmp_tile.accumulate_into(
-                tile_ptr as *mut MaybeUninit<f32>,
-                used_rows,
-                used_cols,
-                tile_row_stride,
-                beta,
-            );
+            unsafe {
+                tmp_tile.accumulate_into(
+                    tile_ptr as *mut MaybeUninit<f32>,
+                    used_rows,
+                    used_cols,
+                    tile_row_stride,
+                    beta,
+                );
+            }
         }
     }
 
@@ -413,35 +419,41 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
-            self.isa,
-            dest_ptr,
-            dest_row_stride,
-            a,
-            b,
-            depth,
-            alpha,
-            dest_beta,
-        );
+        let gemm = unsafe {
+            GemmDispatch::<_, MR, NR_REGS>::new(
+                self.isa,
+                dest_ptr,
+                dest_row_stride,
+                a,
+                b,
+                depth,
+                alpha,
+                dest_beta,
+            )
+        };
 
-        match used_rows {
-            6 => gemm.dispatch::<6>(),
-            5 => gemm.dispatch::<5>(),
-            4 => gemm.dispatch::<4>(),
-            3 => gemm.dispatch::<3>(),
-            2 => gemm.dispatch::<2>(),
-            1 => gemm.dispatch::<1>(),
-            _ => panic!("unsupported `used_rows` {}", used_rows),
+        unsafe {
+            match used_rows {
+                6 => gemm.dispatch::<6>(),
+                5 => gemm.dispatch::<5>(),
+                4 => gemm.dispatch::<4>(),
+                3 => gemm.dispatch::<3>(),
+                2 => gemm.dispatch::<2>(),
+                1 => gemm.dispatch::<1>(),
+                _ => panic!("unsupported `used_rows` {}", used_rows),
+            }
         }
 
         if used_cols != NR {
-            tmp_tile.accumulate_into(
-                tile_ptr as *mut MaybeUninit<f32>,
-                used_rows,
-                used_cols,
-                tile_row_stride,
-                beta,
-            );
+            unsafe {
+                tmp_tile.accumulate_into(
+                    tile_ptr as *mut MaybeUninit<f32>,
+                    used_rows,
+                    used_cols,
+                    tile_row_stride,
+                    beta,
+                );
+            }
         }
     }
 
@@ -621,22 +633,24 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         let (b, b_meta) = packing::int8::extract_packed_b::<{ Self::NR }>(b);
 
         const NR_REGS: usize = Avx2Int8Kernel::NR / AVX2_X32_LANES;
-        simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
-            self.isa,
-            tile_ptr,
-            tile_row_stride,
-            a_data,
-            b,
-            used_rows,
-            used_cols,
-            depth,
-            beta != 0, // accumulate
-            a_meta.zero_points,
-            b_meta.zero_points,
-            &a_meta.row_sums,
-            &b_meta.col_sums,
-            self.isa,
-        )
+        unsafe {
+            simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
+                self.isa,
+                tile_ptr,
+                tile_row_stride,
+                a_data,
+                b,
+                used_rows,
+                used_cols,
+                depth,
+                beta != 0, // accumulate
+                a_meta.zero_points,
+                b_meta.zero_points,
+                &a_meta.row_sums,
+                &b_meta.col_sums,
+                self.isa,
+            )
+        }
     }
 
     fn gemv_kernel(
@@ -848,39 +862,43 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
 
         const NR_REGS: usize = Avx512Int8Kernel::NR / AVX512_X32_LANES;
         if let Some(vnni_dot) = self.vnni_dot {
-            simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
-                self.isa,
-                tile_ptr,
-                tile_row_stride,
-                a_data,
-                b,
-                used_rows,
-                used_cols,
-                depth,
-                beta != 0, // accumulate
-                a_meta.zero_points,
-                b_meta.zero_points,
-                &a_meta.row_sums,
-                &b_meta.col_sums,
-                vnni_dot,
-            )
+            unsafe {
+                simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
+                    self.isa,
+                    tile_ptr,
+                    tile_row_stride,
+                    a_data,
+                    b,
+                    used_rows,
+                    used_cols,
+                    depth,
+                    beta != 0, // accumulate
+                    a_meta.zero_points,
+                    b_meta.zero_points,
+                    &a_meta.row_sums,
+                    &b_meta.col_sums,
+                    vnni_dot,
+                )
+            }
         } else {
-            simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
-                self.isa,
-                tile_ptr,
-                tile_row_stride,
-                a_data,
-                b,
-                used_rows,
-                used_cols,
-                depth,
-                beta != 0, // accumulate
-                a_meta.zero_points,
-                b_meta.zero_points,
-                &a_meta.row_sums,
-                &b_meta.col_sums,
-                self.isa, // Use non-VNNI dot product
-            )
+            unsafe {
+                simd_int8_gemm::<_, _, { Self::MR }, { Self::NR }, NR_REGS>(
+                    self.isa,
+                    tile_ptr,
+                    tile_row_stride,
+                    a_data,
+                    b,
+                    used_rows,
+                    used_cols,
+                    depth,
+                    beta != 0, // accumulate
+                    a_meta.zero_points,
+                    b_meta.zero_points,
+                    &a_meta.row_sums,
+                    &b_meta.col_sums,
+                    self.isa, // Use non-VNNI dot product
+                )
+            }
         }
     }
 
@@ -1007,12 +1025,14 @@ unsafe fn avx512_vnni_u8i8i32_dot_product(a: I8x64, b: I8x64, mut c: I32x16) -> 
     // By using asm we can use this instruction after a dynamic flag check
     // within the kernel.
     use std::arch::asm;
-    asm! {
-        "vpdpbusd {result}, {a}, {b}",
-        result = inout(zmm_reg) c.0,
-        a = in(zmm_reg) a.0,
-        b = in(zmm_reg) b.0,
-        options(nostack)
+    unsafe {
+        asm! {
+            "vpdpbusd {result}, {a}, {b}",
+            result = inout(zmm_reg) c.0,
+            a = in(zmm_reg) a.0,
+            b = in(zmm_reg) b.0,
+            options(nostack)
+        }
     }
     c
 }

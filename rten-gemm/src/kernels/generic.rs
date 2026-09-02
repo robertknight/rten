@@ -145,37 +145,43 @@ unsafe impl Kernel<f32, f32, f32> for GenericKernel {
             (tmp_tile.as_mut_ptr() as *mut f32, NR, 0.)
         };
 
-        let gemm = GemmDispatch::<_, MR, NR_REGS>::new(
-            self.isa,
-            dest_ptr,
-            dest_row_stride,
-            a,
-            b,
-            depth,
-            alpha,
-            dest_beta,
-        );
+        let gemm = unsafe {
+            GemmDispatch::<_, MR, NR_REGS>::new(
+                self.isa,
+                dest_ptr,
+                dest_row_stride,
+                a,
+                b,
+                depth,
+                alpha,
+                dest_beta,
+            )
+        };
 
-        match used_rows {
-            8 => gemm.dispatch::<8>(),
-            7 => gemm.dispatch::<7>(),
-            6 => gemm.dispatch::<6>(),
-            5 => gemm.dispatch::<5>(),
-            4 => gemm.dispatch::<4>(),
-            3 => gemm.dispatch::<3>(),
-            2 => gemm.dispatch::<2>(),
-            1 => gemm.dispatch::<1>(),
-            _ => panic!("unsupported `used_rows` {}", used_rows),
+        unsafe {
+            match used_rows {
+                8 => gemm.dispatch::<8>(),
+                7 => gemm.dispatch::<7>(),
+                6 => gemm.dispatch::<6>(),
+                5 => gemm.dispatch::<5>(),
+                4 => gemm.dispatch::<4>(),
+                3 => gemm.dispatch::<3>(),
+                2 => gemm.dispatch::<2>(),
+                1 => gemm.dispatch::<1>(),
+                _ => panic!("unsupported `used_rows` {}", used_rows),
+            }
         }
 
         if used_cols != NR {
-            tmp_tile.accumulate_into(
-                tile_ptr as *mut MaybeUninit<f32>,
-                used_rows,
-                used_cols,
-                tile_row_stride,
-                beta,
-            );
+            unsafe {
+                tmp_tile.accumulate_into(
+                    tile_ptr as *mut MaybeUninit<f32>,
+                    used_rows,
+                    used_cols,
+                    tile_row_stride,
+                    beta,
+                );
+            }
         }
     }
 
@@ -340,28 +346,32 @@ unsafe impl Kernel<u8, i8, i32> for GenericKernel {
         if dest_beta == 0 {
             for row in 0..used_rows {
                 for col in 0..used_cols {
-                    dest_ptr
-                        .add(row * dest_row_stride + col)
-                        .write(tmp[row][col]);
+                    unsafe {
+                        dest_ptr
+                            .add(row * dest_row_stride + col)
+                            .write(tmp[row][col])
+                    };
                 }
             }
         } else {
             // nb. We require that beta is 0 or 1, so here it is 1.
             for row in 0..used_rows {
                 for col in 0..used_cols {
-                    *dest_ptr.add(row * dest_row_stride + col) += tmp[row][col];
+                    unsafe { *dest_ptr.add(row * dest_row_stride + col) += tmp[row][col] };
                 }
             }
         }
 
         if use_tmp_tile {
-            tmp_tile.accumulate_into(
-                tile_ptr as *mut MaybeUninit<i32>,
-                used_rows,
-                used_cols,
-                tile_row_stride,
-                beta,
-            );
+            unsafe {
+                tmp_tile.accumulate_into(
+                    tile_ptr as *mut MaybeUninit<i32>,
+                    used_rows,
+                    used_cols,
+                    tile_row_stride,
+                    beta,
+                );
+            }
         }
     }
 
