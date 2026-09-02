@@ -53,35 +53,37 @@ jobs:
       run: cargo check --no-default-features
     - name: Build (default features)
       run: cargo build
+    - name: Install just
+      uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
     - name: Test
-      run: make test
+      run: just test
     - name: Build (WASM)
-      run: make wasm
+      run: just wasm
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Test (WASM)
       run: |
-        make wasm-test
-        make wasm-test PACKAGE=rten-simd
-        make wasm-test PACKAGE=rten-gemm
+        just wasm-test
+        just wasm-test rten-simd
+        just wasm-test rten-gemm
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Test (WASM relaxed-simd)
       run: |
-        make wasm-test RELAXED=y
-        make wasm-test RELAXED=y PACKAGE=rten-simd
-        make wasm-test RELAXED=y PACKAGE=rten-gemm
+        just relaxed=y wasm-test
+        just relaxed=y wasm-test rten-simd
+        just relaxed=y wasm-test rten-gemm
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (Intel macOS)
       run: cargo check --workspace --target x86_64-apple-darwin
       if: ${{ matrix.os == 'macos-14' }}
     - name: Lint
       run: |
-        make checkformatting
-        make lint
+        just checkformatting
+        just lint
     - name: Docs
       run: |
-        make docs
+        just docs
     - name: Docs (WASM)
-      run: make wasm-docs
+      run: just wasm-docs
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Setup Python
       run: |
