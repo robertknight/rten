@@ -22,7 +22,8 @@ use crate::layout::{
 use crate::overlap::may_have_internal_overlap;
 use crate::slice_range::{IntoSliceItems, SliceItem};
 use crate::storage::{
-    Alloc, CowData, GlobalAlloc, IntoStorage, Storage, StorageMut, ViewData, ViewMutData,
+    Alloc, CastStorage, CowData, GlobalAlloc, IntoStorage, Storage, StorageMut, ViewData,
+    ViewMutData,
 };
 use crate::type_num::IndexCount;
 use crate::{Contiguous, RandomSource};
@@ -745,6 +746,21 @@ impl<S: Storage, L: Layout> TensorBase<S, L> {
     /// Return a raw pointer to the tensor's underlying data.
     pub fn data_ptr(&self) -> *const S::Elem {
         self.data.as_ptr()
+    }
+
+    /// Reinterpret the bytes of this tensor as type `U`.
+    ///
+    /// Types `T` and `U` must be `Copy` types with the same size and alignment,
+    /// with no padding and for which any bit pattern is valid.
+    pub fn bit_cast<U>(self) -> TensorBase<<S as CastStorage<U>>::Output, L>
+    where
+        S: CastStorage<U>,
+    {
+        let TensorBase { data, layout } = self;
+        TensorBase {
+            data: data.bit_cast(),
+            layout,
+        }
     }
 }
 
