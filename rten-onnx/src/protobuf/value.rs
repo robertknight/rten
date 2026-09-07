@@ -136,8 +136,26 @@ impl<R: BufRead + Seek + Position> ReadValue for ValueReader<R> {
         &mut self,
         len: usize,
     ) -> Result<<Self::Types as FieldTypes>::Bytes, ProtobufError> {
-        let mut buf = vec![0; len];
-        self.inner.read_exact(&mut buf)?;
+        // Read exactly `len` bytes, growing the buffer incrementally instead of
+        // pre-allocating `vec![0; len]`. `len` is attacker-controlled (it comes
+        // from the protobuf wire), so a pre-allocation would let a malicious
+        // model request an arbitrarily large allocation before any of the
+        // declared bytes are actually read. This is an unbounded allocation
+        // (CWE-770) that can exhaust memory when parsing an untrusted model.
+        // Reading in chunks bounds the peak allocation to the number of bytes
+        // that are actually present, turning the DoS into a graceful error.
+        let mut buf = Vec::new();
+        let mut remaining = len;
+        let mut chunk = [0u8; 8192];
+        while remaining > 0 {
+            let to_read = remaining.min(chunk.len());
+            let n = self.inner.read(&mut chunk[..to_read])?;
+            if n == 0 {
+                return Err(ProtobufError::new(ErrorKind::Eof));
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            remaining -= n;
+        }
         Ok(buf)
     }
 
