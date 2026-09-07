@@ -607,6 +607,21 @@ impl Value {
             Value::Sequence(seq) => ValueLayout::Vector(seq.len()),
         }
     }
+
+    /// Convert this value into a [`Bits`] value which treats elements as
+    /// opaque bits.
+    ///
+    /// Converting to this representation is useful for sharing code across
+    /// values of different types that have the same bit-width.
+    pub(crate) fn into_bits(self) -> Option<Bits> {
+        match self {
+            Value::Int32Tensor(t) => Some(Bits::X32(t)),
+            Value::FloatTensor(t) => Some(Bits::X32(t.bit_cast())),
+            Value::Int8Tensor(t) => Some(Bits::X8(t)),
+            Value::UInt8Tensor(t) => Some(Bits::X8(t.bit_cast())),
+            Value::Sequence(_) => None,
+        }
+    }
 }
 
 fn tensor_bytes<S: Storage, L: Layout>(tensor: &TensorBase<S, L>) -> usize {
@@ -1044,6 +1059,36 @@ impl TryFrom<Value> for Sequence {
         match val {
             Value::Sequence(seq) => Ok(seq),
             _ => Err(TryFromValueError::ExpectedSequence),
+        }
+    }
+}
+
+/// A tensor whose elements are treated as opaque bits.
+///
+/// Variants of this enum provide a common representation for values whose
+/// elements have the same bit width, eg. `Tensor<f32>` and `Tensor<i32>`.
+/// Converting a value to this representation is useful for sharing code across
+/// these value types, when the code doesn't care about the meaning of elements.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Bits {
+    /// A tensor with 8-bit elements.
+    X8(Tensor<i8>),
+    /// A tensor with 32-bit elements.
+    X32(Tensor<i32>),
+}
+
+impl Bits {
+    /// Reinterpret the bits of this value as a tensor of a concrete type.
+    ///
+    /// Returns `None` if the target `dtype` width does not match the bit width
+    /// of this value.
+    pub fn into_value(self, dtype: DataType) -> Option<Value> {
+        match (self, dtype) {
+            (Bits::X8(src), DataType::Int8) => Some(src.into()),
+            (Bits::X8(src), DataType::UInt8) => Some(src.bit_cast::<u8>().into()),
+            (Bits::X32(src), DataType::Int32) => Some(src.into()),
+            (Bits::X32(src), DataType::Float) => Some(src.bit_cast::<f32>().into()),
+            (_, _) => None,
         }
     }
 }

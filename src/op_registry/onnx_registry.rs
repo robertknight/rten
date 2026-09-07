@@ -137,6 +137,7 @@ impl OnnxOpRegistry {
         register_op!(Attention);
         register_op!(AveragePool);
         register_op!(BatchNormalization);
+        register_op!(BitCast);
         register_op!(Cast);
         register_op!(CastLike);
         register_op!(Ceil);
@@ -876,6 +877,11 @@ impl_read_op!("com.microsoft", "Gelu", GeluMicrosoft, |_attrs: &Attrs| {
 impl_read_op!("com.microsoft", QuickGelu, |attrs: &Attrs| {
     let alpha = attrs.get_as("alpha").unwrap_or(1.702);
     Ok(ops::QuickGelu { alpha })
+});
+
+impl_read_op!(BitCast, |attrs: &Attrs| {
+    let to = attrs.require("to")?.as_dtype()?;
+    Ok(ops::BitCast { to })
 });
 
 impl_read_op!(Cast, |attrs: &Attrs| {

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use rten_base::bit_set::BitSet;
 use rten_base::byte_cast::FromByteArray;
 use rten_base::num;
@@ -221,14 +223,135 @@ impl Operator for CastLike {
     }
 }
 
+const SIZE_MISMATCH: OpError = OpError::UnsupportedValue(Cow::Borrowed(
+    "source and target types have different sizes",
+));
+
+/// Reinterpret the bits of a tensor as a different data type.
+///
+/// See <https://onnx.ai/onnx/operators/onnx__BitCast.html>.
+#[derive(Debug)]
+pub struct BitCast {
+    pub to: DataType,
+}
+
+impl Operator for BitCast {
+    fn name(&self) -> &str {
+        "BitCast"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let input = ctx.inputs().require(0)?;
+        let bits = input
+            .to_owned_in(ctx.pool())
+            .into_bits()
+            .ok_or(OpError::UnsupportedType)?;
+        bits.into_value(self.to)
+            .ok_or(SIZE_MISMATCH)
+            .into_op_result()
+    }
+
+    fn in_place_inputs(&self) -> BitSet<u16> {
+        BitSet::from_indices([0])
+    }
+
+    fn run_in_place(
+        &self,
+        in_place: InPlaceInputs,
+        _ctx: &OpRunContext,
+    ) -> Result<OutputList, OpError> {
+        let input = in_place.into_single();
+        let bits = input.into_bits().ok_or(OpError::UnsupportedType)?;
+        bits.into_value(self.to)
+            .ok_or(SIZE_MISMATCH)
+            .into_op_result()
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(&UnaryOp)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::Fixed(ValueType::Tensor(self.to))].into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::{Cast, CastLike};
-    use crate::operator::{InputList, OperatorExt};
+    use super::{BitCast, Cast, CastLike};
+    use crate::operator::{InputList, OpError, OperatorExt};
     use crate::value::{DataType, Value, ValueType};
+
+    #[test]
+    fn test_bit_cast() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            dtype: DataType,
+            expected: Result<Value, OpError>,
+        }
+
+        let cases = [
+            // f32 -> i32
+            Case {
+                input: Tensor::from([1.0f32, -1.0]).into(),
+                dtype: DataType::Int32,
+                expected: Ok(Tensor::from([0x3f80_0000i32, -0x4080_0000]).into()),
+            },
+            // i32 -> f32
+            Case {
+                input: Tensor::from([0x3f80_0000i32, -0x4080_0000]).into(),
+                dtype: DataType::Float,
+                expected: Ok(Tensor::from([1.0f32, -1.0]).into()),
+            },
+            // f32 -> f32
+            Case {
+                input: Tensor::from([1.0f32, -1.0]).into(),
+                dtype: DataType::Float,
+                expected: Ok(Tensor::from([1.0f32, -1.0]).into()),
+            },
+            // i8 -> u8
+            Case {
+                input: Tensor::from([-1i8, 0, 127]).into(),
+                dtype: DataType::UInt8,
+                expected: Ok(Tensor::from([255u8, 0, 127]).into()),
+            },
+            // u8 -> i8
+            Case {
+                input: Tensor::from([255u8, 0, 127]).into(),
+                dtype: DataType::Int8,
+                expected: Ok(Tensor::from([-1i8, 0, 127]).into()),
+            },
+            // Source and target types with different sizes.
+            Case {
+                input: Tensor::from([1.0f32]).into(),
+                dtype: DataType::UInt8,
+                expected: Err(OpError::unsupported_value(
+                    "source and target types have different sizes",
+                )),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = BitCast { to: case.dtype };
+
+            // Copying bit-cast.
+            let result: Result<Value, OpError> = op.run_simple(&case.input);
+            assert_eq!(result, case.expected);
+
+            // In-place bit-cast.
+            let result: Result<Value, OpError> =
+                op.run_simple_in_place(case.input.clone(), InputList::new());
+            assert_eq!(result, case.expected);
+        })
+    }
 
     #[test]
     fn test_cast() {
