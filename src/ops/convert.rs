@@ -1,5 +1,5 @@
 use rten_base::bit_set::BitSet;
-use rten_base::byte_cast::{FromByteArray, cast_vec};
+use rten_base::byte_cast::FromByteArray;
 use rten_base::num;
 
 use rten_tensor::Tensor;
@@ -63,19 +63,14 @@ fn cast(pool: &BufferPool, input: ValueView, dtype: DataType) -> Result<Value, O
 
 /// Cast a tensor from type T to U in-place.
 ///
-/// Both T and U must have the same size.
+/// T and U must have the same size and alignment.
 fn cast_tensor<T, U>(mut data: Tensor<T>) -> Tensor<U>
 where
     T: FromByteArray + num::Cast<U>,
-    U: FromByteArray<Bytes = T::Bytes>,
+    U: FromByteArray<Bytes = T::Bytes, Align = T::Align>,
 {
-    // Cast elements from type T to U in place.
     data.apply(|x| num::Cast::<U>::cast(*x).cast_bytes());
-
-    // Extract the converted data and transmute from T to U.
-    let shape = data.shape().to_vec();
-    let data = cast_vec::<T, U>(data.into_data()).unwrap();
-    Tensor::from_data(&shape, data)
+    data.bit_cast()
 }
 
 /// Cast elements of `input` to a given dtype in place, or return the input
