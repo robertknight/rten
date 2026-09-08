@@ -6,6 +6,8 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 use std::sync::Arc;
 
+use rten_base::byte_cast::{FromByteArray, ToByteArray, cast_vec};
+
 use crate::assume_init::AssumeInit;
 
 /// Trait for backing storage used by tensors and views.
@@ -251,6 +253,19 @@ pub unsafe trait StorageMut: Storage {
     }
 }
 
+/// Reinterpret the bytes of this storage as type `U`.
+///
+/// The storage's element type [`Storage::Elem`] and `U` must both be `Copy`
+/// types with no padding and the same size and alignment, for which any bit
+/// pattern is valid.
+///
+/// This is a cheap operation which does not copy the data.
+pub trait CastStorage<U>: Storage {
+    type Output: Storage;
+
+    fn bit_cast(self) -> Self::Output;
+}
+
 unsafe impl<T> Storage for Vec<T> {
     type Elem = T;
 
@@ -262,6 +277,18 @@ unsafe impl<T> Storage for Vec<T> {
 
     fn as_ptr(&self) -> *const T {
         self.as_ptr()
+    }
+}
+
+impl<T: ToByteArray, U: FromByteArray> CastStorage<U> for Vec<T>
+where
+    U: FromByteArray<Bytes = T::Bytes, Align = T::Align>,
+{
+    type Output = Vec<U>;
+
+    fn bit_cast(self) -> Self::Output {
+        // T and U have same size and alignment, so cast always succeeds.
+        cast_vec::<T, U>(self).unwrap()
     }
 }
 
@@ -380,6 +407,23 @@ unsafe impl<T> Storage for ViewData<'_, T> {
     }
 }
 
+impl<'a, T: ToByteArray + 'static, U: FromByteArray + 'static> CastStorage<U> for ViewData<'a, T>
+where
+    U: FromByteArray<Bytes = T::Bytes, Align = T::Align>,
+{
+    type Output = ViewData<'a, U>;
+
+    fn bit_cast(self) -> Self::Output {
+        // Types T and U have the same size and alignment and any bit pattern
+        // is valid for both. Hence we can re-interpret `self.ptr as *const U`.
+        ViewData {
+            ptr: self.ptr as *const U,
+            len: self.len,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<'a, T> AssumeInit for ViewData<'a, MaybeUninit<T>> {
     type Output = ViewData<'a, T>;
 
@@ -478,6 +522,23 @@ unsafe impl<T> StorageMut for ViewMutData<'_, T> {
     }
 }
 
+impl<'a, T: ToByteArray + 'static, U: FromByteArray + 'static> CastStorage<U> for ViewMutData<'a, T>
+where
+    U: FromByteArray<Bytes = T::Bytes, Align = T::Align>,
+{
+    type Output = ViewMutData<'a, U>;
+
+    fn bit_cast(self) -> Self::Output {
+        // Types T and U have the same size and alignment and any bit pattern
+        // is valid for both. Hence we can re-interpret `self.ptr as *mut U`.
+        ViewMutData {
+            ptr: self.ptr as *mut U,
+            len: self.len,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<'a, T> AssumeInit for ViewMutData<'a, MaybeUninit<T>> {
     type Output = ViewMutData<'a, T>;
 
@@ -527,6 +588,20 @@ where
         match self {
             Cow::Owned(vec) => CowData::Owned(vec),
             Cow::Borrowed(slice) => CowData::Borrowed(slice.into_storage()),
+        }
+    }
+}
+
+impl<'a, T: ToByteArray + 'static, U: FromByteArray + 'static> CastStorage<U> for CowData<'a, T>
+where
+    U: FromByteArray<Bytes = T::Bytes, Align = T::Align>,
+{
+    type Output = CowData<'a, U>;
+
+    fn bit_cast(self) -> Self::Output {
+        match self {
+            CowData::Owned(vec) => CowData::Owned(vec.bit_cast()),
+            CowData::Borrowed(view) => CowData::Borrowed(view.bit_cast()),
         }
     }
 }

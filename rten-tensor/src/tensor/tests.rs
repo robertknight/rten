@@ -302,6 +302,35 @@ fn test_axis_iter_mut() {
 }
 
 #[test]
+fn test_bit_cast() {
+    // Owned
+    let tensor = NdTensor::from([[1i32, 2], [3, 4]]);
+    let unsigned_tensor = tensor.bit_cast::<u32>();
+    assert_eq!(unsigned_tensor, NdTensor::from([[1u32, 2], [3, 4]]));
+
+    // View
+    let tensor = NdTensor::from([[1i32, 2], [3, 4]]);
+    let unsigned_tensor = tensor.view().bit_cast::<u32>();
+    assert_eq!(unsigned_tensor, NdTensor::from([[1u32, 2], [3, 4]]).view());
+
+    // Cow (borrowed)
+    let tensor = NdTensor::from([[1i32, 2], [3, 4]]);
+    let unsigned_tensor = tensor.as_cow().bit_cast::<u32>();
+    assert_eq!(
+        unsigned_tensor,
+        NdTensor::from([[1u32, 2], [3, 4]]).as_cow()
+    );
+
+    // Cow (owned)
+    let tensor = NdTensor::from([[1i32, 2], [3, 4]]);
+    let unsigned_tensor = tensor.into_cow().bit_cast::<u32>();
+    assert_eq!(
+        unsigned_tensor,
+        NdTensor::from([[1u32, 2], [3, 4]]).into_cow()
+    );
+}
+
+#[test]
 fn test_broadcast() {
     let data = vec![1., 2., 3., 4.];
     let dest_shape = [3, 1, 2, 2];

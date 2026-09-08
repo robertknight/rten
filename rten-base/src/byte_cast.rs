@@ -10,6 +10,9 @@ use std::mem::{ManuallyDrop, MaybeUninit};
 /// This type must only be implemented for `Copy` types which contain no
 /// padding.
 pub unsafe trait ToByteArray: Copy {
+    /// Array of bytes whose length is equal to the alignment of the type.
+    type Align: AsRef<[u8]>;
+
     /// View of this type as an array of bytes.
     type Bytes: AsRef<[u8]>;
 
@@ -22,6 +25,7 @@ pub unsafe trait ToByteArray: Copy {
 macro_rules! impl_to_byte_array {
     ($type:ty) => {
         unsafe impl ToByteArray for $type {
+            type Align = [u8; align_of::<$type>()];
             type Bytes = [u8; size_of::<$type>()];
 
             fn to_bytes(self) -> Self::Bytes {
@@ -43,6 +47,7 @@ impl_to_byte_array!(f32);
 impl_to_byte_array!(f64);
 
 unsafe impl ToByteArray for bool {
+    type Align = [u8; 1];
     type Bytes = [u8; 1];
 
     fn to_bytes(self) -> [u8; 1] {
