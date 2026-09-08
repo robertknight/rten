@@ -1,4 +1,4 @@
-//! rten is an inference runtime for machine learning models.
+//! rten is an inference runtime for machine learning models in [ONNX][onnx] format.
 //!
 //! It enables you to take machine learning models trained using PyTorch
 //! or other frameworks and run them in Rust.
@@ -7,7 +7,7 @@
 //!
 //! To use a model trained with a framework such as
 //! [PyTorch](https://pytorch.org), it needs to first be exported into
-//! [ONNX](https://onnx.ai) format. There are several ways to obtain models
+//! [ONNX][onnx] format. There are several ways to obtain models
 //! in this format:
 //!
 //! - The model authors may already provide the model in ONNX
@@ -24,17 +24,6 @@
 //! - PyTorch has built-in [ONNX export functions](https://docs.pytorch.org/tutorials/beginner/onnx/export_simple_model_to_onnx_tutorial.html).
 //!   This can be used to convert custom models or any other model which is not
 //!   available in ONNX format via another means.
-//!
-//! RTen can load and run ONNX models directly, but it also supports a custom
-//! [`.rten` file format][rten_format]. Models can be converted from ONNX to
-//! this format via [rten-convert](https://pypi.org/project/rten-convert/). The
-//! `.rten` format can be faster to load and supports large (> 2GB) models in a
-//! single file, whereas ONNX models of this size must use external files for
-//! weights. It is recommended to start with the ONNX format and consider
-//! `.rten` later if you need these benefits.
-//!
-//! See the [model formats][model_formats] documentation for more details on
-//! the format differences.
 //!
 //! # Loading and running models
 //!
@@ -126,7 +115,7 @@
 //! # Inspecting models
 //!
 //! The [rten-cli](https://crates.io/crates/rten-cli) tool can be used to query
-//! basic information about a `.rten` or `.onnx` model, such as the inputs and
+//! basic information about an `.onnx` model, such as the inputs and
 //! outputs. It can also be used to test model compatibility and inference
 //! performance by running models with randomly generated inputs.
 //!
@@ -155,14 +144,15 @@
 //!  - **mmap** - Enable loading models with memory mapping via [`Model::load_mmap`]
 //!  - **onnx_format** (enabled by default) - Enables support for loading `.onnx` models.
 //!  - **random** - Enables operators that generate random numbers
-//!  - **rten_format** (enabled by default) - Enables support for loading `.rten` models.
+//!  - **rten_format** (enabled by default) - Enables support for loading `.rten` models. This is
+//!    a deprecated alternative model format.
 //!  - **wasm_api** - Generate WebAssembly API using wasm-bindgen
 //!
 //! At least one of the **onnx_format** or **rten_format** features must be enabled.
 //!
 //! [contrib_operators]: https://onnxruntime.ai/docs/reference/operators/ContribOperators.html
 //! [security]: crate::docs::security
-//! [model_formats]: https://github.com/robertknight/rten/blob/main/docs/model-formats.md
+//! [onnx]: https://onnx.ai
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
 //! [rten_format]: https://github.com/robertknight/rten/blob/main/docs/rten-file-format.md
