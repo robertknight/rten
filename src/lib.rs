@@ -144,7 +144,7 @@
 //!  - **mmap** - Enable loading models with memory mapping via [`Model::load_mmap`]
 //!  - **onnx_format** (enabled by default) - Enables support for loading `.onnx` models.
 //!  - **random** - Enables operators that generate random numbers
-//!  - **rten_format** (enabled by default) - Enables support for loading `.rten` models. This is
+//!  - **rten_format** - Enables support for loading `.rten` models. This is
 //!    a deprecated alternative model format.
 //!  - **wasm_api** - Generate WebAssembly API using wasm-bindgen
 //!

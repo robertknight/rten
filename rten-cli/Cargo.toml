@@ -27,6 +27,9 @@ features = ["serde"]
 [dev-dependencies]
 rten-testing = { path = "../rten-testing" }
 
+[features]
+rten_format = ["rten/rten_format"]
+
 [lints.clippy]
 uninlined_format_args = "allow"
 

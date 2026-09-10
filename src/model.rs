@@ -38,7 +38,7 @@ pub use metadata::ModelMetadata;
 use file_type::FileType;
 use load_error::LoadErrorImpl;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "rten_format"))]
 pub mod rten_builder;
 
 #[cfg(all(test, feature = "onnx_format"))]
@@ -975,9 +975,11 @@ mod tests {
         GraphProtoExt, ModelProtoExt, NodeProtoExt, ToTensorProto, ValueInfoProtoExt, create_node,
         create_tensor_from_view, create_value_info,
     };
+    #[cfg(feature = "rten_format")]
     use crate::model::rten_builder::{MetadataArgs, ModelBuilder, ModelFormat, OpType};
     use crate::model::{LoadErrorKind, Model, ModelOptions};
     use crate::op_registry;
+    #[cfg(feature = "rten_format")]
     use crate::ops;
     use crate::value::{DataType, Value, ValueType};
 
@@ -1031,6 +1033,7 @@ mod tests {
 
     /// Version of [`generate_model_buffer`] which creates a model in the
     /// `.rten` format.
+    #[cfg(feature = "rten_format")]
     fn generate_rten_model_buffer(format: ModelFormat) -> Vec<u8> {
         let mut builder = ModelBuilder::new(format);
         let mut graph_builder = builder.graph_builder();
@@ -1196,10 +1199,12 @@ mod tests {
                 buffer: generate_model_buffer(),
                 opts: None,
             },
+            #[cfg(feature = "rten_format")]
             Case {
                 buffer: generate_rten_model_buffer(ModelFormat::V1),
                 opts: None,
             },
+            #[cfg(feature = "rten_format")]
             Case {
                 buffer: generate_rten_model_buffer(ModelFormat::V2),
                 opts: None,
@@ -1264,6 +1269,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rten_format")]
     #[test]
     fn test_load_invalid_model() {
         struct Case {
