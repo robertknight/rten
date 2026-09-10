@@ -332,7 +332,9 @@ impl Model {
     ///
     /// # External data
     ///
-    /// This method does not currently support ONNX models with external data.
+    /// To load ONNX models from a static slice that reference external data,
+    /// use [`ModelOptions::external_data_static`] and
+    /// [`ModelOptions::load_static_slice`].
     pub fn load_static_slice(data: &'static [u8]) -> Result<Model, LoadError> {
         ModelOptions::with_all_ops().load_static_slice(data)
     }
@@ -741,11 +743,28 @@ impl ModelOptions {
 
     /// Provide the content of an external data file as a buffer.
     ///
-    /// This is used when an ONNX model loaded via [`load`](Self::load)
-    /// references data in an external file.
+    /// This is used when an ONNX model loaded via [`load`](Self::load) or
+    /// [`load_static_slice`](Self::load_static_slice) references data in an
+    /// external file.
     pub fn external_data(&mut self, path: &str, buf: Vec<u8>) -> &mut Self {
-        let storage = Arc::new(ConstantStorage::Buffer(buf));
-        self.external_data.insert(path.to_string(), storage);
+        self.external_data_impl(path, ConstantStorage::Buffer(buf))
+    }
+
+    /// Provide the content of an external data file as a static slice.
+    ///
+    /// This can be used together with
+    /// [`include_external_data`](crate::include_external_data) to embed a
+    /// model's weights in the program.
+    ///
+    /// This is used when an ONNX model loaded via [`load`](Self::load) or
+    /// [`load_static_slice`](Self::load_static_slice) references data in an
+    /// external file.
+    pub fn external_data_static(&mut self, path: &str, buf: &'static [u8]) -> &mut Self {
+        self.external_data_impl(path, ConstantStorage::StaticSlice(buf))
+    }
+
+    fn external_data_impl(&mut self, path: &str, buf: ConstantStorage) -> &mut Self {
+        self.external_data.insert(path.to_string(), Arc::new(buf));
         self
     }
 
@@ -919,6 +938,30 @@ enum OptimizeMode {
 
     // Enable graph optimizations.
     On(OptimizeOptions),
+}
+
+/// Embed data in the program with sufficient alignment for use with
+/// [`ModelOptions::external_data_static`].
+///
+/// This is like [`include_bytes`] but ensures the embedded data has the
+/// necessary alignment for model weights.
+#[macro_export]
+macro_rules! include_external_data {
+    ($path:literal) => {{
+        // Based on https://users.rust-lang.org/t/can-i-conveniently-compile-bytes-into-a-rust-program-with-a-specific-alignment/24049/2
+        #[repr(C)]
+        pub struct AlignedAs<Align, Bytes: ?Sized> {
+            pub _align: [Align; 0],
+            pub bytes: Bytes,
+        }
+        // Use f64 as the alignment type because that's the largest supported
+        // element type.
+        static ALIGNED: &AlignedAs<f64, [u8]> = &AlignedAs {
+            _align: [],
+            bytes: *include_bytes!($path),
+        };
+        &ALIGNED.bytes
+    }};
 }
 
 #[cfg(test)]
@@ -1309,6 +1352,16 @@ mod tests {
         let model = ModelOptions::with_all_ops()
             .external_data("mnist.onnx.data", data_buf)
             .load(onnx_buf)
+            .unwrap();
+        check_model(model);
+
+        // Load from static slice with external data
+        let model_static = include_bytes!("../rten-onnx/test-data/mnist-external/mnist.onnx");
+        let model_data_static =
+            crate::include_external_data!("../rten-onnx/test-data/mnist-external/mnist.onnx.data");
+        let model = ModelOptions::with_all_ops()
+            .external_data_static("mnist.onnx.data", model_data_static)
+            .load_static_slice(model_static)
             .unwrap();
         check_model(model);
 
