@@ -42,19 +42,17 @@ issue](https://github.com/robertknight/rten/issues/14) for details. Please open
 an issue if you find that you cannot run a model because an operator is not
 supported.
 
+RTen additionally supports some
+["contrib"](https://onnxruntime.ai/docs/reference/operators/ContribOperators.html)
+ops. These are non-standard operators supported by ONNX Runtime. They are
+supported for compatibility with widely deployed models. Support for new contrib
+ops is added on an as-needed basis.
+
 ### Data types
 
-RTen supports models with float32 weights as well as quantized models with int8
-or uint8 weights. Quantized models can take advantage of CPU features such
-as VNNI (x86) and UDOT / i8mm (Arm) for better performance.
-
-### Model formats
-
-RTen can load models in ONNX format directly. It also supports a custom `.rten`
-format which can offer faster load times and supports arbitrarily large models
-in a single file. See the [rten file format
-documentation](docs/rten-file-format.md) for more details on the format and
-information on how to convert models.
+RTen supports models with single-precision float (`f32`) weights and quantized
+models with int8 weights. Models with half-precision (`f16`) weights are
+partially supported - weights are upconverted to `f32` when the model is loaded.
 
 ## Getting started
 
