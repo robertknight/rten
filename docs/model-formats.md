@@ -10,10 +10,8 @@ its weights. The weights can be stored within the `.onnx` file or separately.
 
 The rten format contains the same information as ONNX models but in a different
 format that is optimized for efficient loading. rten models are produced from
-ONNX models using [rten-convert](https://pypi.org/project/rten-convert/).
-
-As a general recommendation, start with the ONNX format and then consider using
-the rten format if you need its benefits.
+ONNX models using [rten-convert](https://pypi.org/project/rten-convert/). **The
+rten format is [deprecated](https://github.com/robertknight/rten/issues/1470)**.
 
 ## Graph and weight storage comparison
 
