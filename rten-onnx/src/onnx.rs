@@ -11,7 +11,10 @@ use std::cell::RefCell;
 use std::fmt;
 use std::fs::File;
 
-use crate::protobuf::{DecodeMessage, Fields, OwnedValues, ProtobufError, ReadValue, ValueReader};
+use crate::protobuf::{
+    DecodeMessage, EncodeMessage, Fields, MessageWriter, OwnedValues, ProtobufError, ReadValue,
+    ValueReader, ValueWriter, WriteValue,
+};
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct AttributeType(pub i32);
@@ -101,6 +104,39 @@ impl DecodeMessage for AttributeProto {
     }
 }
 
+impl EncodeMessage for AttributeProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(name) = &self.name {
+            fields.write_string(Self::NAME, name)?;
+        }
+        if let Some(f) = self.f {
+            fields.write_float(Self::F, f)?;
+        }
+        if let Some(i) = self.i {
+            fields.write_int64(Self::I, i)?;
+        }
+        if let Some(s) = &self.s {
+            fields.write_string(Self::S, s)?;
+        }
+        if let Some(t) = &self.t {
+            fields.write_message(Self::T, t)?;
+        }
+        if let Some(g) = &self.g {
+            fields.write_message(Self::G, g)?;
+        }
+        fields.write_repeated_float(Self::FLOATS, &self.floats)?;
+        fields.write_repeated_int64(Self::INTS, &self.ints)?;
+        fields.write_repeated_string(Self::STRINGS, &self.strings)?;
+        if let Some(ty) = self.r#type {
+            fields.write_enum(Self::TYPE, ty.0)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct NodeProto {
     pub domain: Option<String>,
@@ -154,6 +190,27 @@ impl DecodeMessage for NodeProto {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for NodeProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        fields.write_repeated_string(Self::INPUT, &self.input)?;
+        fields.write_repeated_string(Self::OUTPUT, &self.output)?;
+        if let Some(name) = &self.name {
+            fields.write_string(Self::NAME, name)?;
+        }
+        if let Some(op_type) = &self.op_type {
+            fields.write_string(Self::OP_TYPE, op_type)?;
+        }
+        fields.write_repeated_message(Self::ATTRIBUTE, &self.attribute)?;
+        if let Some(domain) = &self.domain {
+            fields.write_string(Self::DOMAIN, domain)?;
+        }
+        Ok(())
     }
 }
 
@@ -256,6 +313,33 @@ impl DecodeMessage for TensorProto {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for TensorProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        fields.write_repeated_int64(Self::DIMS, &self.dims)?;
+        if let Some(data_type) = self.data_type {
+            fields.write_enum(Self::DATA_TYPE, data_type.0)?;
+        }
+        fields.write_packed_float(Self::FLOAT_DATA, &self.float_data)?;
+        fields.write_packed_int32(Self::INT32_DATA, &self.int32_data)?;
+        fields.write_packed_int64(Self::INT64_DATA, &self.int64_data)?;
+        if let Some(name) = &self.name {
+            fields.write_string(Self::NAME, name)?;
+        }
+        if let Some(raw_data) = &self.raw_data {
+            fields.write_bytes(Self::RAW_DATA, raw_data.borrow().as_slice())?;
+        }
+        fields.write_packed_double(Self::DOUBLE_DATA, &self.double_data)?;
+        fields.write_repeated_message(Self::EXTERNAL_DATA, &self.external_data)?;
+        if let Some(data_location) = self.data_location {
+            fields.write_enum(Self::DATA_LOCATION, data_location.0)?;
+        }
+        Ok(())
     }
 }
 
@@ -371,6 +455,21 @@ impl DecodeMessage for Dimension {
     }
 }
 
+impl EncodeMessage for Dimension {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(dim_value) = self.dim_value {
+            fields.write_int64(Self::DIM_VALUE, dim_value)?;
+        }
+        if let Some(dim_param) = &self.dim_param {
+            fields.write_string(Self::DIM_PARAM, dim_param)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct StringStringEntryProto {
     pub key: Option<String>,
@@ -403,6 +502,21 @@ impl DecodeMessage for StringStringEntryProto {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for StringStringEntryProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(key) = &self.key {
+            fields.write_string(Self::KEY, key)?;
+        }
+        if let Some(value) = &self.value {
+            fields.write_string(Self::VALUE, value)?;
+        }
+        Ok(())
     }
 }
 
@@ -441,6 +555,21 @@ impl DecodeMessage for OperatorSetIdProto {
     }
 }
 
+impl EncodeMessage for OperatorSetIdProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(domain) = &self.domain {
+            fields.write_string(Self::DOMAIN, domain)?;
+        }
+        if let Some(version) = self.version {
+            fields.write_int64(Self::VERSION, version)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TensorShapeProto {
     pub dim: Vec<Dimension>,
@@ -468,6 +597,16 @@ impl DecodeMessage for TensorShapeProto {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for TensorShapeProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        fields.write_repeated_message(Self::DIM, &self.dim)?;
+        Ok(())
     }
 }
 
@@ -506,6 +645,21 @@ impl DecodeMessage for TypeProtoTensor {
     }
 }
 
+impl EncodeMessage for TypeProtoTensor {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(elem_type) = self.elem_type {
+            fields.write_enum(Self::ELEM_TYPE, elem_type.0)?;
+        }
+        if let Some(shape) = &self.shape {
+            fields.write_message(Self::SHAPE, shape)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TypeProtoSequence {
     pub elem_type: Option<TypeProto>,
@@ -533,6 +687,18 @@ impl DecodeMessage for TypeProtoSequence {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for TypeProtoSequence {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(elem_type) = &self.elem_type {
+            fields.write_message(Self::ELEM_TYPE, elem_type)?;
+        }
+        Ok(())
     }
 }
 
@@ -571,6 +737,21 @@ impl DecodeMessage for TypeProto {
     }
 }
 
+impl EncodeMessage for TypeProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(tensor_type) = &self.tensor_type {
+            fields.write_message(Self::TENSOR_TYPE, tensor_type)?;
+        }
+        if let Some(sequence) = &self.sequence {
+            fields.write_message(Self::SEQUENCE, sequence.as_ref())?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ValueInfoProto {
     pub name: Option<String>,
@@ -603,6 +784,21 @@ impl DecodeMessage for ValueInfoProto {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for ValueInfoProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(name) = &self.name {
+            fields.write_string(Self::NAME, name)?;
+        }
+        if let Some(ty) = &self.r#type {
+            fields.write_message(Self::TYPE, ty)?;
+        }
+        Ok(())
     }
 }
 
@@ -657,6 +853,20 @@ impl DecodeMessage for GraphProto {
     }
 }
 
+impl EncodeMessage for GraphProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        fields.write_repeated_message(Self::NODE, &self.node)?;
+        fields.write_repeated_message(Self::INITIALIZER, &self.initializer)?;
+        fields.write_repeated_message(Self::INPUT, &self.input)?;
+        fields.write_repeated_message(Self::OUTPUT, &self.output)?;
+        fields.write_repeated_message(Self::VALUE_INFO, &self.value_info)?;
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 pub struct ModelProto {
     pub ir_version: Option<i64>,
@@ -675,8 +885,8 @@ impl ModelProto {
     const OPSET_IMPORT: u64 = 8;
     const METADATA_PROPS: u64 = 14;
 
-    // The non-generic `parse_file` and `parse_buf` methods allow the parsing
-    // code to be compiled as part of the rten-onnx crate.
+    // The non-generic `parse_*` and `write_*` methods allow the parsing and
+    // serialization code to be compiled as part of the rten-onnx crate.
 
     /// Deserialize a `ModelProto` from a file.
     pub fn parse_file(file: File) -> Result<Self, ProtobufError> {
@@ -688,6 +898,21 @@ impl ModelProto {
     pub fn parse_buf(buf: &[u8]) -> Result<Self, ProtobufError> {
         let reader = ValueReader::from_buf(buf);
         ModelProto::decode(reader)
+    }
+
+    /// Serialize this model to a file.
+    pub fn write_file(&self, file: File) -> Result<(), ProtobufError> {
+        self.encode(ValueWriter::from_file(file))
+    }
+
+    /// Serialize this model to a buffer.
+    pub fn write_buf(&self) -> Result<Vec<u8>, ProtobufError> {
+        // Size the buffer up front to avoid repeatedly re-allocating and
+        // copying the tensor data as it grows.
+        let len = self.encoded_len()?;
+        let mut buf = Vec::with_capacity(len as usize);
+        self.encode(ValueWriter::new(&mut buf))?;
+        Ok(buf)
     }
 }
 
@@ -726,6 +951,29 @@ impl DecodeMessage for ModelProto {
             }
         }
         Ok(msg)
+    }
+}
+
+impl EncodeMessage for ModelProto {
+    fn encode_fields<W: WriteValue>(
+        &self,
+        fields: &mut MessageWriter<W>,
+    ) -> Result<(), ProtobufError> {
+        if let Some(ir_version) = self.ir_version {
+            fields.write_int64(Self::IR_VERSION, ir_version)?;
+        }
+        if let Some(producer_name) = &self.producer_name {
+            fields.write_string(Self::PRODUCER_NAME, producer_name)?;
+        }
+        if let Some(producer_version) = &self.producer_version {
+            fields.write_string(Self::PRODUCER_VERSION, producer_version)?;
+        }
+        if let Some(graph) = &self.graph {
+            fields.write_message(Self::GRAPH, graph)?;
+        }
+        fields.write_repeated_message(Self::OPSET_IMPORT, &self.opset_import)?;
+        fields.write_repeated_message(Self::METADATA_PROPS, &self.metadata_props)?;
+        Ok(())
     }
 }
 
@@ -786,10 +1034,15 @@ pub fn is_onnx_model(reader: impl ReadValue<Types = OwnedValues>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::fs::File;
     use std::path::PathBuf;
 
-    use super::{ModelProto, is_onnx_model};
+    use super::{
+        AttributeProto, AttributeType, DataLocation, DataType, Dimension, GraphProto, ModelProto,
+        NodeProto, OperatorSetIdProto, StringStringEntryProto, TensorProto, TensorShapeProto,
+        TypeProto, TypeProtoSequence, TypeProtoTensor, ValueInfoProto, is_onnx_model,
+    };
     use crate::protobuf::{DecodeMessage, ValueReader};
 
     fn test_file_path(path: &str) -> PathBuf {
@@ -852,6 +1105,350 @@ mod tests {
         assert_eq!(graph.input[0].name.as_deref(), Some("input"));
         assert_eq!(graph.output.len(), 1);
         assert_eq!(graph.output[0].name.as_deref(), Some("logits"));
+    }
+
+    /// Create a model which uses every message type and field that this module
+    /// supports.
+    fn create_test_model() -> ModelProto {
+        let raw_data: Vec<u8> = (0..6).flat_map(|i| (i as f32).to_le_bytes()).collect();
+        let raw_init = TensorProto {
+            name: Some("weights".to_string()),
+            dims: vec![2, 3],
+            data_type: Some(DataType::FLOAT),
+            raw_data: Some(RefCell::new(raw_data)),
+            ..Default::default()
+        };
+
+        // Tensor which uses the typed data fields instead of `raw_data`, and
+        // references external data.
+        let typed_init = TensorProto {
+            name: Some("typed".to_string()),
+            dims: vec![2],
+            data_type: Some(DataType::FLOAT),
+            float_data: vec![1.0, 2.0],
+            int32_data: vec![3, -4],
+            int64_data: vec![5, -6],
+            double_data: vec![7.0, 8.0],
+            external_data: vec![StringStringEntryProto {
+                key: Some("location".to_string()),
+                value: Some("weights.bin".to_string()),
+            }],
+            data_location: Some(DataLocation::EXTERNAL),
+            ..Default::default()
+        };
+
+        let subgraph = GraphProto {
+            node: vec![NodeProto {
+                op_type: Some("Identity".to_string()),
+                input: vec!["x".to_string()],
+                output: vec!["y".to_string()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let attrs = vec![
+            AttributeProto {
+                name: Some("float_attr".to_string()),
+                f: Some(0.5),
+                r#type: Some(AttributeType::FLOAT),
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("int_attr".to_string()),
+                i: Some(-3),
+                r#type: Some(AttributeType::INT),
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("string_attr".to_string()),
+                s: Some("str_value".to_string()),
+                r#type: Some(AttributeType::STRING),
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("floats_attr".to_string()),
+                floats: vec![1.0, 2.0],
+                r#type: Some(AttributeType::FLOATS),
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("ints_attr".to_string()),
+                ints: vec![3, -4],
+                r#type: Some(AttributeType::INTS),
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("strings_attr".to_string()),
+                strings: vec!["a".to_string(), "b".to_string()],
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("tensor_attr".to_string()),
+                t: Some(raw_init.clone()),
+                ..Default::default()
+            },
+            AttributeProto {
+                name: Some("graph_attr".to_string()),
+                g: Some(subgraph),
+                r#type: Some(AttributeType::GRAPH),
+                ..Default::default()
+            },
+        ];
+
+        let node = NodeProto {
+            name: Some("test_node".to_string()),
+            op_type: Some("TestOp".to_string()),
+            domain: Some("test.domain".to_string()),
+            input: vec!["input".to_string(), "weights".to_string()],
+            output: vec!["output".to_string()],
+            attribute: attrs,
+        };
+
+        let input = ValueInfoProto {
+            name: Some("input".to_string()),
+            r#type: Some(TypeProto {
+                tensor_type: Some(TypeProtoTensor {
+                    elem_type: Some(DataType::FLOAT),
+                    shape: Some(TensorShapeProto {
+                        dim: vec![
+                            Dimension {
+                                dim_param: Some("batch".to_string()),
+                                ..Default::default()
+                            },
+                            Dimension {
+                                dim_value: Some(3),
+                                ..Default::default()
+                            },
+                        ],
+                    }),
+                }),
+                ..Default::default()
+            }),
+        };
+
+        // Output with a sequence type, to cover `TypeProto.sequence`.
+        let output = ValueInfoProto {
+            name: Some("output".to_string()),
+            r#type: Some(TypeProto {
+                sequence: Some(Box::new(TypeProtoSequence {
+                    elem_type: Some(TypeProto {
+                        tensor_type: Some(TypeProtoTensor {
+                            elem_type: Some(DataType::INT64),
+                            shape: None,
+                        }),
+                        ..Default::default()
+                    }),
+                })),
+                ..Default::default()
+            }),
+        };
+
+        let graph = GraphProto {
+            node: vec![node],
+            initializer: vec![raw_init, typed_init],
+            input: vec![input],
+            output: vec![output],
+            value_info: vec![ValueInfoProto {
+                name: Some("intermediate".to_string()),
+                r#type: None,
+            }],
+        };
+
+        ModelProto {
+            ir_version: Some(9),
+            producer_name: Some("rten-onnx".to_string()),
+            producer_version: Some("0.1.0".to_string()),
+            graph: Some(graph),
+            opset_import: vec![
+                OperatorSetIdProto {
+                    domain: Some(String::new()),
+                    version: Some(18),
+                },
+                OperatorSetIdProto {
+                    domain: Some("test.domain".to_string()),
+                    version: Some(1),
+                },
+            ],
+            metadata_props: vec![StringStringEntryProto {
+                key: Some("key".to_string()),
+                value: Some("value".to_string()),
+            }],
+        }
+    }
+
+    #[test]
+    fn test_write_model() {
+        let model = create_test_model();
+        let buf = model.write_buf().unwrap();
+        let decoded = ModelProto::parse_buf(&buf).unwrap();
+
+        assert_eq!(decoded.ir_version, Some(9));
+        assert_eq!(decoded.producer_name.as_deref(), Some("rten-onnx"));
+        assert_eq!(decoded.producer_version.as_deref(), Some("0.1.0"));
+
+        let opsets: Vec<_> = decoded
+            .opset_import
+            .iter()
+            .map(|os| (os.domain.as_deref().unwrap(), os.version.unwrap()))
+            .collect();
+        assert_eq!(opsets, [("", 18), ("test.domain", 1)]);
+
+        let metadata: Vec<_> = decoded
+            .metadata_props
+            .iter()
+            .map(|prop| (prop.key.as_deref().unwrap(), prop.value.as_deref().unwrap()))
+            .collect();
+        assert_eq!(metadata, [("key", "value")]);
+
+        let graph = decoded.graph.unwrap();
+
+        // Check the node and its attributes.
+        assert_eq!(graph.node.len(), 1);
+        let node = &graph.node[0];
+        assert_eq!(node.name.as_deref(), Some("test_node"));
+        assert_eq!(node.op_type.as_deref(), Some("TestOp"));
+        assert_eq!(node.domain.as_deref(), Some("test.domain"));
+        assert_eq!(node.input, ["input", "weights"]);
+        assert_eq!(node.output, ["output"]);
+
+        let attrs = &node.attribute;
+        let attr_names: Vec<_> = attrs
+            .iter()
+            .map(|attr| attr.name.as_deref().unwrap())
+            .collect();
+        assert_eq!(
+            attr_names,
+            [
+                "float_attr",
+                "int_attr",
+                "string_attr",
+                "floats_attr",
+                "ints_attr",
+                "strings_attr",
+                "tensor_attr",
+                "graph_attr"
+            ]
+        );
+        assert_eq!(attrs[0].f, Some(0.5));
+        assert_eq!(attrs[0].r#type, Some(AttributeType::FLOAT));
+        assert_eq!(attrs[1].i, Some(-3));
+        assert_eq!(attrs[2].s.as_deref(), Some("str_value"));
+        assert_eq!(attrs[3].floats, [1.0, 2.0]);
+        assert_eq!(attrs[4].ints, [3, -4]);
+        assert_eq!(attrs[5].strings, ["a", "b"]);
+        assert_eq!(attrs[6].t.as_ref().unwrap().dims, [2, 3]);
+
+        let subgraph = attrs[7].g.as_ref().unwrap();
+        assert_eq!(subgraph.node.len(), 1);
+        assert_eq!(subgraph.node[0].op_type.as_deref(), Some("Identity"));
+        assert_eq!(subgraph.node[0].input, ["x"]);
+        assert_eq!(subgraph.node[0].output, ["y"]);
+
+        // Check the initializer which uses `raw_data`.
+        assert_eq!(graph.initializer.len(), 2);
+        let raw_init = &graph.initializer[0];
+        assert_eq!(raw_init.name.as_deref(), Some("weights"));
+        assert_eq!(raw_init.dims, [2, 3]);
+        assert_eq!(raw_init.data_type, Some(DataType::FLOAT));
+        let expected_raw: Vec<u8> = (0..6).flat_map(|i| (i as f32).to_le_bytes()).collect();
+        assert_eq!(*raw_init.raw_data.as_ref().unwrap().borrow(), expected_raw);
+
+        // Check the initializer which uses the typed data fields.
+        let typed_init = &graph.initializer[1];
+        assert_eq!(typed_init.float_data, [1.0, 2.0]);
+        assert_eq!(typed_init.int32_data, [3, -4]);
+        assert_eq!(typed_init.int64_data, [5, -6]);
+        assert_eq!(typed_init.double_data, [7.0, 8.0]);
+        assert_eq!(typed_init.data_location, Some(DataLocation::EXTERNAL));
+        assert_eq!(typed_init.external_data.len(), 1);
+        assert_eq!(typed_init.external_data[0].key.as_deref(), Some("location"));
+        assert_eq!(
+            typed_init.external_data[0].value.as_deref(),
+            Some("weights.bin")
+        );
+
+        // Check value types and shapes.
+        let input_type = graph.input[0].r#type.as_ref().unwrap();
+        let tensor_type = input_type.tensor_type.as_ref().unwrap();
+        assert_eq!(graph.input[0].name.as_deref(), Some("input"));
+        assert_eq!(tensor_type.elem_type, Some(DataType::FLOAT));
+        let dims = &tensor_type.shape.as_ref().unwrap().dim;
+        assert_eq!(dims[0].dim_param.as_deref(), Some("batch"));
+        assert_eq!(dims[1].dim_value, Some(3));
+
+        let output_type = graph.output[0].r#type.as_ref().unwrap();
+        let seq_elem_type = output_type
+            .sequence
+            .as_ref()
+            .unwrap()
+            .elem_type
+            .as_ref()
+            .unwrap();
+        assert_eq!(graph.output[0].name.as_deref(), Some("output"));
+        assert_eq!(
+            seq_elem_type.tensor_type.as_ref().unwrap().elem_type,
+            Some(DataType::INT64)
+        );
+
+        assert_eq!(graph.value_info.len(), 1);
+        assert_eq!(graph.value_info[0].name.as_deref(), Some("intermediate"));
+    }
+
+    // Test that writing a model and reading it back preserves the fields
+    // that this module supports.
+    #[test]
+    fn test_write_mnist() {
+        let model_path = test_file_path("mnist.onnx");
+        let file = File::open(model_path).unwrap();
+        let model = ModelProto::parse_file(file).unwrap();
+
+        let buf = model.write_buf().unwrap();
+        let decoded = ModelProto::parse_buf(&buf).unwrap();
+
+        assert_eq!(decoded.ir_version, model.ir_version);
+        assert_eq!(decoded.producer_name, model.producer_name);
+        assert_eq!(decoded.producer_version, model.producer_version);
+        assert_eq!(decoded.opset_import.len(), model.opset_import.len());
+
+        let graph = model.graph.as_ref().unwrap();
+        let decoded_graph = decoded.graph.as_ref().unwrap();
+
+        let ops = |graph: &GraphProto| -> Vec<String> {
+            graph
+                .node
+                .iter()
+                .map(|node| {
+                    format!(
+                        "{}({}) -> ({})",
+                        node.op_type.as_deref().unwrap_or_default(),
+                        node.input.join(", "),
+                        node.output.join(", ")
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(ops(decoded_graph), ops(graph));
+
+        let weights = |graph: &GraphProto| -> Vec<(String, Vec<i64>, Vec<u8>)> {
+            graph
+                .initializer
+                .iter()
+                .map(|init| {
+                    (
+                        init.name.clone().unwrap_or_default(),
+                        init.dims.clone(),
+                        init.raw_data
+                            .as_ref()
+                            .map(|data| data.borrow().clone())
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(weights(decoded_graph), weights(graph));
+
+        assert_eq!(decoded.write_buf().unwrap(), buf);
     }
 
     #[test]

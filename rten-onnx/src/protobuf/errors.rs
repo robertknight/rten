@@ -109,6 +109,9 @@ pub enum ErrorKind {
 
     /// A variable length field was not read or skipped over.
     FieldNotConsumed,
+
+    /// The actual and expected lengths of an encoded message did not match.
+    LengthMismatch,
 }
 
 impl Display for ErrorKind {
@@ -125,6 +128,7 @@ impl Display for ErrorKind {
             ErrorKind::FieldNotConsumed => {
                 write!(f, "variable-length field not consumed or skipped")
             }
+            ErrorKind::LengthMismatch => write!(f, "encoded message length mismatch"),
         }
     }
 }
