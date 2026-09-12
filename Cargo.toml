@@ -93,7 +93,7 @@ serde_json = { workspace = true }
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = ["contrib", "onnx_format", "rten_format"]
+default = ["contrib", "onnx_format"]
 
 # Enable all features that affect supported operators
 all-ops = ["fft", "random"]
