@@ -11,7 +11,7 @@ use std::io::BufRead;
 ///
 /// A decoded varint is a u64 value. Each byte contains 7 value bits and one
 /// continuation bit. Hence we need 9 "full" bytes plus one bit from the 10th byte.
-const MAX_VARINT_LEN: usize = 10;
+pub const MAX_VARINT_LEN: usize = 10;
 
 #[derive(Debug)]
 pub enum VarintError {
@@ -69,30 +69,46 @@ pub fn read_varint<R: BufRead>(mut src: R) -> Result<u64, VarintError> {
     Err(VarintError::InvalidVarint)
 }
 
-#[cfg(test)]
-pub fn encode_varint(mut val: u64) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(10);
+/// Encode `val` as a varint into `buf` and return the encoded bytes.
+///
+/// This will write between one and [`MAX_VARINT_LEN`] bytes.
+pub fn encode_varint(mut val: u64, buf: &mut [u8; MAX_VARINT_LEN]) -> &[u8] {
+    let mut len = 0;
 
     loop {
-        let mut byte = (val & 0x7f) as u8;
+        let byte = (val & 0x7f) as u8;
         if val <= 0x7f {
-            bytes.push(byte);
+            buf[len] = byte;
+            len += 1;
             break;
         } else {
-            byte |= 0x80;
-            bytes.push(byte);
-            val = val >> 7;
+            buf[len] = byte | 0x80;
+            len += 1;
+            val >>= 7;
         }
     }
 
-    bytes
+    &buf[..len]
+}
+
+/// Return the number of bytes that `val` occupies when encoded as a varint.
+pub fn varint_len(val: u64) -> usize {
+    // Each byte holds 7 value bits. `val | 1` makes the zero case return 1.
+    let value_bits = u64::BITS - (val | 1).leading_zeros();
+    value_bits.div_ceil(7) as usize
+}
+
+#[cfg(test)]
+pub fn encode_varint_vec(val: u64) -> Vec<u8> {
+    let mut buf = [0; MAX_VARINT_LEN];
+    encode_varint(val, &mut buf).to_vec()
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead, Cursor, Read};
 
-    use super::{VarintError, encode_varint, read_varint};
+    use super::{VarintError, encode_varint_vec, read_varint, varint_len};
 
     /// Like `Cursor`, but behaves as if the internal buffer only has a capacity
     /// of one.
@@ -131,7 +147,7 @@ mod tests {
         let mut values: Vec<u64> = (0..1024).collect();
         values.push(u64::MAX);
         for val in values {
-            let buf = encode_varint(val);
+            let buf = encode_varint_vec(val);
             let mut cur = Cursor::new(buf);
             let decoded_val = read_varint(&mut cur).unwrap();
             assert_eq!(decoded_val, val);
@@ -154,7 +170,7 @@ mod tests {
 
         // Longer sequence of varints.
         let values = [0, 1, 150, u64::MAX, 2];
-        let buf: Vec<u8> = values.iter().copied().flat_map(encode_varint).collect();
+        let buf: Vec<u8> = values.iter().copied().flat_map(encode_varint_vec).collect();
 
         let mut decoded_values = Vec::new();
         let mut cur = Cursor::new(buf);
@@ -176,15 +192,24 @@ mod tests {
     #[test]
     fn test_read_varint_refill() {
         let val = 65535;
-        let buf = encode_varint(val);
+        let buf = encode_varint_vec(val);
         let mut cur = OneByteCursor::new(&buf);
         let decoded = read_varint(&mut cur).unwrap();
         assert_eq!(decoded, val);
     }
 
     #[test]
+    fn test_varint_len() {
+        let mut values: Vec<u64> = (0..1024).collect();
+        values.extend([u64::MAX, i32::MAX as u64, u32::MAX as u64]);
+        for val in values {
+            assert_eq!(varint_len(val), encode_varint_vec(val).len(), "value {val}");
+        }
+    }
+
+    #[test]
     fn test_invalid_varint() {
-        let mut buf = encode_varint(u64::MAX);
+        let mut buf = encode_varint_vec(u64::MAX);
         assert_eq!(buf.len(), 10);
         buf[9] += 1;
         let decoded = read_varint(&mut Cursor::new(buf));

@@ -330,13 +330,13 @@ impl<'a, R: ReadValue> ReadValue for LimitReader<'a, R> {
 mod tests {
     use super::{LimitReader, ReadValue, ValueReader};
     use crate::protobuf::ErrorKind;
-    use crate::protobuf::varint::encode_varint;
+    use crate::protobuf::varint::encode_varint_vec;
 
     fn test_read_value<R: ReadValue>(make_reader: impl Fn(Vec<u8>) -> R) {
         let mut buf = Vec::new();
         buf.extend((42i32).to_le_bytes());
         buf.extend((84i64).to_le_bytes());
-        buf.extend(encode_varint(1234));
+        buf.extend(encode_varint_vec(1234));
         buf.extend([1, 2, 3, 4]);
         buf.extend("hello world".as_bytes());
 
@@ -378,12 +378,12 @@ mod tests {
         let mut buf = Vec::new();
         buf.extend((42i32).to_le_bytes());
         buf.extend((84i64).to_le_bytes());
-        buf.extend(encode_varint(1234));
+        buf.extend(encode_varint_vec(1234));
         buf.extend([1, 2, 3, 4]);
         buf.extend("hello world".as_bytes());
 
         let limit = buf.len();
-        buf.extend(encode_varint(5678));
+        buf.extend(encode_varint_vec(5678));
 
         let mut reader = ValueReader::from_buf(buf);
 

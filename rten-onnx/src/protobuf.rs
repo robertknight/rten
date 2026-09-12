@@ -40,10 +40,14 @@
 mod errors;
 mod field;
 mod message;
+mod message_writer;
 mod value;
+mod value_writer;
 pub mod varint;
 
 pub use errors::{ErrorKind, ProtobufError};
 pub use field::{Field, FieldValue, Fields};
 pub use message::DecodeMessage;
+pub use message_writer::{EncodeMessage, MessageWriter};
 pub use value::{FieldTypes, OwnedValues, ReadPos, ReadValue, ValueReader};
+pub use value_writer::{CountingWriter, ValueWriter, WriteValue};

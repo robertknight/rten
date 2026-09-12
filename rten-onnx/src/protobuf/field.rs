@@ -30,14 +30,14 @@ impl FieldValue {
     /// Encode a field with the value and wire type of `self` and the given
     /// field number.
     fn encode(self, number: u64) -> Vec<u8> {
-        use crate::protobuf::varint::encode_varint;
-        let encode_type_number = |wire_type| encode_varint(wire_type | (number << 3));
+        use crate::protobuf::varint::encode_varint_vec;
+        let encode_type_number = |wire_type| encode_varint_vec(wire_type | (number << 3));
 
         let mut buf = Vec::new();
         match self {
             Self::Varint(val) => {
                 buf.extend(encode_type_number(0));
-                buf.extend(encode_varint(val));
+                buf.extend(encode_varint_vec(val));
             }
             Self::I64(val) => {
                 buf.extend(encode_type_number(1));
@@ -45,7 +45,7 @@ impl FieldValue {
             }
             Self::Len(len) => {
                 buf.extend(encode_type_number(2));
-                buf.extend(encode_varint(len));
+                buf.extend(encode_varint_vec(len));
             }
             Self::Sgroup => {
                 buf.extend(encode_type_number(3));
@@ -467,7 +467,7 @@ impl<'r, R: ReadValue> Fields<'r, R> {
 #[cfg(test)]
 mod tests {
     use super::{FieldValue, Fields};
-    use crate::protobuf::varint::encode_varint;
+    use crate::protobuf::varint::encode_varint_vec;
     use crate::protobuf::{ErrorKind, ProtobufError, ValueReader};
 
     fn read_fields(buf: &[u8]) -> Result<Vec<(u64, FieldValue)>, ProtobufError> {
@@ -598,8 +598,8 @@ mod tests {
         let mut buf = Vec::new();
         buf.extend(FieldValue::Varint(1).encode(1)); // Non-packed repeated
         buf.extend(FieldValue::Len(2).encode(1)); // Packed repeated
-        buf.extend(encode_varint(2));
-        buf.extend(encode_varint(3));
+        buf.extend(encode_varint_vec(2));
+        buf.extend(encode_varint_vec(3));
 
         let mut reader = ValueReader::from_buf(buf);
         let mut fields = Fields::new(&mut reader, Some("TestMessage"));
