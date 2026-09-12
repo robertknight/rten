@@ -966,22 +966,72 @@ macro_rules! include_external_data {
 
 #[cfg(test)]
 mod tests {
+    use rten_onnx::onnx;
     use rten_tensor::prelude::*;
-    use rten_tensor::{NdTensor, Tensor};
+    use rten_tensor::{NdTensor, Tensor, TensorView};
 
-    use crate::graph::{Dimension, NodeId, RunErrorKind};
-    use crate::model::rten_builder::{
-        GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
+    use crate::graph::{Dimension, RunErrorKind};
+    use crate::model::onnx_builder::{
+        GraphProtoExt, ModelProtoExt, NodeProtoExt, ToTensorProto, ValueInfoProtoExt, create_node,
+        create_tensor_from_view, create_value_info,
     };
+    use crate::model::rten_builder::{MetadataArgs, ModelBuilder, ModelFormat, OpType};
     use crate::model::{LoadErrorKind, Model, ModelOptions};
     use crate::op_registry;
     use crate::ops;
-    use crate::ops::{
-        BoxOrder, CoordTransformMode, DepthToSpaceMode, NearestMode, ResizeMode, Shape,
-    };
-    use crate::value::{DataType, Scalar, Value, ValueType};
+    use crate::value::{DataType, Value, ValueType};
 
-    fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
+    /// Create an ONNX model which concatenates a constant with the model input
+    /// and applies a Relu operator to the result.
+    fn generate_model_buffer() -> Vec<u8> {
+        let const_val = Tensor::from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
+        let input_shape: Vec<Dimension> = const_val
+            .shape()
+            .iter()
+            .copied()
+            .map(Dimension::Fixed)
+            .collect();
+
+        let concat = create_node("Concat")
+            .with_name("concat")
+            .with_input("const")
+            .with_input("input")
+            .with_output("concat_out")
+            .with_attr("axis", 0i64);
+        let relu = create_node("Relu")
+            .with_name("relu")
+            .with_input("concat_out")
+            .with_output("output");
+
+        onnx::GraphProto::default()
+            .with_initializer(create_tensor_from_view("const", const_val.view()))
+            .with_input(
+                create_value_info("input")
+                    .with_dtype(onnx::DataType::FLOAT)
+                    .with_shape(&input_shape),
+            )
+            .with_output(
+                create_value_info("output")
+                    .with_dtype(onnx::DataType::FLOAT)
+                    .with_shape(&[
+                        Dimension::Fixed(2),
+                        Dimension::Fixed(2),
+                        Dimension::Fixed(2),
+                    ]),
+            )
+            .with_node(concat)
+            .with_node(relu)
+            .into_model()
+            .with_opset("", 18)
+            .with_producer("rten-test", "1.2.3")
+            .with_metadata("description", "test model")
+            .write_buf()
+            .unwrap()
+    }
+
+    /// Version of [`generate_model_buffer`] which creates a model in the
+    /// `.rten` format.
+    fn generate_rten_model_buffer(format: ModelFormat) -> Vec<u8> {
         let mut builder = ModelBuilder::new(format);
         let mut graph_builder = builder.graph_builder();
 
@@ -1038,7 +1088,7 @@ mod tests {
 
     #[test]
     fn test_model_input_output_ids() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
 
         let model = Model::load(buffer).unwrap();
 
@@ -1063,7 +1113,7 @@ mod tests {
 
     #[test]
     fn test_unsupported_operator() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let registry = op_registry!();
         let result = ModelOptions::with_ops(registry).load(buffer);
         assert_eq!(
@@ -1076,7 +1126,7 @@ mod tests {
 
     #[test]
     fn test_subset_of_ops_enabled() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let registry = op_registry!(Concat, Relu);
         let result = ModelOptions::with_ops(registry).load(buffer);
         assert!(result.is_ok());
@@ -1084,7 +1134,7 @@ mod tests {
 
     #[test]
     fn test_shape_info() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let model = Model::load(buffer).unwrap();
         let input_id = model.input_ids()[0];
 
@@ -1097,7 +1147,7 @@ mod tests {
 
     #[test]
     fn test_value_dtype_info() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let model = Model::load(buffer).unwrap();
         let input_id = model.input_ids()[0];
 
@@ -1110,15 +1160,19 @@ mod tests {
 
     #[test]
     fn test_metadata() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let model = Model::load(buffer).unwrap();
-        assert_eq!(model.metadata().onnx_hash(), Some("abc"));
-        assert_eq!(model.metadata().description(), None);
+        assert_eq!(model.metadata().producer_name(), Some("rten-test"));
+        assert_eq!(model.metadata().producer_version(), Some("1.2.3"));
+        assert_eq!(model.metadata().get("description"), Some("test model"));
+
+        // Fields which are only set in `.rten` format models.
+        assert_eq!(model.metadata().onnx_hash(), None);
     }
 
     #[test]
     fn test_input_shape() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let model = Model::load(buffer).unwrap();
         assert_eq!(
             model.input_shape(0),
@@ -1133,22 +1187,26 @@ mod tests {
     #[test]
     fn test_load_and_run_model() {
         struct Case {
-            format: ModelFormat,
+            buffer: Vec<u8>,
             opts: Option<ModelOptions>,
         }
 
         let cases = [
             Case {
-                format: ModelFormat::V1,
+                buffer: generate_model_buffer(),
                 opts: None,
             },
             Case {
-                format: ModelFormat::V2,
+                buffer: generate_rten_model_buffer(ModelFormat::V1),
+                opts: None,
+            },
+            Case {
+                buffer: generate_rten_model_buffer(ModelFormat::V2),
                 opts: None,
             },
             // Graph optimizations disabled
             Case {
-                format: ModelFormat::V2,
+                buffer: generate_model_buffer(),
                 opts: Some({
                     let mut opts = ModelOptions::with_all_ops();
                     opts.enable_optimization(false);
@@ -1157,7 +1215,7 @@ mod tests {
             },
             // Prepacking enabled
             Case {
-                format: ModelFormat::V2,
+                buffer: generate_model_buffer(),
                 opts: Some({
                     let mut opts = ModelOptions::with_all_ops();
                     opts.prepack_weights(true);
@@ -1166,9 +1224,7 @@ mod tests {
             },
         ];
 
-        for Case { format, opts } in cases {
-            let buffer = generate_model_buffer(format);
-
+        for Case { buffer, opts } in cases {
             let model = if let Some(opts) = opts {
                 opts.load(buffer).unwrap()
             } else {
@@ -1199,7 +1255,7 @@ mod tests {
 
     #[test]
     fn test_model_debug() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let model = Model::load(buffer).unwrap();
         let debug_str = format!("{model:?}");
         assert_eq!(
@@ -1215,7 +1271,9 @@ mod tests {
             expected_error: &'static str,
         }
 
-        let buf = generate_model_buffer(ModelFormat::V2);
+        // This test corrupts the model buffer in ways that are specific to the
+        // `.rten` format.
+        let buf = generate_rten_model_buffer(ModelFormat::V2);
 
         let mut invalid_model = buf.clone();
         let header_size = 32;
@@ -1256,7 +1314,7 @@ mod tests {
 
     #[test]
     fn test_load_static_slice() {
-        let buffer = generate_model_buffer(ModelFormat::V2).leak();
+        let buffer = generate_model_buffer().leak();
         let model = Model::load_static_slice(buffer).unwrap();
         let input = generate_input();
         let input_id = model.input_ids()[0];
@@ -1269,10 +1327,10 @@ mod tests {
 
     #[test]
     fn test_load_file() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
-        std::fs::write("model-load-file-test.rten", buffer).unwrap();
+        let buffer = generate_model_buffer();
+        std::fs::write("model-load-file-test.onnx", buffer).unwrap();
 
-        let model = Model::load_file("model-load-file-test.rten").unwrap();
+        let model = Model::load_file("model-load-file-test.onnx").unwrap();
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
@@ -1287,10 +1345,10 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_load_mmap() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
-        std::fs::write("model-load-mmap-test.rten", buffer).unwrap();
+        let buffer = generate_model_buffer();
+        std::fs::write("model-load-mmap-test.onnx", buffer).unwrap();
 
-        let model = unsafe { Model::load_mmap("model-load-mmap-test.rten").unwrap() };
+        let model = unsafe { Model::load_mmap("model-load-mmap-test.onnx").unwrap() };
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
@@ -1375,7 +1433,7 @@ mod tests {
 
     #[test]
     fn test_run_one() {
-        let buffer = generate_model_buffer(ModelFormat::V2);
+        let buffer = generate_model_buffer();
         let model = Model::load(buffer).unwrap();
 
         let input = Tensor::from([[[1., 2.], [-1., -2.]]]);
@@ -1391,21 +1449,19 @@ mod tests {
 
     #[test]
     fn test_omitted_optional_inputs() {
-        let mut builder = ModelBuilder::new(ModelFormat::V2);
-        let mut graph_builder = builder.graph_builder();
+        // An empty input name represents an omitted optional input.
+        let node = create_node("Shape")
+            .with_name("shape")
+            .with_input("")
+            .with_output("output");
 
-        let output_node = graph_builder.add_value("output", None, None);
-        graph_builder.add_output(output_node);
-        graph_builder.add_operator(
-            "shape",
-            OpType::Shape(Shape::default()),
-            &[None],
-            &[output_node],
-        );
-
-        let graph = graph_builder.finish();
-        builder.set_graph(graph);
-        let buffer = builder.finish();
+        let buffer = onnx::GraphProto::default()
+            .with_output(create_value_info("output"))
+            .with_node(node)
+            .into_model()
+            .with_opset("", 18)
+            .write_buf()
+            .unwrap();
 
         // Load with optimizations disabled to prevent the optimizer from
         // running the graph as part of constant propagation.
@@ -1414,7 +1470,8 @@ mod tests {
             .load(buffer)
             .unwrap();
 
-        let err = model.run(vec![], &[output_node], None).err().unwrap();
+        let output_id = model.find_node("output").unwrap();
+        let err = model.run(vec![], &[output_id], None).err().unwrap();
         assert_eq!(err.node_path(), [Some("shape")]);
         assert_eq!(err.kind(), RunErrorKind::OperatorError);
     }
@@ -1424,452 +1481,478 @@ mod tests {
     // executed successfully.
     #[test]
     fn test_all_op_types() {
-        let mut builder = ModelBuilder::new(ModelFormat::V2);
-        let mut graph_builder = builder.graph_builder();
+        /// Create an operator node with a given type and inputs.
+        fn node(op_type: &str, inputs: &[&str]) -> onnx::NodeProto {
+            let mut node = create_node(op_type);
+            for input in inputs {
+                node = node.with_input(input);
+            }
+            node
+        }
 
-        let input_node = graph_builder.add_value("input", None, None);
-        let input_2d = graph_builder.add_value("input.2d", None, None);
-        let input_bool = graph_builder.add_value("input.bool", None, None);
-        let input_u8 = graph_builder.add_value("input.u8", None, None);
-        let input_2d_u8 = graph_builder.add_value("input.2d.u8", None, None);
-        let input_2d_i8 = graph_builder.add_value("input.2d.i8", None, None);
+        /// Builds a graph in which the outputs of every operator are also
+        /// outputs of the graph.
+        struct GraphBuilder {
+            graph: onnx::GraphProto,
+
+            /// Names of all operator output values.
+            op_outputs: Vec<String>,
+        }
+
+        impl GraphBuilder {
+            fn add_input(&mut self, name: &str) {
+                self.graph.input.push(create_value_info(name));
+            }
+
+            fn add_constant<T: ToTensorProto>(&mut self, name: &str, value: TensorView<T>) {
+                self.graph
+                    .initializer
+                    .push(create_tensor_from_view(name, value));
+            }
+
+            /// Add an operator with a single output named `{op_type}_out` and
+            /// return the output name.
+            fn add_operator(&mut self, node: onnx::NodeProto) -> String {
+                let output = format!("{}_out", node.op_type.as_deref().unwrap_or_default());
+                self.add_operator_with_outputs(node, &[&output]);
+                output
+            }
+
+            /// Add an operator with explicitly named outputs.
+            ///
+            /// This is used for operators which have more than one output.
+            fn add_operator_with_outputs(&mut self, node: onnx::NodeProto, outputs: &[&str]) {
+                // Set the operator node name to match the operator type. This
+                // relies on each operator being used only once in the graph.
+                let op_type = node.op_type.clone().unwrap_or_default();
+                let mut node = node.with_name(&op_type);
+                for output in outputs {
+                    node = node.with_output(output);
+                    self.graph.output.push(create_value_info(output));
+                    self.op_outputs.push(output.to_string());
+                }
+                self.graph.node.push(node);
+            }
+        }
+
+        let mut builder = GraphBuilder {
+            graph: onnx::GraphProto::default(),
+            op_outputs: Vec::new(),
+        };
 
         for input in [
-            input_node,
-            input_2d,
-            input_bool,
-            input_u8,
-            input_2d_u8,
-            input_2d_i8,
+            "input",
+            "input.2d",
+            "input.bool",
+            "input.u8",
+            "input.2d.u8",
+            "input.2d.i8",
         ] {
-            graph_builder.add_input(input);
+            builder.add_input(input);
         }
 
         // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
         // require a different shape.
         let input_shape = [1, 1, 3, 3];
 
-        let kernel_val = Tensor::from_data(&[1, 1, 1, 1], vec![0.5]);
-        let kernel = graph_builder.add_constant(kernel_val.view());
+        builder.add_constant("kernel", Tensor::from_data(&[1, 1, 1, 1], vec![0.5]).view());
+        builder.add_constant(
+            "kernel.i8",
+            Tensor::from_data(&[1, 1, 1, 1], vec![0i8]).view(),
+        );
 
-        let kernel_val_i8 = Tensor::from_data(&[1, 1, 1, 1], vec![0i8]);
-        let kernel_i8 = graph_builder.add_constant(kernel_val_i8.view());
-
-        // Names of all operator output nodes.
-        let mut op_outputs = Vec::new();
-
-        let mut add_operator =
-            |builder: &mut GraphBuilder, name: &str, op: OpType, input_nodes: &[Option<NodeId>]| {
-                let output_name = format!("{}_out", name);
-                let op_output_node = builder.add_value(&output_name, None, None);
-                builder.add_operator(name, op, input_nodes, &[op_output_node]);
-                builder.add_output(op_output_node);
-                op_outputs.push(output_name);
-                op_output_node
-            };
-
-        // Add a new operator node and associated output value node to the model.
-        //
-        // Returns the node ID of the output node.
-        macro_rules! add_operator {
-            ($op_name:ident, $op_inputs:expr) => {
-                add_operator(
-                    &mut graph_builder,
-                    stringify!($op_name),
-                    OpType::$op_name,
-                    &$op_inputs.map(Some),
-                )
-            };
-
-            ($op_name:ident, $op_inputs:expr, $attrs: tt) => {
-                add_operator(
-                    &mut graph_builder,
-                    stringify!($op_name),
-                    OpType::$op_name(ops::$op_name $attrs),
-                    &$op_inputs.map(Some),
-                )
-            };
-        }
-
-        add_operator!(Abs, [input_node]);
-        add_operator!(Acos, [input_node]);
-        add_operator!(Acosh, [input_node]);
-        add_operator!(Add, [input_node, input_node]);
-        add_operator!(And, [input_bool, input_bool]);
-        add_operator!(ArgMax, [input_node], { axis: 3, keep_dims: false });
-        add_operator!(ArgMin, [input_node], { axis: 3, keep_dims: false });
-        add_operator!(Asin, [input_node]);
-        add_operator!(Asinh, [input_node]);
-        add_operator!(Atan, [input_node]);
-        add_operator!(Atanh, [input_node]);
-        add_operator!(AveragePool, [input_node], {
-            kernel_size: [2, 2].into(),
-            strides: [2, 2].into(),
-            padding: [0, 0, 0, 0].into(),
-            count_include_pad: false,
-            ceil_mode: false,
-        });
+        builder.add_operator(node("Abs", &["input"]));
+        builder.add_operator(node("Acos", &["input"]));
+        builder.add_operator(node("Acosh", &["input"]));
+        builder.add_operator(node("Add", &["input", "input"]));
+        builder.add_operator(node("And", &["input.bool", "input.bool"]));
+        builder.add_operator(
+            node("ArgMax", &["input"])
+                .with_attr("axis", 3i64)
+                .with_attr("keepdims", false),
+        );
+        builder.add_operator(
+            node("ArgMin", &["input"])
+                .with_attr("axis", 3i64)
+                .with_attr("keepdims", false),
+        );
+        builder.add_operator(node("Asin", &["input"]));
+        builder.add_operator(node("Asinh", &["input"]));
+        builder.add_operator(node("Atan", &["input"]));
+        builder.add_operator(node("Atanh", &["input"]));
+        builder.add_operator(
+            node("AveragePool", &["input"])
+                .with_attr("kernel_shape", vec![2i64, 2])
+                .with_attr("strides", vec![2i64, 2])
+                .with_attr("pads", vec![0i64, 0, 0, 0])
+                .with_attr("count_include_pad", false)
+                .with_attr("ceil_mode", false),
+        );
 
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
-        let batch_norm_param_val = Tensor::from([1.0]);
-        let batch_norm_param = graph_builder.add_constant(batch_norm_param_val.view());
-        add_operator!(
-            BatchNormalization,
-            [
-                input_node,
-                batch_norm_param, /* scale */
-                batch_norm_param, /* bias */
-                batch_norm_param, /* mean */
-                batch_norm_param, /* variance */
-            ],
-            { epsilon: 1e-5 }
+        builder.add_constant("batch_norm_param", Tensor::from([1.0]).view());
+        builder.add_operator(
+            node(
+                "BatchNormalization",
+                &[
+                    "input",
+                    "batch_norm_param", /* scale */
+                    "batch_norm_param", /* bias */
+                    "batch_norm_param", /* mean */
+                    "batch_norm_param", /* variance */
+                ],
+            )
+            .with_attr("epsilon", 1e-5),
         );
 
-        add_operator!(Cast, [input_node], { to: DataType::Float });
-        add_operator!(CastLike, [input_node, input_node], {});
-        add_operator!(Ceil, [input_node]);
+        builder.add_operator(
+            node("Cast", &["input"]).with_attr("to", i64::from(onnx::DataType::FLOAT.0)),
+        );
+        builder.add_operator(node("CastLike", &["input", "input"]));
+        builder.add_operator(node("Ceil", &["input"]));
 
-        let clip_min = graph_builder.add_constant(Tensor::from(1.).view());
-        let clip_max = graph_builder.add_constant(Tensor::from(6.).view());
-        add_operator!(Clip, [input_node, clip_min, clip_max]);
-        add_operator!(Concat, [input_node, input_node], { axis: 0 });
+        builder.add_constant("clip_min", Tensor::from(1.).view());
+        builder.add_constant("clip_max", Tensor::from(6.).view());
+        builder.add_operator(node("Clip", &["input", "clip_min", "clip_max"]));
+        builder.add_operator(node("Concat", &["input", "input"]).with_attr("axis", 0i64));
 
-        let shape = graph_builder.add_constant(Tensor::from([1, 5, 10]).view());
-        add_operator!(ConstantOfShape, [shape], { value: Scalar::Int32(42) });
+        builder.add_constant("shape", Tensor::from([1, 5, 10]).view());
+        builder.add_operator(node("ConstantOfShape", &["shape"]).with_attr(
+            "value",
+            create_tensor_from_view("value", Tensor::from([42]).view()),
+        ));
 
-        add_operator!(Conv, [input_node, kernel], {
-            dilations: vec![1, 1],
-            groups: 1,
-            padding: [1, 1, 1, 1].into(),
-            strides: vec![1, 1],
-        });
-        add_operator!(ConvInteger, [input_u8, kernel_i8], {
-            dilations: vec![1, 1],
-            groups: 1,
-            padding: [1, 1, 1, 1].into(),
-            strides: vec![1, 1],
-        });
-        add_operator!(ConvTranspose, [input_node, kernel], {
-            strides: vec![2, 2],
-            dilations: vec![2, 2],
-            padding: [0, 0, 0, 0].into(),
-            groups: 1,
-            output_padding: None,
-        });
-        add_operator!(Cos, [input_node]);
-        add_operator!(Cosh, [input_node]);
+        builder.add_operator(
+            node("Conv", &["input", "kernel"])
+                .with_attr("kernel_shape", vec![1i64, 1])
+                .with_attr("dilations", vec![1i64, 1])
+                .with_attr("group", 1i64)
+                .with_attr("pads", vec![1i64, 1, 1, 1])
+                .with_attr("strides", vec![1i64, 1]),
+        );
+        builder.add_operator(
+            node("ConvInteger", &["input.u8", "kernel.i8"])
+                .with_attr("kernel_shape", vec![1i64, 1])
+                .with_attr("dilations", vec![1i64, 1])
+                .with_attr("group", 1i64)
+                .with_attr("pads", vec![1i64, 1, 1, 1])
+                .with_attr("strides", vec![1i64, 1]),
+        );
+        builder.add_operator(
+            node("ConvTranspose", &["input", "kernel"])
+                .with_attr("kernel_shape", vec![1i64, 1])
+                .with_attr("dilations", vec![2i64, 2])
+                .with_attr("group", 1i64)
+                .with_attr("pads", vec![0i64, 0, 0, 0])
+                .with_attr("strides", vec![2i64, 2]),
+        );
+        builder.add_operator(node("Cos", &["input"]));
+        builder.add_operator(node("Cosh", &["input"]));
 
-        let cum_sum_axis = graph_builder.add_constant(Tensor::from(0).view());
-        add_operator!(CumSum, [input_node, cum_sum_axis], { exclusive: true, reverse: true });
+        builder.add_constant("cum_sum_axis", Tensor::from(0).view());
+        builder.add_operator(
+            node("CumSum", &["input", "cum_sum_axis"])
+                .with_attr("exclusive", true)
+                .with_attr("reverse", true),
+        );
 
         let const_u8_val = Tensor::from([0u8, 1, 2, 3, 4]);
-        let const_u8 = graph_builder.add_constant(const_u8_val.view());
+        builder.add_constant("const.u8", const_u8_val.view());
 
         let const_f32_val = const_u8_val.map(|x| *x as f32);
-        let const_f32 = graph_builder.add_constant(const_f32_val.view());
+        builder.add_constant("const.f32", const_f32_val.view());
 
-        let scale_val = Tensor::from(1.);
-        let scale = graph_builder.add_constant(scale_val.view());
-        let zero_point_val = Tensor::from(0u8);
-        let zero_point = graph_builder.add_constant(zero_point_val.view());
-        add_operator!(DequantizeLinear, [const_u8, scale, zero_point], {
-            axis: 0,
-        });
-        add_operator!(DepthToSpace, [input_node], {
-            mode: DepthToSpaceMode::DepthColumnRow,
-            block_size: 1,
-        });
-        add_operator!(QuantizeLinear, [const_f32, scale, zero_point], {
-            axis: 0,
-            output_dtype: None,
-        });
+        builder.add_constant("scale", Tensor::from(1.).view());
+        builder.add_constant("zero_point", Tensor::from(0u8).view());
+        builder.add_operator(
+            node("DequantizeLinear", &["const.u8", "scale", "zero_point"]).with_attr("axis", 0i64),
+        );
+        builder.add_operator(
+            node("DepthToSpace", &["input"])
+                .with_attr("mode", "DCR".to_string())
+                .with_attr("blocksize", 1i64),
+        );
+        builder.add_operator(
+            node("QuantizeLinear", &["const.f32", "scale", "zero_point"]).with_attr("axis", 0i64),
+        );
 
-        add_operator!(Div, [input_node, input_node]);
+        builder.add_operator(node("Div", &["input", "input"]));
         #[cfg(feature = "random")]
-        {
-            let dropout_out = graph_builder.add_value("Dropout_out", None, None);
-            let dropout_out_mask = graph_builder.add_value("Dropout_out_mask", None, None);
-            graph_builder.add_operator(
-                "Dropout",
-                OpType::Dropout(ops::Dropout { seed: None }),
-                &[input_2d].map(Some),
-                &[dropout_out, dropout_out_mask],
-            );
-            graph_builder.add_output(dropout_out);
-            graph_builder.add_output(dropout_out_mask);
-        }
-        add_operator!(Elu, [input_node], { alpha: 1.0 });
-        add_operator!(Equal, [input_node, input_node]);
-        add_operator!(Erf, [input_node]);
-        add_operator!(Exp, [input_node]);
+        builder.add_operator_with_outputs(
+            node("Dropout", &["input.2d"]),
+            &["Dropout_out", "Dropout_out_mask"],
+        );
+        builder.add_operator(node("Elu", &["input"]).with_attr("alpha", 1.0));
+        builder.add_operator(node("Equal", &["input", "input"]));
+        builder.add_operator(node("Erf", &["input"]));
+        builder.add_operator(node("Exp", &["input"]));
 
-        let expand_shape_val = Tensor::from([2, 2, 3, 3]);
-        let expand_shape = graph_builder.add_constant(expand_shape_val.view());
-        add_operator!(Expand, [input_node, expand_shape]);
-        add_operator!(EyeLike, [input_2d], { k: 2, dtype: None });
+        builder.add_constant("expand_shape", Tensor::from([2, 2, 3, 3]).view());
+        builder.add_operator(node("Expand", &["input", "expand_shape"]));
+        builder.add_operator(node("EyeLike", &["input.2d"]).with_attr("k", 2i64));
 
-        add_operator!(Flatten, [input_node], { axis: 1 });
-        add_operator!(Floor, [input_node]);
+        builder.add_operator(node("Flatten", &["input"]).with_attr("axis", 1i64));
+        builder.add_operator(node("Floor", &["input"]));
 
-        let gather_indices_val = Tensor::from([0]);
-        let gather_indices = graph_builder.add_constant(gather_indices_val.view());
-        add_operator!(Gather, [input_node, gather_indices], { axis: 0 });
+        builder.add_constant("gather_indices", Tensor::from([0]).view());
+        builder.add_operator(node("Gather", &["input", "gather_indices"]).with_attr("axis", 0i64));
 
-        let gather_elements_indices_val = Tensor::<i32>::zeros(&input_shape);
-        let gather_elements_indices =
-            graph_builder.add_constant(gather_elements_indices_val.view());
-        add_operator!(GatherElements, [input_node, gather_elements_indices], { axis: 0 });
-        add_operator!(Gelu, [input_node], { approximate: false });
-        add_operator!(Gemm, [input_2d, input_2d], {
-            alpha: 1.0,
-            beta: 1.0,
-            transpose_a: false,
-            transpose_b: false,
-        });
-        add_operator!(GlobalAveragePool, [input_node]);
-        add_operator!(GlobalMaxPool, [input_node]);
-        add_operator!(Greater, [input_node, input_node]);
-        add_operator!(GreaterOrEqual, [input_node, input_node]);
-        add_operator!(HardSigmoid, [input_node], {
-            alpha: 0.2,
-            beta: 0.5,
-        });
-        add_operator!(HardSwish, [input_node]);
+        builder.add_constant(
+            "gather_elements_indices",
+            Tensor::<i32>::zeros(&input_shape).view(),
+        );
+        builder.add_operator(
+            node("GatherElements", &["input", "gather_elements_indices"]).with_attr("axis", 0i64),
+        );
+        builder.add_operator(node("Gelu", &["input"]).with_attr("approximate", "none".to_string()));
+        builder.add_operator(
+            node("Gemm", &["input.2d", "input.2d"])
+                .with_attr("alpha", 1.0)
+                .with_attr("beta", 1.0)
+                .with_attr("transA", false)
+                .with_attr("transB", false),
+        );
+        builder.add_operator(node("GlobalAveragePool", &["input"]));
+        builder.add_operator(node("GlobalMaxPool", &["input"]));
+        builder.add_operator(node("Greater", &["input", "input"]));
+        builder.add_operator(node("GreaterOrEqual", &["input", "input"]));
+        builder.add_operator(
+            node("HardSigmoid", &["input"])
+                .with_attr("alpha", 0.2)
+                .with_attr("beta", 0.5),
+        );
+        builder.add_operator(node("HardSwish", &["input"]));
 
         // TODO - Add GRU operator
 
-        add_operator!(Identity, [input_node]);
+        builder.add_operator(node("Identity", &["input"]));
 
-        // If operator
-        let if_cond_val = Tensor::from(1);
-        let if_cond = graph_builder.add_constant(if_cond_val.view());
-
-        let mut then_branch_builder = graph_builder.subgraph_builder();
-        let then_out_val = Tensor::from(2);
-        let then_out = then_branch_builder.add_constant(then_out_val.view());
-        then_branch_builder.add_output(then_out);
-        let then_branch = then_branch_builder.finish();
-
-        let mut else_branch_builder = graph_builder.subgraph_builder();
-        let else_out_val = Tensor::from(3);
-        let else_out = else_branch_builder.add_constant(else_out_val.view());
-        else_branch_builder.add_output(else_out);
-        let else_branch = else_branch_builder.finish();
-
-        add_operator(
-            &mut graph_builder,
-            "If",
-            OpType::If(IfArgs {
-                then_branch,
-                else_branch,
-            }),
-            &[Some(if_cond)],
+        // If operator. Each branch is a subgraph which returns a constant. The
+        // constant is passed through an `Identity` operator so that the
+        // subgraph's output has a different name than the constant.
+        builder.add_constant("if_cond", Tensor::from(1).view());
+        let if_branch = |name: &str, value: i32| {
+            onnx::GraphProto::default()
+                .with_initializer(create_tensor_from_view(
+                    &format!("{name}_const"),
+                    Tensor::from(value).view(),
+                ))
+                .with_node(
+                    node("Identity", &[&format!("{name}_const")])
+                        .with_name(name)
+                        .with_output(name),
+                )
+                .with_output(create_value_info(name))
+        };
+        builder.add_operator(
+            node("If", &["if_cond"])
+                .with_attr("then_branch", if_branch("then_out", 2))
+                .with_attr("else_branch", if_branch("else_out", 3)),
         );
 
-        let instance_norm_scale_val = Tensor::from([1.0]);
-        let instance_norm_scale = graph_builder.add_constant(instance_norm_scale_val.view());
-        let instance_norm_bias_val = Tensor::from([1.0]);
-        let instance_norm_bias = graph_builder.add_constant(instance_norm_bias_val.view());
-        add_operator!(InstanceNormalization, [
-            input_node, instance_norm_scale, instance_norm_bias
-        ], { epsilon: Some(1e-5) });
-        add_operator!(IsInf, [input_node]);
-        add_operator!(IsNaN, [input_node]);
+        builder.add_constant("instance_norm_scale", Tensor::from([1.0]).view());
+        builder.add_constant("instance_norm_bias", Tensor::from([1.0]).view());
+        builder.add_operator(
+            node(
+                "InstanceNormalization",
+                &["input", "instance_norm_scale", "instance_norm_bias"],
+            )
+            .with_attr("epsilon", 1e-5),
+        );
+        builder.add_operator(node("IsInf", &["input"]));
+        builder.add_operator(node("IsNaN", &["input"]));
 
         let layer_norm_scale_val = Tensor::full(&[input_shape[input_shape.len() - 1]], 1.);
-        let layer_norm_scale = graph_builder.add_constant(layer_norm_scale_val.view());
-        let layer_norm_bias_val = layer_norm_scale_val.clone();
-        let layer_norm_bias = graph_builder.add_constant(layer_norm_bias_val.view());
-        add_operator!(LayerNormalization, [
-            input_node, layer_norm_scale, layer_norm_bias
-        ], { axis: -1, epsilon: Some(1e-5) });
+        builder.add_constant("layer_norm_scale", layer_norm_scale_val.view());
+        builder.add_constant("layer_norm_bias", layer_norm_scale_val.view());
+        builder.add_operator(
+            node(
+                "LayerNormalization",
+                &["input", "layer_norm_scale", "layer_norm_bias"],
+            )
+            .with_attr("axis", -1i64)
+            .with_attr("epsilon", 1e-5),
+        );
 
-        add_operator!(LeakyRelu, [input_node], { alpha: 0.01 });
-        add_operator!(Less, [input_node, input_node]);
-        add_operator!(LessOrEqual, [input_node, input_node]);
-        add_operator!(Log, [input_node]);
-        add_operator!(LogSoftmax, [input_node], { axis: 1 });
+        builder.add_operator(node("LeakyRelu", &["input"]).with_attr("alpha", 0.01));
+        builder.add_operator(node("Less", &["input", "input"]));
+        builder.add_operator(node("LessOrEqual", &["input", "input"]));
+        builder.add_operator(node("Log", &["input"]));
+        builder.add_operator(node("LogSoftmax", &["input"]).with_attr("axis", 1i64));
 
         // TODO - Add LSTM operator
 
-        add_operator!(MatMul, [input_2d, input_2d]);
-        add_operator!(MatMulInteger, [input_2d_u8, input_2d_i8]);
+        builder.add_operator(node("MatMul", &["input.2d", "input.2d"]));
+        builder.add_operator(node("MatMulInteger", &["input.2d.u8", "input.2d.i8"]));
 
-        add_operator!(Max, [input_node, input_node]);
-        add_operator!(MaxPool, [input_node], {
-            kernel_size: [2, 2].into(),
-            strides: [2, 2].into(),
-            padding: [0, 0, 0, 0].into(),
-            ceil_mode: false,
-        });
-        add_operator!(Mean, [input_node, input_node]);
-        add_operator!(Min, [input_node, input_node]);
-        add_operator!(Mod, [input_node, input_node], {
-            fmod: false,
-        });
-        add_operator!(Mul, [input_node, input_node]);
-        add_operator!(Neg, [input_node]);
+        builder.add_operator(node("Max", &["input", "input"]));
+        builder.add_operator(
+            node("MaxPool", &["input"])
+                .with_attr("kernel_shape", vec![2i64, 2])
+                .with_attr("strides", vec![2i64, 2])
+                .with_attr("pads", vec![0i64, 0, 0, 0])
+                .with_attr("ceil_mode", false),
+        );
+        builder.add_operator(node("Mean", &["input", "input"]));
+        builder.add_operator(node("Min", &["input", "input"]));
+        builder.add_operator(node("Mod", &["input", "input"]).with_attr("fmod", false));
+        builder.add_operator(node("Mul", &["input", "input"]));
+        builder.add_operator(node("Neg", &["input"]));
 
         let nms_n_boxes = 10;
         let nms_n_classes = 20;
-        let nms_boxes =
-            graph_builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_boxes, 4]).view());
-        let nms_scores = graph_builder
-            .add_constant(Tensor::<f32>::zeros(&[1, nms_n_classes, nms_n_boxes]).view());
-        let nms_max_outputs_per_class = graph_builder.add_constant(Tensor::from(10).view());
-        let nms_iou_threshold = graph_builder.add_constant(Tensor::from(0.45).view());
-        let nms_score_threshold = graph_builder.add_constant(Tensor::from(0.2).view());
+        builder.add_constant(
+            "nms_boxes",
+            Tensor::<f32>::zeros(&[1, nms_n_boxes, 4]).view(),
+        );
+        builder.add_constant(
+            "nms_scores",
+            Tensor::<f32>::zeros(&[1, nms_n_classes, nms_n_boxes]).view(),
+        );
+        builder.add_constant("nms_max_outputs_per_class", Tensor::from(10).view());
+        builder.add_constant("nms_iou_threshold", Tensor::from(0.45).view());
+        builder.add_constant("nms_score_threshold", Tensor::from(0.2).view());
+        builder.add_operator(
+            node(
+                "NonMaxSuppression",
+                &[
+                    "nms_boxes",
+                    "nms_scores",
+                    "nms_max_outputs_per_class",
+                    "nms_iou_threshold",
+                    "nms_score_threshold",
+                ],
+            )
+            .with_attr("center_point_box", true),
+        );
 
-        add_operator!(NonMaxSuppression, [nms_boxes, nms_scores, nms_max_outputs_per_class, nms_iou_threshold, nms_score_threshold], {
-            box_order: BoxOrder::CenterWidthHeight,
-        });
+        builder.add_operator(node("NonZero", &["input"]));
+        builder.add_operator(node("Not", &["input.bool"]));
 
-        add_operator!(NonZero, [input_node]);
-        add_operator!(Not, [input_bool]);
+        builder.add_constant("onehot_indices", Tensor::from([0, 1, 2]).view());
+        builder.add_constant("onehot_depth", Tensor::from(5).view());
+        builder.add_constant("onehot_values", Tensor::from([1., 0.]).view());
+        builder.add_operator(
+            node(
+                "OneHot",
+                &["onehot_indices", "onehot_depth", "onehot_values"],
+            )
+            .with_attr("axis", -1i64),
+        );
 
-        let onehot_indices = graph_builder.add_constant(Tensor::from([0, 1, 2]).view());
-        let onehot_depth = graph_builder.add_constant(Tensor::from(5).view());
-        let onehot_values = graph_builder.add_constant(Tensor::from([1., 0.]).view());
-        add_operator!(OneHot, [onehot_indices, onehot_depth, onehot_values], {
-            axis: -1,
-        });
+        builder.add_operator(node("Or", &["input.bool", "input.bool"]));
 
-        add_operator!(Or, [input_bool, input_bool]);
-
-        let pads = graph_builder.add_constant(Tensor::from([0, 0, 1, 1, 0, 0, 1, 1]).view());
-        add_operator!(Pad, [input_node, pads]);
-        add_operator!(Pow, [input_node, input_node]);
+        builder.add_constant("pads", Tensor::from([0, 0, 1, 1, 0, 0, 1, 1]).view());
+        builder.add_operator(node("Pad", &["input", "pads"]));
+        builder.add_operator(node("Pow", &["input", "input"]));
 
         #[cfg(feature = "random")]
         {
-            add_operator!(RandomNormal, [], {
-                shape: vec![50, 50],
-                mean: 0.,
-                scale: 1.,
-                seed: None,
-            });
-            add_operator!(RandomNormalLike, [input_node], {
-                mean: 0.,
-                scale: 1.,
-                seed: None,
-            });
-            add_operator!(RandomUniform, [], {
-                shape: vec![50, 50],
-                low: 0.,
-                high: 1.,
-                seed: None,
-            });
-            add_operator!(RandomUniformLike, [input_node], {
-                low: 0.,
-                high: 1.,
-                seed: None,
-            });
-            add_operator!(Multinomial, [input_2d], {
-                sample_size: 4,
-                seed: None,
-            });
+            builder.add_operator(
+                node("RandomNormal", &[])
+                    .with_attr("shape", vec![50i64, 50])
+                    .with_attr("mean", 0.)
+                    .with_attr("scale", 1.),
+            );
+            builder.add_operator(
+                node("RandomNormalLike", &["input"])
+                    .with_attr("mean", 0.)
+                    .with_attr("scale", 1.),
+            );
+            builder.add_operator(
+                node("RandomUniform", &[])
+                    .with_attr("shape", vec![50i64, 50])
+                    .with_attr("low", 0.)
+                    .with_attr("high", 1.),
+            );
+            builder.add_operator(
+                node("RandomUniformLike", &["input"])
+                    .with_attr("low", 0.)
+                    .with_attr("high", 1.),
+            );
+            builder.add_operator(node("Multinomial", &["input.2d"]).with_attr("sample_size", 4i64));
         }
 
-        let range_start_node = graph_builder.add_value("range_start", None, None);
-        let range_limit_node = graph_builder.add_value("range_limit", None, None);
-        let range_delta_node = graph_builder.add_value("range_delta", None, None);
-        for input in [range_start_node, range_limit_node, range_delta_node] {
-            graph_builder.add_input(input);
+        for input in ["range_start", "range_limit", "range_delta"] {
+            builder.add_input(input);
         }
-        let range_out = add_operator!(
-            Range,
-            [range_start_node, range_limit_node, range_delta_node]
+        let range_out = builder.add_operator(node(
+            "Range",
+            &["range_start", "range_limit", "range_delta"],
+        ));
+
+        builder.add_operator(node("Reciprocal", &["input"]));
+        for reduce_op in [
+            "ReduceMean",
+            "ReduceMax",
+            "ReduceMin",
+            "ReduceProd",
+            "ReduceSum",
+            "ReduceSumSquare",
+            "ReduceL1",
+            "ReduceL2",
+        ] {
+            builder.add_operator(node(reduce_op, &["input"]).with_attr("keepdims", false));
+        }
+        builder.add_operator(node("Relu", &["input"]));
+
+        builder.add_constant("new_shape", Tensor::from([9]).view());
+        builder
+            .add_operator(node("Reshape", &["input", "new_shape"]).with_attr("allowzero", false));
+
+        builder.add_constant(
+            "resize_roi",
+            Tensor::from([0., 0., 0., 0., 1., 1., 1., 1.]).view(),
+        );
+        builder.add_constant("resize_scales", Tensor::from([1., 1., 2., 2.]).view());
+        builder.add_operator(
+            node("Resize", &["input", "resize_roi", "resize_scales"])
+                .with_attr("mode", "nearest".to_string())
+                .with_attr("nearest_mode", "round_prefer_floor".to_string())
+                .with_attr("coordinate_transformation_mode", "half_pixel".to_string()),
         );
 
-        add_operator!(Reciprocal, [input_node]);
-        add_operator!(ReduceMean, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceMax, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceMin, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceProd, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceSum, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceSumSquare, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceL1, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(ReduceL2, [input_node], {
-            axes: None,
-            keep_dims: false,
-            noop_with_empty_axes: false,
-        });
-        add_operator!(Relu, [input_node]);
+        builder.add_operator(node("Round", &["input"]));
 
-        let new_shape = graph_builder.add_constant(Tensor::from([9]).view());
-        add_operator!(Reshape, [input_node, new_shape], {
-            allow_zero: false,
-        });
-
-        let resize_roi_val = Tensor::from([0., 0., 0., 0., 1., 1., 1., 1.]);
-        let resize_scales_val = Tensor::from([1., 1., 2., 2.]);
-        let resize_roi = graph_builder.add_constant(resize_roi_val.view());
-        let resize_scales = graph_builder.add_constant(resize_scales_val.view());
-        add_operator!(Resize, [input_node, resize_roi, resize_scales], {
-            mode: ResizeMode::Nearest,
-            nearest_mode: NearestMode::default(),
-            coord_mode: CoordTransformMode::default()
-        });
-
-        add_operator!(Round, [input_node]);
-
-        let upsample_scales = graph_builder.add_constant(Tensor::from([1., 1., 2., 2.]).view());
-        add_operator!(Upsample, [input_node, upsample_scales], {
-            mode: ResizeMode::Nearest
-        });
-
-        add_operator!(Shape, [input_node], {
-            start: Some(1),
-            end: Some(-1),
-        });
-        add_operator!(Sigmoid, [input_node]);
-        add_operator!(Sign, [input_node]);
-        add_operator!(Sin, [input_node]);
-        add_operator!(Sinh, [input_node]);
-        add_operator!(Size, [input_node]);
-
-        let scatter_elem_indices_val = Tensor::<i32>::zeros(&input_shape);
-        let scatter_elem_indices = graph_builder.add_constant(scatter_elem_indices_val.view());
-        let scatter_elem_updates_val = Tensor::<f32>::zeros(&input_shape);
-        let scatter_elem_updates = graph_builder.add_constant(scatter_elem_updates_val.view());
-        add_operator!(
-            ScatterElements,
-            [input_node, scatter_elem_indices, scatter_elem_updates],
-            { axis: 0, reduction: None }
+        builder.add_constant("upsample_scales", Tensor::from([1., 1., 2., 2.]).view());
+        builder.add_operator(
+            node("Upsample", &["input", "upsample_scales"])
+                .with_attr("mode", "nearest".to_string()),
         );
-        add_operator!(
-            Scatter,
-            [input_node, scatter_elem_indices, scatter_elem_updates],
-            { axis: 0 }
+
+        builder.add_operator(
+            node("Shape", &["input"])
+                .with_attr("start", 1i64)
+                .with_attr("end", -1i64),
+        );
+        builder.add_operator(node("Sigmoid", &["input"]));
+        builder.add_operator(node("Sign", &["input"]));
+        builder.add_operator(node("Sin", &["input"]));
+        builder.add_operator(node("Sinh", &["input"]));
+        builder.add_operator(node("Size", &["input"]));
+
+        builder.add_constant(
+            "scatter_elem_indices",
+            Tensor::<i32>::zeros(&input_shape).view(),
+        );
+        builder.add_constant(
+            "scatter_elem_updates",
+            Tensor::<f32>::zeros(&input_shape).view(),
+        );
+        builder.add_operator(
+            node(
+                "ScatterElements",
+                &["input", "scatter_elem_indices", "scatter_elem_updates"],
+            )
+            .with_attr("axis", 0i64),
+        );
+        builder.add_operator(
+            node(
+                "Scatter",
+                &["input", "scatter_elem_indices", "scatter_elem_updates"],
+            )
+            .with_attr("axis", 0i64),
         );
 
         // The standard 4D input has shape [batch=1, num_heads=1, seq=3,
@@ -1877,85 +1960,77 @@ mod tests {
         // so rotate the first 2 of the 3 head elements. The cos/sin caches have
         // shape [max_pos, rotary_embedding_dim / 2] and are gathered by
         // `position_ids`.
-        let rotary_cos = graph_builder.add_constant(Tensor::<f32>::zeros(&[3, 1]).view());
-        let rotary_sin = graph_builder.add_constant(Tensor::<f32>::zeros(&[3, 1]).view());
-        let rotary_pos = graph_builder.add_constant(Tensor::from([[0i32, 1, 2]]).view());
-        add_operator!(
-            RotaryEmbedding,
-            [input_node, rotary_cos, rotary_sin, rotary_pos],
-            { interleaved: false, num_heads: 1, rotary_embedding_dim: 2 }
+        builder.add_constant("rotary_cos", Tensor::<f32>::zeros(&[3, 1]).view());
+        builder.add_constant("rotary_sin", Tensor::<f32>::zeros(&[3, 1]).view());
+        builder.add_constant("rotary_pos", Tensor::from([[0i32, 1, 2]]).view());
+        builder.add_operator(
+            node(
+                "RotaryEmbedding",
+                &["input", "rotary_cos", "rotary_sin", "rotary_pos"],
+            )
+            .with_attr("interleaved", false)
+            .with_attr("num_heads", 1i64)
+            .with_attr("rotary_embedding_dim", 2i64),
         );
 
-        let const_0 = graph_builder.add_constant(Tensor::from([0]).view());
-        let const_1 = graph_builder.add_constant(Tensor::from([1]).view());
-        add_operator!(Slice, [input_node, const_0, const_1, const_0]);
+        builder.add_constant("const_0", Tensor::from([0]).view());
+        builder.add_constant("const_1", Tensor::from([1]).view());
+        builder.add_operator(node("Slice", &["input", "const_0", "const_1", "const_0"]));
 
-        add_operator!(Softplus, [input_node]);
-        add_operator!(Softmax, [input_node], { axis: 1, flush_nans_to_zero: false });
-        add_operator!(Sqrt, [input_node]);
-        add_operator!(Squeeze, [input_node]);
+        builder.add_operator(node("Softplus", &["input"]));
+        builder.add_operator(node("Softmax", &["input"]).with_attr("axis", 1i64));
+        builder.add_operator(node("Sqrt", &["input"]));
+        builder.add_operator(node("Squeeze", &["input"]));
 
-        let split_splits = graph_builder.add_constant(Tensor::from([1, 2]).view());
-        let split_out_1 = graph_builder.add_value("Split_out_1", None, None);
-        let split_out_2 = graph_builder.add_value("Split_out_2", None, None);
-        graph_builder.add_operator(
-            "Split",
-            OpType::Split(ops::Split {
-                axis: 1,
-                num_outputs: None,
-            }),
-            &[input_2d, split_splits].map(Some),
-            &[split_out_1, split_out_2],
+        builder.add_constant("split_splits", Tensor::from([1, 2]).view());
+        builder.add_operator_with_outputs(
+            node("Split", &["input.2d", "split_splits"]).with_attr("axis", 1i64),
+            &["Split_out_1", "Split_out_2"],
         );
-        graph_builder.add_output(split_out_1);
-        graph_builder.add_output(split_out_2);
 
-        add_operator!(Sub, [input_node, input_node]);
-        add_operator!(Sum, [input_node, input_node]);
-        add_operator!(Tan, [input_node]);
-        add_operator!(Tanh, [input_node]);
+        builder.add_operator(node("Sub", &["input", "input"]));
+        builder.add_operator(node("Sum", &["input", "input"]));
+        builder.add_operator(node("Tan", &["input"]));
+        builder.add_operator(node("Tanh", &["input"]));
 
-        let tile_repeats = graph_builder.add_constant(Tensor::from([1, 2, 3, 4]).view());
-        add_operator!(Tile, [input_node, tile_repeats]);
+        builder.add_constant("tile_repeats", Tensor::from([1, 2, 3, 4]).view());
+        builder.add_operator(node("Tile", &["input", "tile_repeats"]));
 
-        let topk_k = graph_builder.add_constant(Tensor::from(3).view());
-        let topk_out_values = graph_builder.add_value("TopK_out_values", None, None);
-        let topk_out_indices = graph_builder.add_value("TopK_out_indices", None, None);
-        graph_builder.add_operator(
-            "TopK",
-            OpType::TopK(ops::TopK {
-                largest: true,
-                sorted: true,
-                axis: Some(-1),
-            }),
-            &[input_2d, topk_k].map(Some),
-            &[topk_out_values, topk_out_indices],
+        builder.add_constant("topk_k", Tensor::from(3).view());
+        builder.add_operator_with_outputs(
+            node("TopK", &["input.2d", "topk_k"])
+                .with_attr("axis", -1i64)
+                .with_attr("largest", true)
+                .with_attr("sorted", true),
+            &["TopK_out_values", "TopK_out_indices"],
         );
-        graph_builder.add_output(topk_out_values);
-        graph_builder.add_output(topk_out_indices);
 
-        add_operator!(Transpose, [input_node], { perm: None });
+        builder.add_operator(node("Transpose", &["input"]));
 
-        add_operator!(Trilu, [input_node], { upper: true });
+        builder.add_operator(node("Trilu", &["input"]).with_attr("upper", true));
 
-        let unsqueeze_axes = graph_builder.add_constant(Tensor::from([0, 4]).view());
-        add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
+        builder.add_constant("unsqueeze_axes", Tensor::from([0, 4]).view());
+        builder.add_operator(node("Unsqueeze", &["input", "unsqueeze_axes"]));
 
-        let where_cond = graph_builder.add_value("where_cond", None, None);
-        let where_x = graph_builder.add_value("where_x", None, None);
-        let where_y = graph_builder.add_value("where_y", None, None);
-        for input in [where_cond, where_x, where_y] {
-            graph_builder.add_input(input);
+        for input in ["where_cond", "where_x", "where_y"] {
+            builder.add_input(input);
         }
-        let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
+        let where_out = builder.add_operator(node("Where", &["where_cond", "where_x", "where_y"]));
 
-        add_operator!(Xor, [input_bool, input_bool]);
+        builder.add_operator(node("Xor", &["input.bool", "input.bool"]));
 
-        let graph = graph_builder.finish();
-        builder.set_graph(graph);
-        let buffer = builder.finish();
+        let GraphBuilder { graph, op_outputs } = builder;
+        let buffer = graph.into_model().with_opset("", 18).write_buf().unwrap();
 
         let model = Model::load(buffer).unwrap();
+
+        let node_id = |name: &str| model.find_node(name).unwrap();
+        let input_node = node_id("input");
+        let input_2d = node_id("input.2d");
+        let input_bool = node_id("input.bool");
+        let input_u8 = node_id("input.u8");
+        let input_2d_u8 = node_id("input.2d.u8");
+        let input_2d_i8 = node_id("input.2d.i8");
 
         // Most ops are tested with one of several standard inputs:
         //
@@ -2067,11 +2142,11 @@ mod tests {
         let result = model
             .run(
                 vec![
-                    (range_start_node, start.into()),
-                    (range_limit_node, limit.into()),
-                    (range_delta_node, delta.into()),
+                    (node_id("range_start"), start.into()),
+                    (node_id("range_limit"), limit.into()),
+                    (node_id("range_delta"), delta.into()),
                 ],
-                &[range_out],
+                &[node_id(&range_out)],
                 None,
             )
             .unwrap();
@@ -2084,11 +2159,11 @@ mod tests {
         let result = model
             .run(
                 vec![
-                    (where_cond, cond.into()),
-                    (where_x, x.into()),
-                    (where_y, y.into()),
+                    (node_id("where_cond"), cond.into()),
+                    (node_id("where_x"), x.into()),
+                    (node_id("where_y"), y.into()),
                 ],
-                &[where_out],
+                &[node_id(&where_out)],
                 None,
             )
             .unwrap();

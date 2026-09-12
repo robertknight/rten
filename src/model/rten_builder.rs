@@ -31,6 +31,7 @@ pub struct IfArgs<'a> {
 }
 
 /// Enum of all the built-in operators
+#[allow(dead_code)] // TODO - Remove variants that are no longer used
 pub enum OpType<'a> {
     Abs,
     Acos,
@@ -311,6 +312,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
     }
 
     /// Return a graph builder for a subgraph.
+    #[allow(dead_code)] // Only used to build subgraphs, which no test does.
     pub fn subgraph_builder(&mut self) -> GraphBuilder<'_, 'a> {
         GraphBuilder::new(
             self.builder,
