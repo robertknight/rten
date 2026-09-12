@@ -3,8 +3,12 @@
 use std::cell::RefCell;
 
 use rten_base::from::enum_from;
+use rten_base::num::LeBytes;
 use rten_onnx::onnx;
+use rten_tensor::TensorView;
+use rten_tensor::prelude::*;
 
+use crate::graph::Dimension;
 use crate::model::external_data::DataLocation;
 
 #[derive(Clone)]
@@ -31,8 +35,21 @@ enum_from!(AttrValue, Strings, Vec<String>);
 enum_from!(AttrValue, Tensor, onnx::TensorProto);
 
 pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
+    use onnx::AttributeType;
+
     let mut attr = onnx::AttributeProto::default();
     attr.name = Some(name.to_string());
+    attr.r#type = Some(match value {
+        AttrValue::Bool(_) | AttrValue::Int(_) => AttributeType::INT,
+        AttrValue::Float(_) => AttributeType::FLOAT,
+        AttrValue::Floats(_) => AttributeType::FLOATS,
+        AttrValue::Graph(_) => AttributeType::GRAPH,
+        AttrValue::Ints(_) => AttributeType::INTS,
+        AttrValue::String(_) => AttributeType::STRING,
+        AttrValue::Strings(_) => AttributeType::STRINGS,
+        AttrValue::Tensor(_) => AttributeType::TENSOR,
+    });
+
     match value {
         AttrValue::Bool(val) => attr.i = Some(val as i64),
         AttrValue::Float(val) => attr.f = Some(val),
@@ -44,6 +61,7 @@ pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
         AttrValue::Strings(val) => attr.strings = val,
         AttrValue::Tensor(val) => attr.t = Some(val),
     }
+
     attr
 }
 
@@ -60,6 +78,7 @@ pub trait GraphProtoExt {
 impl GraphProtoExt for onnx::GraphProto {
     fn into_model(self) -> onnx::ModelProto {
         let mut model = onnx::ModelProto::default();
+        model.ir_version = Some(10);
         model.graph = Some(self);
         model
     }
@@ -183,4 +202,108 @@ pub fn create_value_info(name: &str) -> onnx::ValueInfoProto {
     let mut val = onnx::ValueInfoProto::default();
     val.name = Some(name.into());
     val
+}
+
+/// Fluent methods for building an [`onnx::ValueInfoProto`].
+pub trait ValueInfoProtoExt {
+    fn with_dtype(self, dtype: onnx::DataType) -> Self;
+    fn with_shape(self, shape: &[Dimension]) -> Self;
+}
+
+impl ValueInfoProtoExt for onnx::ValueInfoProto {
+    fn with_dtype(mut self, dtype: onnx::DataType) -> Self {
+        tensor_type(&mut self).elem_type = Some(dtype);
+        self
+    }
+
+    fn with_shape(mut self, shape: &[Dimension]) -> Self {
+        let dim = shape
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Fixed(size) => onnx::Dimension {
+                    dim_value: Some(*size as i64),
+                    dim_param: None,
+                },
+                Dimension::Symbolic(name) => onnx::Dimension {
+                    dim_value: None,
+                    dim_param: Some(name.clone()),
+                },
+            })
+            .collect();
+        tensor_type(&mut self).shape = Some(onnx::TensorShapeProto { dim });
+        self
+    }
+}
+
+/// Return the tensor type of a value, creating it if not set.
+fn tensor_type(value: &mut onnx::ValueInfoProto) -> &mut onnx::TypeProtoTensor {
+    value
+        .r#type
+        .get_or_insert_default()
+        .tensor_type
+        .get_or_insert_default()
+}
+
+/// Fluent methods for building an [`onnx::ModelProto`].
+pub trait ModelProtoExt {
+    fn with_metadata(self, key: &str, value: &str) -> Self;
+    fn with_opset(self, domain: &str, version: i64) -> Self;
+    fn with_producer(self, name: &str, version: &str) -> Self;
+}
+
+impl ModelProtoExt for onnx::ModelProto {
+    fn with_metadata(mut self, key: &str, value: &str) -> Self {
+        self.metadata_props.push(onnx::StringStringEntryProto {
+            key: Some(key.to_string()),
+            value: Some(value.to_string()),
+        });
+        self
+    }
+
+    fn with_opset(mut self, domain: &str, version: i64) -> Self {
+        self.opset_import.push(onnx::OperatorSetIdProto {
+            domain: Some(domain.to_string()),
+            version: Some(version),
+        });
+        self
+    }
+
+    fn with_producer(mut self, name: &str, version: &str) -> Self {
+        self.producer_name = Some(name.to_string());
+        self.producer_version = Some(version.to_string());
+        self
+    }
+}
+
+/// Element types which can be stored in an [`onnx::TensorProto`].
+pub trait ToTensorProto: Copy + LeBytes {
+    /// ONNX data type which corresponds to this Rust type.
+    fn dtype() -> onnx::DataType;
+}
+
+macro_rules! impl_to_tensor_proto {
+    ($type:ty, $dtype:ident) => {
+        impl ToTensorProto for $type {
+            fn dtype() -> onnx::DataType {
+                onnx::DataType::$dtype
+            }
+        }
+    };
+}
+
+impl_to_tensor_proto!(f32, FLOAT);
+impl_to_tensor_proto!(i32, INT32);
+impl_to_tensor_proto!(i8, INT8);
+impl_to_tensor_proto!(u8, UINT8);
+
+/// Create an ONNX `TensorProto` from a tensor view.
+pub fn create_tensor_from_view<T: ToTensorProto>(
+    name: &str,
+    view: TensorView<T>,
+) -> onnx::TensorProto {
+    let mut raw_data = Vec::with_capacity(view.len() * size_of::<T>());
+    for elem in view.iter().copied() {
+        raw_data.extend_from_slice(elem.to_le_bytes().as_ref());
+    }
+    create_tensor(name, view.shape(), T::dtype(), TensorData::Raw(raw_data))
 }

@@ -24,9 +24,11 @@ impl AttributeType {
     pub const FLOAT: Self = Self(1);
     pub const INT: Self = Self(2);
     pub const STRING: Self = Self(3);
+    pub const TENSOR: Self = Self(4);
     pub const GRAPH: Self = Self(5);
     pub const FLOATS: Self = Self(6);
     pub const INTS: Self = Self(7);
+    pub const STRINGS: Self = Self(8);
 }
 
 #[derive(Clone, Debug, Default)]

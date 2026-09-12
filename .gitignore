@@ -12,3 +12,7 @@ dist/
 # Converted rten ML models
 *.rten
 /models/
+
+# Model files written by tests
+/model-load-file-test.onnx
+/model-load-mmap-test.onnx
