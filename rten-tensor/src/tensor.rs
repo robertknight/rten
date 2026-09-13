@@ -856,6 +856,11 @@ impl<S: StorageMut, L: Clone + Layout> TensorBase<S, L> {
         })
     }
 
+    /// Return a raw pointer to the tensor's underlying data.
+    pub fn data_ptr_mut(&mut self) -> *mut S::Elem {
+        self.data.as_mut_ptr()
+    }
+
     /// Index the tensor along a given axis.
     ///
     /// Returns a mutable view with one dimension removed.
