@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::layout::FromShape;
-use crate::storage::{CowData, Storage, StorageMut, ViewData};
+use crate::storage::{Alloc, CowData, Storage, StorageMut, ViewData};
 use crate::{AsView, Layout, TensorBase};
 
 /// A tensor wrapper which guarantees that the tensor has a contiguous layout.
@@ -78,12 +78,12 @@ impl<T, L: Clone + Layout> Contiguous<TensorBase<Vec<T>, L>> {
     ///
     /// This is cheap if `inner` is already contiguous, otherwise the elements
     /// are copied into a new buffer.
-    pub fn from_owned(mut inner: TensorBase<Vec<T>, L>) -> Self
+    pub fn from_owned<A: Alloc>(mut inner: TensorBase<Vec<T>, L>, alloc: A) -> Self
     where
         L: FromShape,
         T: Clone,
     {
-        inner.make_contiguous();
+        inner.make_contiguous_in(alloc);
         Self(inner)
     }
 

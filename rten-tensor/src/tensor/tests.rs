@@ -34,6 +34,10 @@ impl Alloc for FakeAlloc {
         *self.count.borrow_mut() += 1;
         Vec::with_capacity(capacity)
     }
+
+    fn dealloc<T>(&self, buf: Vec<T>) {
+        std::mem::drop(buf)
+    }
 }
 
 #[test]

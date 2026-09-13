@@ -277,6 +277,10 @@ impl Alloc for BufferPool {
     fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         self.alloc(capacity)
     }
+
+    fn dealloc<T>(&self, buf: Vec<T>) {
+        self.add(buf)
+    }
 }
 
 impl Default for BufferPool {
