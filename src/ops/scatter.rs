@@ -264,7 +264,9 @@ pub fn scatter_nd<
     let indices = indices.to_contiguous_in(pool).auto_return(pool);
     let index_slices = indices.data().chunks(indices.size(indices.ndim() - 1));
 
-    let mut output = data.into_owned_in(pool);
+    // TODO - Return old buffer to pool if `into_contiguous` needs to copy.
+    let mut output = data.into_owned_in(pool).into_contiguous();
+
     for (index, update_slice) in index_slices.zip(update_slices) {
         let mut output_slice_offset = 0;
         for (i, (size, stride)) in index
@@ -274,14 +276,14 @@ pub fn scatter_nd<
             let idx = try_resolve_index(*size, *i)?;
             output_slice_offset += idx * stride;
         }
-        let out_data = output.data_mut().unwrap();
+        let out_data = output.data_mut();
         let out_slice = &mut out_data[output_slice_offset..][..update_slice_len];
 
         for (out_el, update) in out_slice.iter_mut().zip(update_slice.iter()) {
             *out_el = scatter_reduce(*out_el, *update, reduction);
         }
     }
-    Ok(output)
+    Ok(output.into())
 }
 
 #[derive(Debug)]
