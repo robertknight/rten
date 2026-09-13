@@ -13,6 +13,11 @@ format that is optimized for efficient loading. rten models are produced from
 ONNX models using [rten-convert](https://pypi.org/project/rten-convert/). **The
 rten format is [deprecated](https://github.com/robertknight/rten/issues/1470)**.
 
+rten-convert can also convert rten models back to ONNX, for models where the
+original ONNX file is no longer available. Some information is lost in the
+process, so the result will not be identical to the original model. See the
+[rten-convert README](../rten-convert/README.md) for details.
+
 ## Graph and weight storage comparison
 
 The main difference between the two formats for inference purposes is how

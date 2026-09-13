@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser, BooleanOptionalAction
-from dataclasses import dataclass
 from functools import reduce
 import hashlib
 import json
 from operator import mul
 from os import unlink
-from os.path import dirname, splitext
+from os.path import basename, dirname, exists, join, splitext
 import sys
 import struct
 import tempfile
@@ -23,32 +22,13 @@ import rten_convert.schema_generated as sg
 from rten_convert.attr_reader import AttributeReader
 from rten_convert.errors import ConversionError, UnsupportedOperatorError
 from rten_convert.graph import Node, ConstantNode, OperatorNode, ValueNode, Graph
+from rten_convert.metadata import Metadata
+from rten_convert.onnx_writer import DEFAULT_OPSET, onnx_model_from_graph
+from rten_convert.rten_reader import is_rten_model, read_model
 from rten_convert.tensor_data import TensorDataBuilder
 from rten_convert.util import round_up, warn_once, write_padding
 
 AttributeValue = int | float | str | list[int]
-
-
-@dataclass
-class Metadata:
-    """
-    Model metadata.
-
-    This corresponds to the `ModelMetadata` struct in RTen. See its docs for
-    details of the individual fields.
-
-    When adding new fields here, they also need to be added to
-    `METADATA_BUILDER_FNS`.
-    """
-
-    code_repository: Optional[str] = None
-    commit: Optional[str] = None
-    description: Optional[str] = None
-    license: Optional[str] = None
-    model_repository: Optional[str] = None
-    onnx_hash: Optional[str] = None
-    run_id: Optional[str] = None
-    run_url: Optional[str] = None
 
 
 def check_ints_length(name: str, ints: list[int], allowed_lengths: list[int]):
@@ -1456,30 +1436,68 @@ def generate_metadata(onnx_path: str, metadata_path: Optional[str] = None) -> Me
     return Metadata(**fields)
 
 
-def main():
-    parser = ArgumentParser(description="Convert ONNX models to .rten format.")
-    parser.add_argument("model", help="Input ONNX model")
-    parser.add_argument(
-        "-m", "--metadata", help="Path to JSON file containing model metadata."
-    )
-    parser.add_argument(
-        "--v1",
-        action="store_true",
-        help="Generate version 1 .rten models. These are limited to files < 2GB",
-    )
-    parser.add_argument(
-        "--infer-shapes",
-        action=BooleanOptionalAction,
-        default=True,
-        help="Perform shape inference before converting model (default: true)",
-    )
-    parser.add_argument("out_name", help="Output model file name", nargs="?")
-    args = parser.parse_args()
+MAX_ONNX_TENSOR_DATA = 2 * 1024**3 - 64 * 1024**2
+"""
+Maximum size of tensor data that can be embedded in an ONNX model.
 
-    output_path = args.out_name
-    if output_path is None:
-        model_basename = splitext(args.model)[0]
-        output_path = f"{model_basename}.rten"
+ONNX models are Protocol Buffers messages, which are limited to 2GB. Some
+headroom is left for the rest of the model.
+"""
+
+
+def tensor_data_size(graph: Graph) -> int:
+    """Return the total size of constant data in a graph, in bytes."""
+    size = 0
+    for node in graph.nodes:
+        match node:
+            case ConstantNode():
+                # int32 tensors are widened to int64 in the generated model.
+                element_size = 8 if node.data.dtype == np.int32 else node.data.itemsize
+                size += node.data.size * element_size
+            case OperatorNode() if node.attrs is not None:
+                for value in vars(node.attrs).values():
+                    if isinstance(value, Graph):
+                        size += tensor_data_size(value)
+    return size
+
+
+def convert_rten_to_onnx(args, output_path: str):
+    """Convert a model in .rten format to ONNX."""
+
+    graph, metadata = read_model(args.model)
+    model = onnx_model_from_graph(graph, metadata, opset=args.opset)
+
+    external_data = tensor_data_size(graph) > MAX_ONNX_TENSOR_DATA
+    if external_data:
+        # Weights are too large to embed in the model, so they are written to
+        # a separate file alongside it.
+        data_path = basename(output_path) + ".data"
+        print(
+            f'Model is too large to store weights inline. Writing weights to "{data_path}".',
+            file=sys.stderr,
+        )
+        if exists(join(dirname(output_path), data_path)):
+            unlink(join(dirname(output_path), data_path))
+        onnx.save_model(
+            model,
+            output_path,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location=data_path,
+        )
+    else:
+        onnx.save_model(model, output_path)
+
+    try:
+        # Models which exceed the 2GB Protocol Buffers limit must be checked
+        # using their path rather than the in-memory model.
+        onnx.checker.check_model(output_path if external_data else model)
+    except onnx.checker.ValidationError as ex:
+        warn_once(f"Generated model failed ONNX validation: {ex}")
+
+
+def convert_onnx_to_rten(args, output_path: str):
+    """Convert an ONNX model to .rten format."""
 
     use_v2_format = not args.v1
     if use_v2_format:
@@ -1554,6 +1572,75 @@ def main():
         else:
             # The Version 1 format is just the FlatBuffers model
             output.write(model_data)
+
+
+def input_is_rten_model(path: str) -> bool:
+    """
+    Determine whether the input model is in .rten or ONNX format.
+
+    The file extension is used if it identifies the format, as V1 .rten models
+    contain no identifying information.
+    """
+    match splitext(path)[1].lower():
+        case ".rten":
+            return True
+        case ".onnx":
+            return False
+        case _:
+            return is_rten_model(path)
+
+
+def main():
+    parser = ArgumentParser(
+        description="Convert ONNX models to .rten format, or .rten models to ONNX."
+    )
+    parser.add_argument("model", help="Input model in ONNX or .rten format")
+    parser.add_argument(
+        "-m",
+        "--metadata",
+        help="Path to JSON file containing model metadata. Used when converting to .rten format.",
+    )
+    parser.add_argument(
+        "--opset",
+        type=int,
+        default=DEFAULT_OPSET,
+        help=f"ONNX opset version to target when converting to ONNX (default: {DEFAULT_OPSET})",
+    )
+    parser.add_argument(
+        "--v1",
+        action="store_true",
+        help="Generate version 1 .rten models. These are limited to files < 2GB",
+    )
+    parser.add_argument(
+        "--infer-shapes",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Perform shape inference before converting model (default: true)",
+    )
+    parser.add_argument("out_name", help="Output model file name", nargs="?")
+    args = parser.parse_args()
+
+    to_onnx = input_is_rten_model(args.model)
+    output_path = args.out_name
+
+    if output_path is None:
+        model_basename = splitext(args.model)[0]
+        output_path = f"{model_basename}.onnx" if to_onnx else f"{model_basename}.rten"
+
+        if to_onnx and exists(output_path):
+            # Avoid overwriting the ONNX model that the input was generated
+            # from, as it will contain information that .rten models do not
+            # preserve.
+            print(
+                f'"{output_path}" already exists. Specify an output file name to overwrite it.',
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    if to_onnx:
+        convert_rten_to_onnx(args, output_path)
+    else:
+        convert_onnx_to_rten(args, output_path)
 
 
 if __name__ == "__main__":
