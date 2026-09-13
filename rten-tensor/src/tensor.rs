@@ -1375,10 +1375,22 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         T: Clone,
         L: FromShape,
     {
+        self.make_contiguous_in(GlobalAlloc::default())
+    }
+
+    /// Variant of [`make_contiguous`](Self::make_contiguous) which takes an
+    /// allocator.
+    pub fn make_contiguous_in<A: Alloc>(&mut self, alloc: A)
+    where
+        T: Clone,
+        L: FromShape,
+    {
         if self.is_contiguous() {
             return;
         }
-        self.data = self.to_vec();
+        let new_data = self.to_vec_in(&alloc);
+        let old_data = std::mem::replace(&mut self.data, new_data);
+        alloc.dealloc(old_data);
         self.layout = L::from_shape(self.layout.shape());
     }
 
@@ -1391,7 +1403,17 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         T: Clone,
         L: FromShape,
     {
-        Contiguous::from_owned(self)
+        self.into_contiguous_in(GlobalAlloc::default())
+    }
+
+    /// Variant of [`into_contiguous`](Self::into_contiguous) which takes an
+    /// allocator.
+    pub fn into_contiguous_in<A: Alloc>(self, alloc: A) -> Contiguous<Self>
+    where
+        T: Clone,
+        L: FromShape,
+    {
+        Contiguous::from_owned(self, alloc)
     }
 
     /// Create a new tensor with a given shape and elements populated using

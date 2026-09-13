@@ -616,11 +616,18 @@ pub trait Alloc {
     ///
     /// The returned `Vec` should be empty but have the given capacity.
     fn alloc<T>(&self, capacity: usize) -> Vec<T>;
+
+    /// De-allocate storage for an owned tensor.
+    fn dealloc<T>(&self, buf: Vec<T>);
 }
 
 impl<A: Alloc> Alloc for &A {
     fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         A::alloc(self, capacity)
+    }
+
+    fn dealloc<T>(&self, buf: Vec<T>) {
+        A::dealloc(self, buf)
     }
 }
 
@@ -642,6 +649,10 @@ impl Default for GlobalAlloc {
 impl Alloc for GlobalAlloc {
     fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         Vec::with_capacity(capacity)
+    }
+
+    fn dealloc<T>(&self, buf: Vec<T>) {
+        std::mem::drop(buf)
     }
 }
 
