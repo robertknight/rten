@@ -264,8 +264,7 @@ pub fn scatter_nd<
     let indices = indices.to_contiguous_in(pool).auto_return(pool);
     let index_slices = indices.data().chunks(indices.size(indices.ndim() - 1));
 
-    // TODO - Return old buffer to pool if `into_contiguous` needs to copy.
-    let mut output = data.into_owned_in(pool).into_contiguous();
+    let mut output = data.into_owned_in(pool).into_contiguous_in(pool);
 
     for (index, update_slice) in index_slices.zip(update_slices) {
         let mut output_slice_offset = 0;

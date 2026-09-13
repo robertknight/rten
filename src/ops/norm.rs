@@ -162,6 +162,7 @@ fn normalize_slice<'src, 'dst>(
 
 /// Normalize each channel separately in an `(N, C, ...)` tensor.
 fn normalize_each_channel<'a>(
+    pool: &BufferPool,
     input: &mut Tensor,
     chan_opts: impl Fn(usize) -> NormalizeOptions<'a> + Send + Sync,
 ) {
@@ -173,7 +174,7 @@ fn normalize_each_channel<'a>(
 
     // Make tensor contiguous so we can reshape into `(N * C, ...)` with a
     // contiguous inner lane.
-    input.make_contiguous();
+    input.make_contiguous_in(pool);
 
     let elts_per_chan = input.len() / (batch * chans);
     let mut input_2d = input.reshaped_mut([batch * chans, elts_per_chan]).unwrap();
@@ -211,7 +212,7 @@ pub fn batch_norm(
     check_eq!(var.size(0), channels)?;
 
     let mut output = input.into_owned_in(pool);
-    normalize_each_channel(&mut output, |chan| NormalizeOptions {
+    normalize_each_channel(pool, &mut output, |chan| NormalizeOptions {
         mean_normalize: MeanNormalize::Static {
             mean: mean[chan],
             variance: var[chan],
@@ -345,7 +346,7 @@ pub fn instance_normalization(
     }
 
     let mut output = input.into_owned_in(pool);
-    normalize_each_channel(&mut output, |chan| NormalizeOptions {
+    normalize_each_channel(pool, &mut output, |chan| NormalizeOptions {
         epsilon,
         scale: scale[chan],
         bias: bias[chan],
@@ -639,7 +640,7 @@ pub fn lp_normalization(
         }
     };
 
-    normalize_lanes(&mut output, axis, normalize)?;
+    normalize_lanes(pool, &mut output, axis, normalize)?;
 
     Ok(output)
 }
@@ -691,6 +692,7 @@ const NORMALIZE_GRAIN_SIZE: usize = 1024;
 
 /// Apply an operation `op` to all 1D lanes of the tensor along a given axis.
 fn normalize_lanes<T: Clone + Send, F: Fn(&mut [T]) + Send + Sync>(
+    pool: &BufferPool,
     output: &mut Tensor<T>,
     axis: isize,
     apply_op: F,
@@ -710,7 +712,7 @@ fn normalize_lanes<T: Clone + Send, F: Fn(&mut [T]) + Send + Sync>(
     if resolved_axis != output.ndim() - 1 {
         output.move_axis(resolved_axis, output.ndim() - 1);
     }
-    output.make_contiguous();
+    output.make_contiguous_in(pool);
 
     let lane_size = if output.ndim() == 1 {
         output.len()
@@ -736,7 +738,7 @@ fn normalize_lanes<T: Clone + Send, F: Fn(&mut [T]) + Send + Sync>(
 
     if resolved_axis != output.ndim() - 1 {
         output.move_axis(output.ndim() - 1, resolved_axis);
-        output.make_contiguous();
+        output.make_contiguous_in(pool);
     }
 
     Ok(())
@@ -748,7 +750,7 @@ pub fn log_softmax(
     axis: isize,
 ) -> Result<Tensor, OpError> {
     let mut output = input.into_owned_in(pool);
-    normalize_lanes(&mut output, axis, |lane| {
+    normalize_lanes(pool, &mut output, axis, |lane| {
         vecmath::LogSoftmax::new_mut(lane).dispatch();
     })?;
     Ok(output)
@@ -815,7 +817,7 @@ pub fn softmax(
         NanHandling::FlushToZero => true,
     };
     let mut output = input.into_owned_in(pool);
-    normalize_lanes(&mut output, axis, |lane| {
+    normalize_lanes(pool, &mut output, axis, |lane| {
         vecmath::Softmax::new_mut(lane)
             .flush_nans_to_zero(flush_nans)
             .dispatch();
