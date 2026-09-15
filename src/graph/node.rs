@@ -19,6 +19,11 @@ pub enum Node {
 }
 
 impl Node {
+    /// Whether this node is a constant baked into the model.
+    pub fn is_constant(&self) -> bool {
+        matches!(self, Node::Constant(_))
+    }
+
     /// Return the debug name of this node
     pub fn name(&self) -> Option<&str> {
         match self {

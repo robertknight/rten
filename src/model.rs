@@ -602,6 +602,18 @@ impl<'a> NodeInfo<'a> {
     pub fn dtype(&self) -> Option<ValueType> {
         self.node.dtype()
     }
+
+    /// Whether this node holds a value baked into the model rather than one
+    /// supplied at run time.
+    ///
+    /// ONNX before IR version 4 required every initializer to also be listed
+    /// as a graph input, so models of that vintage declare their weights as
+    /// inputs. [`Model::input_ids`] returns them, and without this a caller
+    /// enumerating the inputs it must supply cannot tell a weight from a real
+    /// input, so it asks the user to provide the weights.
+    pub fn is_constant(&self) -> bool {
+        self.node.is_constant()
+    }
 }
 
 impl<'a> std::fmt::Debug for NodeInfo<'a> {
@@ -1112,6 +1124,20 @@ mod tests {
         let err = model.node_id("does_not_exist").err().unwrap();
         assert_eq!(err.node_path(), [Some("does_not_exist")]);
         assert_eq!(err.kind(), RunErrorKind::NodeNotFound);
+    }
+
+    #[test]
+    fn test_node_info_is_constant() {
+        let buffer = generate_model_buffer();
+        let model = Model::load(buffer).unwrap();
+
+        let constant = model.find_node("const").unwrap();
+        let input = model.find_node("input").unwrap();
+        let output = model.find_node("output").unwrap();
+
+        assert!(model.node_info(constant).unwrap().is_constant());
+        assert!(!model.node_info(input).unwrap().is_constant());
+        assert!(!model.node_info(output).unwrap().is_constant());
     }
 
     #[test]
