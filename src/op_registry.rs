@@ -235,6 +235,20 @@ pub mod op_types {
                 }
             }
         };
+
+        // Variant for operators which can only be loaded from .onnx models.
+        // The .rten format is deprecated, so newly added operators use this.
+        ($op:ident, onnx_only) => {
+            #[cfg(feature = "onnx_format")]
+            pub struct $op;
+
+            #[cfg(feature = "onnx_format")]
+            impl RegisterOp for $op {
+                fn register(&self, registry: &mut OpRegistry) {
+                    registry.onnx_registry.register_op::<ops::$op>();
+                }
+            }
+        };
     }
 
     declare_op!(Abs);
@@ -247,6 +261,7 @@ pub mod op_types {
     declare_op!(Atan);
     declare_op!(AveragePool);
     declare_op!(BatchNormalization);
+    declare_op!(BitCast, onnx_only);
     declare_op!(Cast);
     declare_op!(CastLike);
     declare_op!(Ceil);
