@@ -16,8 +16,8 @@ use crate::operator::{
     OutputTypeList, OutputTypesContext, static_dims,
 };
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
-use crate::ops::{map_value, map_value_view, resolve_axes, resolve_axis};
-use crate::value::{DataType, Value, ValueType, ValueView};
+use crate::ops::{map_value_as_bits, map_view_as_bits, resolve_axes, resolve_axis};
+use crate::value::{BitCastTo, DataType, ValueType};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DepthToSpaceMode {
@@ -190,7 +190,11 @@ impl Operator for Expand {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
 
-        map_value_view!(input, x, { expand(ctx.pool(), x, &shape).into_op_result() })
+        map_view_as_bits!(input, x, dtype, {
+            expand(ctx.pool(), x, &shape)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
+        })
     }
 
     fn in_place_inputs(&self) -> BitSet<u16> {
@@ -212,10 +216,10 @@ impl Operator for Expand {
             return input.into_op_result();
         }
 
-        map_value!(input, input, {
+        map_value_as_bits!(input, input, dtype, {
             let input = input.auto_return(ctx.pool());
             let output = expand_to(ctx.pool(), input.view(), &out_shape);
-            output.into_op_result()
+            output.bit_cast_to(dtype).into_op_result()
         })
     }
 
@@ -266,8 +270,10 @@ impl Operator for Flatten {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_value_view!(input, x, {
-            flatten(ctx.pool(), x.as_cow(), self.axis).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            flatten(ctx.pool(), x.as_cow(), self.axis)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -281,8 +287,10 @@ impl Operator for Flatten {
         ctx: &OpRunContext,
     ) -> Result<OutputList, OpError> {
         let input = in_place.into_single();
-        map_value!(input, x, {
-            flatten(ctx.pool(), x.into_cow(), self.axis).into_op_result()
+        map_value_as_bits!(input, x, dtype, {
+            flatten(ctx.pool(), x.into_cow(), self.axis)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -410,8 +418,10 @@ impl Operator for Reshape {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
 
-        map_value_view!(input, x, {
-            reshape(ctx.pool(), x.as_cow(), &shape, self.allow_zero).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            reshape(ctx.pool(), x.as_cow(), &shape, self.allow_zero)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -427,8 +437,10 @@ impl Operator for Reshape {
         let input = in_place.into_single();
         let shape = ctx.inputs().require_as(1)?;
 
-        map_value!(input, output, {
-            reshape(ctx.pool(), output.into_cow(), &shape, self.allow_zero).into_op_result()
+        map_value_as_bits!(input, output, dtype, {
+            reshape(ctx.pool(), output.into_cow(), &shape, self.allow_zero)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -584,8 +596,10 @@ impl Operator for Squeeze {
         let input = inputs.require(0)?;
         let axes = inputs.get_as(1)?;
 
-        map_value_view!(input, x, {
-            squeeze(ctx.pool(), x.as_cow(), axes).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            squeeze(ctx.pool(), x.as_cow(), axes)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -601,8 +615,10 @@ impl Operator for Squeeze {
         let input = in_place.into_single();
         let axes = ctx.inputs().get_as(1)?;
 
-        map_value!(input, output, {
-            squeeze(ctx.pool(), output.into_cow(), axes).into_op_result()
+        map_value_as_bits!(input, output, dtype, {
+            squeeze(ctx.pool(), output.into_cow(), axes)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -656,8 +672,10 @@ impl Operator for Transpose {
         let input = ctx.inputs().require(0)?;
         let perm_slice = self.perm.as_deref();
 
-        map_value_view!(input, x, {
-            transpose(ctx.pool(), x, perm_slice).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            transpose(ctx.pool(), x, perm_slice)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -723,8 +741,10 @@ impl Operator for Unsqueeze {
         let input = inputs.require(0)?;
         let axes = inputs.require_as(1)?;
 
-        map_value_view!(input, x, {
-            unsqueeze(ctx.pool(), x.as_cow(), &axes).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            unsqueeze(ctx.pool(), x.as_cow(), &axes)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -740,8 +760,10 @@ impl Operator for Unsqueeze {
         let input = in_place.into_single();
         let axes = ctx.inputs().require_as(1)?;
 
-        map_value!(input, output, {
-            unsqueeze(ctx.pool(), output.into_cow(), &axes).into_op_result()
+        map_value_as_bits!(input, output, dtype, {
+            unsqueeze(ctx.pool(), output.into_cow(), &axes)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 

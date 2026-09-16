@@ -11,8 +11,8 @@ use crate::operator::{
     InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
     OutputType, OutputTypeList, OutputTypesContext,
 };
-use crate::ops::{map_value, map_value_view, resolve_axis};
-use crate::value::{Value, ValueView};
+use crate::ops::{map_value_as_bits, map_view_as_bits, resolve_axis};
+use crate::value::BitCastTo;
 
 macro_rules! check_input {
     ($cond:expr, $msg:literal) => {
@@ -136,10 +136,11 @@ impl Operator for Slice {
         let axes = inputs.get_as(3)?;
         let steps = inputs.get_as(4)?;
 
-        let result: Result<Value, OpError> = map_value_view!(input, x, {
-            slice(ctx.pool(), x, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
-        });
-        result.into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            slice(ctx.pool(), x, &starts, &ends, axes.as_ref(), steps.as_ref())
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
+        })
     }
 
     fn in_place_inputs(&self) -> BitSet<u16> {
@@ -177,9 +178,9 @@ impl Operator for Slice {
             return self.run(&ctx);
         }
 
-        map_value!(input, output, {
+        map_value_as_bits!(input, output, dtype, {
             slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
-            output.into_op_result()
+            output.bit_cast_to(dtype).into_op_result()
         })
     }
 
