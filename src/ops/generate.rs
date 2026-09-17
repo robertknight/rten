@@ -15,19 +15,6 @@ use crate::operator::{
 use crate::ops::{map_dtype, map_value_view, resolve_axis, resolve_index};
 use crate::value::{DataType, Scalar, ValueType, ValueView};
 
-pub fn constant_of_shape<T: Copy>(
-    pool: &BufferPool,
-    value: T,
-    shape: &NdTensorView<i32, 1>,
-) -> Result<Tensor<T>, OpError> {
-    let shape = shape
-        .iter()
-        .map(|el| (*el).try_into())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| OpError::invalid_value("Invalid shape"))?;
-    Ok(Tensor::full_in(pool, &shape, value))
-}
-
 #[derive(Debug, PartialEq)]
 pub struct ConstantOfShape {
     pub value: Scalar,
@@ -44,13 +31,19 @@ impl Operator for ConstantOfShape {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let pool = ctx.pool();
-        let shape = ctx.inputs().require_as(0)?;
+        let shape: NdTensorView<i32, 1> = ctx.inputs().require_as(0)?;
+
+        let shape: Vec<usize> = shape
+            .iter()
+            .map(|el| (*el).try_into())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| OpError::invalid_value("Invalid shape"))?;
 
         match self.value {
-            Scalar::Float(value) => constant_of_shape(pool, value, &shape).into_op_result(),
-            Scalar::Int32(value) => constant_of_shape(pool, value, &shape).into_op_result(),
-            Scalar::Int8(value) => constant_of_shape(pool, value, &shape).into_op_result(),
-            Scalar::UInt8(value) => constant_of_shape(pool, value, &shape).into_op_result(),
+            Scalar::Float(value) => Tensor::full_in(pool, &shape, value).into_op_result(),
+            Scalar::Int32(value) => Tensor::full_in(pool, &shape, value).into_op_result(),
+            Scalar::Int8(value) => Tensor::full_in(pool, &shape, value).into_op_result(),
+            Scalar::UInt8(value) => Tensor::full_in(pool, &shape, value).into_op_result(),
         }
     }
 
