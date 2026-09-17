@@ -3,23 +3,6 @@ use std::fmt::{Debug, Error, Formatter};
 use crate::layout::{Layout, MatrixLayout, SizeArray};
 use crate::{AsView, NdTensorView, Storage, TensorBase};
 
-/// Entry in the formatted representation of a tensor's data.
-enum Entry<T: Debug> {
-    Value(T),
-
-    /// "..." used to elide long dimensions.
-    Ellipsis,
-}
-
-impl<T: Debug> Debug for Entry<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        match self {
-            Entry::Value(val) => write!(f, "{:?}", val),
-            Entry::Ellipsis => write!(f, "..."),
-        }
-    }
-}
-
 /// Configuration for debug formatting of a tensor.
 #[derive(Clone, Debug)]
 struct FormatOptions {
@@ -43,6 +26,52 @@ impl Default for FormatOptions {
     }
 }
 
+/// Format a single vector of a tensor as a list (`[0, 1, 2, ... n]`).
+fn write_vector<'a, T: Debug + 'a>(
+    opts: &FormatOptions,
+    f: &mut Formatter<'_>,
+    row: NdTensorView<T, 1>,
+) -> Result<(), Error> {
+    let mut entries = row.iter();
+    let head_len = opts.max_columns / 2;
+    let tail_len = opts.max_columns.div_ceil(2);
+    let body_len = row.len().saturating_sub(head_len + tail_len);
+
+    let mut data_fmt = f.debug_list();
+    data_fmt.entries(entries.by_ref().take(head_len));
+    if body_len > 0 {
+        data_fmt.entry(&format_args!("..."));
+        entries.nth(body_len - 1);
+    }
+    data_fmt.entries(entries);
+    data_fmt.finish()
+}
+
+/// Format a single sub-matrix from a tensor.
+///
+/// `extra_indent` specifies the amount of additional indentation to
+/// apply to rows after the first one. The first row is assumed not to
+/// require any indentation.
+fn write_matrix<T: Debug>(
+    opts: &FormatOptions,
+    f: &mut Formatter<'_>,
+    mat: NdTensorView<T, 2>,
+    extra_indent: usize,
+) -> Result<(), Error> {
+    write!(f, "[")?;
+    for row in 0..mat.rows().min(opts.max_rows) {
+        write_vector(opts, f, mat.slice(row))?;
+
+        if row < mat.rows().min(opts.max_rows) - 1 {
+            write!(f, ",\n{:>width$}", ' ', width = extra_indent + 1)?;
+        } else if mat.rows() > opts.max_rows {
+            write!(f, ",\n{}...", " ".repeat(extra_indent + 1))?;
+        }
+    }
+    write!(f, "]")?;
+    Ok(())
+}
+
 /// A [`Debug`]-implementing wrapper around a tensor reference with custom
 /// formatting options.
 struct FormatTensor<'a, S: Storage, L: Layout> {
@@ -53,54 +82,6 @@ struct FormatTensor<'a, S: Storage, L: Layout> {
 impl<'a, S: Storage, L: Layout> FormatTensor<'a, S, L> {
     fn new(tensor: &'a TensorBase<S, L>, opts: FormatOptions) -> Self {
         Self { tensor, opts }
-    }
-
-    /// Format a single vector of a tensor as a list (`[0, 1, 2, ... n]`).
-    fn write_vector<T: Debug>(
-        &self,
-        f: &mut Formatter<'_>,
-        row: impl ExactSizeIterator<Item = T> + Clone,
-    ) -> Result<(), Error> {
-        let len = row.len();
-
-        let head = row.clone().take(self.opts.max_columns / 2);
-        let tail = row
-            .clone()
-            .skip(self.opts.max_columns / 2)
-            .skip(len.saturating_sub(self.opts.max_columns));
-
-        let mut data_fmt = f.debug_list();
-        data_fmt.entries(head.map(Entry::Value));
-        if len > self.opts.max_columns {
-            data_fmt.entry(&Entry::<T>::Ellipsis);
-        }
-        data_fmt.entries(tail.map(Entry::Value));
-        data_fmt.finish()
-    }
-
-    /// Format a single sub-matrix from a tensor.
-    ///
-    /// `extra_indent` specifies the amount of additional indentation to
-    /// apply to rows after the first one. The first row is assumed not to
-    /// require any indentation.
-    fn write_matrix<T: Debug>(
-        &self,
-        f: &mut Formatter<'_>,
-        mat: NdTensorView<T, 2>,
-        extra_indent: usize,
-    ) -> Result<(), Error> {
-        write!(f, "[")?;
-        for row in 0..mat.rows().min(self.opts.max_rows) {
-            self.write_vector(f, mat.slice(row).iter())?;
-
-            if row < mat.rows().min(self.opts.max_rows) - 1 {
-                write!(f, ",\n{:>width$}", ' ', width = extra_indent + 1)?;
-            } else if mat.rows() > self.opts.max_rows {
-                write!(f, ",\n{}...", " ".repeat(extra_indent + 1))?;
-            }
-        }
-        write!(f, "]")?;
-        Ok(())
     }
 }
 
@@ -113,7 +94,7 @@ where
 
         match tensor.ndim() {
             0 => write!(f, "({:?})", tensor.item().unwrap())?,
-            1 => self.write_vector(f, tensor.iter())?,
+            1 => write_vector(&self.opts, f, tensor.nd_view())?,
             n => {
                 // Format tensors with >= 2 dims as a sequence of matrices.
                 let outer_dims = n - 2;
@@ -130,7 +111,7 @@ where
                         write!(f, "{}", " ".repeat(outer_dims))?;
                     }
 
-                    self.write_matrix(f, mat, outer_dims)?;
+                    write_matrix(&self.opts, f, mat, outer_dims)?;
 
                     if i < n_matrices.min(self.opts.max_matrices) - 1 {
                         write!(f, ",\n\n")?;
@@ -184,25 +165,47 @@ mod tests {
                 opts: FormatOptions::default(),
                 expected: "(2.0), shape=[], strides=[]",
             },
-            // Empty vector
-            Case {
-                tensor: Tensor::from([0.; 0]),
-                opts: FormatOptions::default(),
-                expected: "[], shape=[0], strides=[1]",
-            },
-            // Short vector
-            Case {
-                tensor: Tensor::from([1., 2., 3., 4.]),
-                opts: FormatOptions::default(),
-                expected: "[1.0, 2.0, 3.0, 4.0], shape=[4], strides=[1]",
-            },
             // Small and large values
             Case {
                 tensor: Tensor::from([1e-8, 1e-7]),
                 opts: FormatOptions::default(),
                 expected: "[1e-8, 1e-7], shape=[2], strides=[1]",
             },
-            // Long vector
+            // Empty vector
+            Case {
+                tensor: Tensor::from([0.; 0]),
+                opts: FormatOptions::default(),
+                expected: "[], shape=[0], strides=[1]",
+            },
+            // Vector with length less than `max_columns`.
+            Case {
+                tensor: Tensor::from([1., 2., 3., 4.]),
+                opts: FormatOptions {
+                    max_columns: 5,
+                    ..Default::default()
+                },
+                expected: "[1.0, 2.0, 3.0, 4.0], shape=[4], strides=[1]",
+            },
+            // Vector with length `max_columns`
+            Case {
+                tensor: Tensor::arange(1., 6., None),
+                opts: FormatOptions {
+                    max_columns: 5,
+                    ..Default::default()
+                },
+                expected: "[1.0, 2.0, 3.0, 4.0, 5.0], shape=[5], strides=[1]",
+            },
+            // Vector with length `max_columns + 1`
+            Case {
+                tensor: Tensor::arange(1., 7., None),
+                opts: FormatOptions {
+                    // nb. max_columns is odd so the tail is longer
+                    max_columns: 5,
+                    ..Default::default()
+                },
+                expected: "[1.0, 2.0, ..., 4.0, 5.0, 6.0], shape=[6], strides=[1]",
+            },
+            // Vector with length `max_columns + N`
             Case {
                 tensor: Tensor::arange(1., 22., None),
                 opts: FormatOptions {
