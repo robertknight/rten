@@ -13,8 +13,8 @@ use crate::operator::{
     InPlaceInputs, InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList,
     OutputType, OutputTypeList, OutputTypesContext,
 };
-use crate::ops::{map_value, map_value_view, resolve_axis};
-use crate::value::{TryFromValueError, Value, ValueView};
+use crate::ops::{map_value, map_value_as_bits, map_value_view, map_view_as_bits, resolve_axis};
+use crate::value::{BitCastTo, TryFromValueError, Value, ValueView};
 
 /// Return the shape formed by concatenating all tensors along a given axis.
 fn concatenated_shape<T: Copy>(
@@ -288,8 +288,10 @@ impl Operator for Tile {
         let input = inputs.require(0)?;
         let repeats = inputs.require_as(1)?;
 
-        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
-            tile(ctx.pool(), input, repeats).into_op_result()
+        map_view_as_bits!(input, input, dtype, {
+            tile(ctx.pool(), input, repeats)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -310,8 +312,10 @@ impl Operator for Tile {
             return input.into_op_result();
         }
 
-        map_value!(input, input, [FloatTensor, Int32Tensor], {
-            tile(ctx.pool(), input.view(), repeats).into_op_result()
+        map_value_as_bits!(input, input, dtype, {
+            tile(ctx.pool(), input.view(), repeats)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -336,9 +340,11 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
+    use crate::operator::OperatorExt;
     use crate::ops::OpError;
+    use crate::value::Value;
 
-    use super::{concat, concat_in_place, tile};
+    use super::{Tile, concat, concat_in_place, tile};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -525,6 +531,38 @@ mod tests {
             let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
             expect_equal(&result, &expected).unwrap();
         });
+    }
+
+    #[test]
+    fn test_tile_op_dtypes() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            expected: Value,
+        }
+
+        let cases = [
+            Case {
+                input: Tensor::from([1., 2.]).into(),
+                expected: Tensor::from([1., 2., 1., 2.]).into(),
+            },
+            Case {
+                input: Tensor::from([1i8, 2]).into(),
+                expected: Tensor::from([1i8, 2, 1, 2]).into(),
+            },
+            Case {
+                input: Tensor::from([1u8, 2]).into(),
+                expected: Tensor::from([1u8, 2, 1, 2]).into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let repeats = Tensor::from([2]);
+            let result: Value = Tile {}
+                .run_simple((case.input.as_view(), repeats.view()))
+                .unwrap();
+            assert_eq!(result, case.expected);
+        })
     }
 
     #[test]

@@ -9,8 +9,8 @@ use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList, OutputTypesContext,
 };
-use crate::ops::{map_value_view, resolve_axis};
-use crate::value::ValueView;
+use crate::ops::{map_view_as_bits, resolve_axis};
+use crate::value::BitCastTo;
 
 #[derive(Clone, Debug)]
 pub enum SplitSizes<'a> {
@@ -129,9 +129,9 @@ impl Operator for Split {
             )
         };
 
-        map_value_view!(input, x, {
+        map_view_as_bits!(input, x, dtype, {
             split(ctx.pool(), x, self.axis, split_sizes)
-                .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
+                .map(|tensors| tensors.into_iter().map(|t| t.bit_cast_to(dtype)).collect())
         })
     }
 

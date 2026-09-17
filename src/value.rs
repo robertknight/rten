@@ -364,6 +364,18 @@ impl<'a> ValueView<'a> {
             ValueView::Sequence(seq) => ValueLayout::Vector(seq.len()),
         }
     }
+
+    /// Convert this view into a [`BitsView`] which treats elements as opaque
+    /// bits.
+    pub(crate) fn into_bits(self) -> Option<BitsView<'a>> {
+        match self {
+            ValueView::Int32Tensor(t) => Some(BitsView::X32(t)),
+            ValueView::FloatTensor(t) => Some(BitsView::X32(t.bit_cast())),
+            ValueView::Int8Tensor(t) => Some(BitsView::X8(t)),
+            ValueView::UInt8Tensor(t) => Some(BitsView::X8(t.bit_cast())),
+            ValueView::Sequence(_) => None,
+        }
+    }
 }
 
 impl Layout for ValueView<'_> {
@@ -1091,6 +1103,48 @@ impl Bits {
             (_, _) => None,
         }
     }
+}
+
+impl From<Tensor<i32>> for Bits {
+    fn from(val: Tensor<i32>) -> Bits {
+        Bits::X32(val)
+    }
+}
+
+impl From<Tensor<i8>> for Bits {
+    fn from(val: Tensor<i8>) -> Bits {
+        Bits::X8(val)
+    }
+}
+
+/// Reinterpret the elements of a tensor as a given data type.
+pub(crate) trait BitCastTo {
+    /// Reinterpret the elements of this tensor as `dtype`.
+    ///
+    /// Panics if the size of `dtype` does not match the element size.
+    fn bit_cast_to(self, dtype: DataType) -> Value;
+}
+
+impl<T> BitCastTo for Tensor<T>
+where
+    Bits: From<Tensor<T>>,
+{
+    fn bit_cast_to(self, dtype: DataType) -> Value {
+        Bits::from(self)
+            .into_value(dtype)
+            .expect("dtype size should match element size")
+    }
+}
+
+/// A tensor view whose elements are treated as opaque bits.
+///
+/// This is like [`Bits`] but for tensor views rather than owned tensors.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BitsView<'a> {
+    /// A tensor with 8-bit elements.
+    X8(TensorView<'a, i8>),
+    /// A tensor with 32-bit elements.
+    X32(TensorView<'a, i32>),
 }
 
 #[cfg(test)]

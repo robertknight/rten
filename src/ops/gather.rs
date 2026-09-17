@@ -13,8 +13,8 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::{invalid_index_err, map_value_view, resolve_axis, try_resolve_index};
-use crate::value::{Value, ValueView};
+use crate::ops::{invalid_index_err, map_view_as_bits, resolve_axis, try_resolve_index};
+use crate::value::BitCastTo;
 
 /// Trait for random-access to 1D slices.
 trait GetItem {
@@ -165,8 +165,10 @@ impl Operator for Gather {
         let input = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_value_view!(input, x, {
-            gather(ctx.pool(), x, self.axis, indices).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            gather(ctx.pool(), x, self.axis, indices)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -293,8 +295,10 @@ impl Operator for GatherElements {
         let input = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_value_view!(input, x, {
-            gather_elements(ctx.pool(), x, indices, self.axis).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            gather_elements(ctx.pool(), x, indices, self.axis)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -435,8 +439,10 @@ impl Operator for GatherND {
         let input = inputs.require(0)?;
         let indices = inputs.require_as(1)?;
 
-        map_value_view!(input, x, {
-            gather_nd(ctx.pool(), x, indices, self.batch_dims).into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            gather_nd(ctx.pool(), x, indices, self.batch_dims)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -574,10 +580,11 @@ impl Operator for ReverseSequence {
             }
         };
 
-        let result = map_value_view!(input, input, {
-            reverse_sequence(ctx.pool(), input, seq_lens, layout).map(Value::from)
-        });
-        result.into_op_result()
+        map_view_as_bits!(input, x, dtype, {
+            reverse_sequence(ctx.pool(), x, seq_lens, layout)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
+        })
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {

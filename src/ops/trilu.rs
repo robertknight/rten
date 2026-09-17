@@ -9,8 +9,8 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
-use crate::ops::map_value_view;
-use crate::value::ValueView;
+use crate::ops::map_view_as_bits;
+use crate::value::BitCastTo;
 
 fn trilu_kernel<T: Copy + Default, const UPPER: bool>(
     mut out_mat: NdTensorViewMut<MaybeUninit<T>, 2>,
@@ -82,8 +82,10 @@ impl Operator for Trilu {
         let input = inputs.require(0)?;
         let k = inputs.get_as(1)?.unwrap_or(0);
 
-        map_value_view!(input, input, [FloatTensor, Int32Tensor], {
-            trilu(ctx.pool(), input, k, self.upper).into_op_result()
+        map_view_as_bits!(input, input, dtype, {
+            trilu(ctx.pool(), input, k, self.upper)
+                .map(|out| out.bit_cast_to(dtype))
+                .into_op_result()
         })
     }
 
@@ -103,7 +105,11 @@ mod tests {
     use rten_testing::TestCases;
 
     use crate::buffer_pool::BufferPool;
+    use crate::operator::OperatorExt;
     use crate::ops::{OpError, trilu};
+    use crate::value::Value;
+
+    use super::Trilu;
 
     #[test]
     fn test_trilu() {
@@ -194,6 +200,36 @@ mod tests {
         cases.test_each(|case| {
             let pool = BufferPool::new();
             let result = trilu(&pool, case.input.view(), case.k, case.upper).unwrap();
+            assert_eq!(result, case.expected);
+        })
+    }
+
+    #[test]
+    fn test_trilu_op_dtypes() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            expected: Value,
+        }
+
+        let cases = [
+            Case {
+                input: Tensor::from([[1., 2.], [3., 4.]]).into(),
+                expected: Tensor::from([[1., 2.], [0., 4.]]).into(),
+            },
+            Case {
+                input: Tensor::from([[1i8, 2], [3, 4]]).into(),
+                expected: Tensor::from([[1i8, 2], [0, 4]]).into(),
+            },
+            Case {
+                input: Tensor::from([[1u8, 2], [3, 4]]).into(),
+                expected: Tensor::from([[1u8, 2], [0, 4]]).into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = Trilu { upper: true };
+            let result: Value = op.run_simple(case.input.as_view()).unwrap();
             assert_eq!(result, case.expected);
         })
     }

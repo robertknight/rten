@@ -9,8 +9,8 @@ use crate::operator::{
     InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext,
 };
-use crate::ops::map_value_view;
-use crate::value::ValueView;
+use crate::ops::map_view_as_bits;
+use crate::value::BitCastTo;
 
 fn identity<T: Copy>(pool: &BufferPool, src: TensorView<T>) -> Tensor<T> {
     src.to_tensor_in(pool)
@@ -30,7 +30,9 @@ impl Operator for Identity {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        map_value_view!(input, x, { identity(ctx.pool(), x).into_op_result() })
+        map_view_as_bits!(input, x, dtype, {
+            identity(ctx.pool(), x).bit_cast_to(dtype).into_op_result()
+        })
     }
 
     fn in_place_inputs(&self) -> BitSet<u16> {
