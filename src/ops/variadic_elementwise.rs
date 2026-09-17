@@ -10,7 +10,7 @@ use crate::operator::{
     InputList, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType,
     OutputTypeList, OutputTypesContext,
 };
-use crate::ops::binary_elementwise::binary_op;
+use crate::ops::binary_elementwise::{BinaryKernel, binary_op};
 use crate::ops::map_value_view;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::value::{TryFromValueError, ValueView};
@@ -18,20 +18,20 @@ use crate::value::{TryFromValueError, ValueView};
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
 /// All inputs must be broadcastable to the same shape.
-fn reduce_elementwise<T: Copy, R: Fn(T, T) -> T + Copy>(
+fn reduce_elementwise<T: Copy>(
     pool: &BufferPool,
     inputs: &[TensorView<T>],
-    reduce: R,
+    reduce: &dyn BinaryKernel<T>,
 ) -> Result<Tensor<T>, OpError> {
     match inputs {
         [] => Err(OpError::invalid_value("Expected at least one input")),
         [a] => Ok(a.to_tensor_in(pool)),
-        [a, b] => binary_op(pool, a.view(), b.view(), &reduce),
+        [a, b] => binary_op(pool, a.view(), b.view(), reduce),
         [a, b, c @ ..] => {
-            let mut tmp = binary_op(pool, a.view(), b.view(), &reduce)?;
+            let mut tmp = binary_op(pool, a.view(), b.view(), reduce)?;
             for arg in c {
                 let old_tmp = tmp.auto_return(pool);
-                tmp = binary_op(pool, old_tmp.view(), arg.view(), &reduce)?;
+                tmp = binary_op(pool, old_tmp.view(), arg.view(), reduce)?;
             }
             Ok(tmp)
         }
@@ -59,7 +59,7 @@ pub fn max<T: Copy + PartialOrd + IsNaN>(
     pool: &BufferPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(pool, inputs, |a, b| match cmp_nan_greater(a, b) {
+    reduce_elementwise(pool, inputs, &|a, b| match cmp_nan_greater(a, b) {
         Ordering::Equal | Ordering::Greater => a,
         Ordering::Less => b,
     })
@@ -133,7 +133,7 @@ pub fn min<T: Copy + PartialOrd + IsNaN>(
     pool: &BufferPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(pool, inputs, |a, b| match cmp_nan_less(a, b) {
+    reduce_elementwise(pool, inputs, &|a, b| match cmp_nan_less(a, b) {
         Ordering::Less | Ordering::Equal => a,
         Ordering::Greater => b,
     })
@@ -173,7 +173,7 @@ pub fn sum<T: Copy + std::ops::Add<Output = T>>(
     pool: &BufferPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(pool, inputs, |a, b| a + b)
+    reduce_elementwise(pool, inputs, &|a, b| a + b)
 }
 
 #[derive(Debug)]

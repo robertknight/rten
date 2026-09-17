@@ -148,7 +148,7 @@ pub use conv::{conv, conv_integer};
 pub use conv_transpose::conv_transpose;
 pub use einsum::einsum;
 pub use gather::{gather, gather_elements, gather_nd};
-pub use generate::{constant_of_shape, onehot, range};
+pub use generate::{onehot, range};
 pub use layout::{DepthToSpaceMode, depth_to_space, expand, flatten, reshape, squeeze};
 pub use matmul::{gemm, matmul};
 pub use non_max_suppression::{BoxOrder, non_max_suppression};
