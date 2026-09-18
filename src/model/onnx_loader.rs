@@ -146,7 +146,24 @@ fn load_graph(
         graph.add_value(Some(name), shape, dtype.map(ValueType::Tensor))
     };
 
+    // Add constants from initializers.
+    for initializer in &onnx_graph.initializer {
+        let constant = load_constant(initializer, loader, None)?;
+        graph.add_constant_node(constant);
+    }
+
+    // Add constants from "Constant" operators in the graph.
+    for const_op in onnx_graph
+        .node
+        .iter()
+        .filter(|op| op.op_type.as_deref() == Some("Constant"))
+    {
+        let constant = load_constant_from_constant_op(const_op, loader)?;
+        graph.add_constant_node(constant);
+    }
+
     // Create value nodes corresponding to graph inputs and outputs.
+    let mut input_ids = Vec::new();
     for value in &onnx_graph.input {
         let name = value.name.as_deref().unwrap_or_default();
         if name.is_empty() {
@@ -155,7 +172,16 @@ fn load_graph(
             )
             .into());
         }
-        add_value(&mut graph, name, value);
+
+        // Skip inputs where the name matches an initializer that has already
+        // been added to the graph. ONNX IR versions < 4 required initializers
+        // to be listed as graph inputs, but ONNX Runtime does not list such
+        // initializers when querying a model's inputs.
+        if graph.get_node_id(name).is_some() {
+            continue;
+        }
+
+        input_ids.push(add_value(&mut graph, name, value));
     }
 
     for value in &onnx_graph.output {
@@ -189,22 +215,6 @@ fn load_graph(
             }
         };
         name_to_value_info.insert(name, value);
-    }
-
-    // Add constants from initializers.
-    for initializer in &onnx_graph.initializer {
-        let constant = load_constant(initializer, loader, None)?;
-        graph.add_constant_node(constant);
-    }
-
-    // Add constants from "Constant" operators in the graph.
-    for const_op in onnx_graph
-        .node
-        .iter()
-        .filter(|op| op.op_type.as_deref() == Some("Constant"))
-    {
-        let constant = load_constant_from_constant_op(const_op, loader)?;
-        graph.add_constant_node(constant);
     }
 
     // Create value nodes for operator inputs and outputs.
@@ -247,27 +257,21 @@ fn load_graph(
     // Record which of the value nodes represent values coming from a parent graph.
     graph.set_captures(&capture_ids);
 
-    let node_ids_from_value_info =
-        |graph: &Graph, values: &[onnx::ValueInfoProto]| -> Vec<NodeId> {
-            values
-                .iter()
-                .map(|val| {
-                    let name = val.name.as_deref().unwrap_or_default();
-                    graph
-                        .get_node_id(name)
-                        .expect("value node should exist in graph")
-                })
-                .collect()
-        };
-
     // Set graph inputs and outputs.
     //
-    // Value nodes should exist in the graph for all inputs and outputs at
-    // this point.
-    let input_ids = node_ids_from_value_info(&graph, &onnx_graph.input);
+    // Nodes should exist in the graph for all inputs and outputs at this point.
     graph.set_input_ids(&input_ids);
 
-    let output_ids = node_ids_from_value_info(&graph, &onnx_graph.output);
+    let output_ids: Vec<NodeId> = onnx_graph
+        .output
+        .iter()
+        .map(|val| {
+            let name = val.name.as_deref().unwrap_or_default();
+            graph
+                .get_node_id(name)
+                .expect("value node should exist in graph")
+        })
+        .collect();
     graph.set_output_ids(&output_ids);
 
     // Add model operators
@@ -1120,7 +1124,8 @@ mod tests {
     use crate::graph::{Constant, Dimension, Graph, TypedConstant};
     use crate::model::external_data::{DataLoader, DataLocation, MemLoader};
     use crate::model::onnx_builder::{
-        GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor, create_value_info,
+        GraphProtoExt, NodeProtoExt, TensorData, create_node, create_tensor,
+        create_tensor_from_view, create_value_info,
     };
     use crate::model::{LoadError, Model, ModelOptions, Node};
 
@@ -1722,6 +1727,43 @@ mod tests {
                 Dimension::Symbolic("unnamed_1".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_initializer_listed_as_input() {
+        // ONNX IR versions < 4 required all initializers to be listed as graph
+        // inputs in `GraphProto`. ONNX Runtime omits these inputs when listing
+        // input nodes, but provides a separate `get_overridable_initializers`
+        // API to list initializers specified as graph inputs. We make
+        // `Model::input_ids` align with ORT.
+        let weights = create_tensor_from_view("weights", TensorView::from(&[1., 2., 3.]));
+        let add_op = create_node("Add")
+            .with_input("input")
+            .with_input("weights")
+            .with_output("output");
+        let model_proto = onnx::GraphProto::default()
+            .with_input(create_value_info("input"))
+            .with_input(create_value_info("weights"))
+            .with_initializer(weights)
+            .with_node(add_op)
+            .with_output(create_value_info("output"))
+            .into_model();
+
+        let model = load_model(model_proto, None).unwrap();
+
+        let input_id = model.find_node("input").unwrap();
+        assert_eq!(model.input_ids(), &[input_id]);
+        assert_eq!(
+            model.get_tensor_by_name::<f32>("weights").unwrap(),
+            Tensor::from([1., 2., 3.]).view()
+        );
+
+        let output = model
+            .run_one(Tensor::from([1., 1., 1.]).view().into(), None)
+            .unwrap()
+            .into_tensor::<f32>()
+            .unwrap();
+        assert_eq!(output, Tensor::from([2., 3., 4.]));
     }
 
     // See https://github.com/robertknight/rten/issues/1220.
