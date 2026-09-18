@@ -762,7 +762,7 @@ mod tests {
             let dequantized = output
                 .quantized
                 .map(|&q| (q as i32 - zero_point as i32) as f32 * scale);
-            expect_equal_with_tolerance(&dequantized, &input, *max_error, *max_error).unwrap();
+            expect_equal_with_tolerance(&dequantized, input, *max_error, *max_error).unwrap();
         })
     }
 }

@@ -170,7 +170,7 @@ mod tests {
         // to a valid UTF-8 sequence.
         let token_ids = tokenizer.encode("😊", None).unwrap().into_token_ids();
         assert!(token_ids.len() > 1);
-        let generator = token_ids.into_iter().map(|tok_id| Ok(tok_id as u32));
+        let generator = token_ids.into_iter().map(|tok_id| Ok(tok_id));
 
         let tokens: Vec<_> = generator
             .decode(&tokenizer)
@@ -192,7 +192,7 @@ mod tests {
         let generator = token_ids
             .into_iter()
             .take(1)
-            .map(|tok_id| Ok(tok_id as u32));
+            .map(|tok_id| Ok(tok_id));
 
         let tokens: Vec<_> = generator
             .decode(&tokenizer)

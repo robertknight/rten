@@ -1139,7 +1139,7 @@ mod tests {
             data_loader,
             // Disable optimization by default to test just the basic graph
             // creation.
-            &ModelOptions::with_all_ops().enable_optimization(false),
+            ModelOptions::with_all_ops().enable_optimization(false),
         )
     }
 

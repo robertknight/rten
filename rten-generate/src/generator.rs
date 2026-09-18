@@ -1125,8 +1125,7 @@ mod tests {
             self.inputs
                 .borrow()
                 .get(step)
-                .map(|step_inputs| step_inputs.get(&node_id))
-                .flatten()
+                .and_then(|step_inputs| step_inputs.get(&node_id))
                 .cloned()
         }
     }
@@ -1276,7 +1275,7 @@ mod tests {
         if let Some(kv_cache_type) = kv_cache {
             let dims = [
                 Dimension::Symbolic("batch".to_string()),
-                Dimension::Fixed(n_heads as usize),
+                Dimension::Fixed(n_heads),
                 Dimension::Symbolic("seq".to_string()),
                 Dimension::Fixed(n_embed),
             ];
@@ -1318,8 +1317,8 @@ mod tests {
                     }
                 }
 
-                inputs.extend(past_names.iter().map(|name| make_name_info(&name)));
-                outputs.extend(present_names.iter().map(|name| make_name_info(&name)));
+                inputs.extend(past_names.iter().map(|name| make_name_info(name)));
+                outputs.extend(present_names.iter().map(|name| make_name_info(name)));
                 kv_cache_output_names.extend(present_names);
             }
 
@@ -1348,7 +1347,7 @@ mod tests {
 
             // Add KV cache outputs
             for kv_output in kv_cache_output_names.iter() {
-                let kv_output_id = model.find_node(&kv_output).unwrap();
+                let kv_output_id = model.find_node(kv_output).unwrap();
                 let context_len = if step == 0 {
                     prompt_len
                 } else {

@@ -1382,13 +1382,11 @@ mod tests {
 
     #[test]
     fn test_line_is_horizontal() {
-        assert_eq!(
-            Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(5, 10)).is_horizontal(),
-            true
+        assert!(
+            Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(5, 10)).is_horizontal()
         );
-        assert_eq!(
-            Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(6, 10)).is_horizontal(),
-            false
+        assert!(
+            !Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(6, 10)).is_horizontal()
         );
     }
 
@@ -1729,15 +1727,15 @@ mod tests {
         let r = Rect::from_tlbr(5, 5, 10, 10);
 
         // Points outside rect
-        assert_eq!(r.contains_point(Point::from_yx(0, 0)), false);
-        assert_eq!(r.contains_point(Point::from_yx(12, 12)), false);
+        assert!(!r.contains_point(Point::from_yx(0, 0)));
+        assert!(!r.contains_point(Point::from_yx(12, 12)));
 
         // Points inside rect
-        assert_eq!(r.contains_point(Point::from_yx(8, 8)), true);
+        assert!(r.contains_point(Point::from_yx(8, 8)));
 
         // Points on boundary
-        assert_eq!(r.contains_point(Point::from_yx(5, 5)), true);
-        assert_eq!(r.contains_point(Point::from_yx(10, 10)), true);
+        assert!(r.contains_point(Point::from_yx(5, 5)));
+        assert!(r.contains_point(Point::from_yx(10, 10)));
     }
 
     #[test]

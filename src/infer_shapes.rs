@@ -506,7 +506,7 @@ mod tests {
             );
             let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
             let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
-            out.build_graph(&["data"])
+            out.build_graph(["data"])
         };
 
         let shapes = infer_shapes(&graph, Default::default()).unwrap();
@@ -538,7 +538,7 @@ mod tests {
             );
             let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
             let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
-            out.build_graph(&["data"])
+            out.build_graph(["data"])
         };
         let result = infer_shapes(&graph, opts.clone());
         assert!(result.is_ok());
@@ -548,7 +548,7 @@ mod tests {
             let x = Expr::value("data"); // Missing type, shape
             let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
             let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
-            out.build_graph(&["data"])
+            out.build_graph(["data"])
         };
         let result = infer_shapes(&graph, opts.clone());
         assert!(
@@ -576,7 +576,7 @@ mod tests {
                 &[w],
                 &[OutputMeta::NoMeta],
             );
-            out.build_graph(&["data"])
+            out.build_graph(["data"])
         };
         let result = infer_shapes(&graph, opts.clone());
         assert!(
@@ -589,7 +589,7 @@ mod tests {
         let graph = {
             let x = Expr::value("data");
             let out = x.clone() + x;
-            out.build_graph(&["data"])
+            out.build_graph(["data"])
         };
         let result = infer_shapes(&graph, opts.clone());
         assert!(
@@ -625,7 +625,7 @@ mod tests {
 
         for output_id in graph.output_ids() {
             assert_eq!(
-                result.types.get(&output_id).copied(),
+                result.types.get(output_id).copied(),
                 Some(ValueType::Tensor(DataType::Float))
             );
         }
@@ -660,10 +660,10 @@ mod tests {
                 &[OutputMeta::NoMeta],
             );
             let axes = Expr::constant(NdTensor::from([0i32]));
-            let dim1_vec = dim1.apply(Unsqueeze {}, &[axes.clone()], &[OutputMeta::NoMeta]);
+            let dim1_vec = dim1.apply(Unsqueeze {}, std::slice::from_ref(&axes), &[OutputMeta::NoMeta]);
             let dim2_vec = dim2.apply(Unsqueeze {}, &[axes], &[OutputMeta::NoMeta]);
             let dims_vec = dim1_vec.apply(Concat { axis: 0 }, &[dim2_vec], &[OutputMeta::NoMeta]);
-            dims_vec.build_graph(&["data"])
+            dims_vec.build_graph(["data"])
         };
 
         let output_id = graph.output_ids()[0];

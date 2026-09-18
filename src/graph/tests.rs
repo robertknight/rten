@@ -144,7 +144,7 @@ impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> 
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        (self.run)(ctx).map(|v| v.into())
+        (self.run)(ctx).map(|v| v)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -438,7 +438,7 @@ impl Operator for AddOne {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input: TensorView<f32> = ctx.inputs().require_as(0)?;
         let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
-        Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
+        Tensor::<f32>::from_data(input.shape(), output_data).into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -829,9 +829,7 @@ fn test_cycle() {
     assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
         err.to_string(),
-        format!(
-            "planning error: Encountered cycle visiting dependency \"output\" of operator \"identity_0\""
-        )
+        "planning error: Encountered cycle visiting dependency \"output\" of operator \"identity_0\"".to_string()
     );
 }
 
@@ -902,7 +900,7 @@ impl Operator for AddOneInPlace {
     ) -> Result<OutputList, OpError> {
         let mut output = in_place.into_single().into_tensor::<f32>().unwrap();
         for x in output.iter_mut() {
-            *x = *x + 1.0;
+            *x += 1.0;
         }
         output.into_op_result()
     }

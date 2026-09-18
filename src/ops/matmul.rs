@@ -909,10 +909,10 @@ mod tests {
         let b_bcast = [out_prefix, &b.shape()[b_batch_dims..]].concat();
 
         let a_zero = a_zero.map(|zp| zp.broadcast([a_rows]).to_vec());
-        let a_quant = a_zero.as_ref().map(|zp| QuantParams { zero_point: &zp });
+        let a_quant = a_zero.as_ref().map(|zp| QuantParams { zero_point: zp });
 
         let b_zero = b_zero.map(|zp| zp.broadcast([b_cols]).to_vec());
-        let b_quant = b_zero.as_ref().map(|zp| QuantParams { zero_point: &zp });
+        let b_quant = b_zero.as_ref().map(|zp| QuantParams { zero_point: zp });
 
         let gemm = GemmExecutor::<LhsT, RhsT, OutT>::default();
         a.broadcast(a_bcast.as_slice())
@@ -1271,7 +1271,7 @@ mod tests {
                 a.view(),
                 b.view(),
                 MatMulOpts {
-                    bias: bias.clone(),
+                    bias: *bias,
                     alpha: *alpha,
                     ..Default::default()
                 },

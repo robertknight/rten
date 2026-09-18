@@ -986,10 +986,10 @@ mod tests {
         let pool = BufferPool::new();
         let input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
         let expected = Tensor::from([
-            -0.9953222650189527,
-            -0.5204998778130465,
-            0.5204998778130465,
-            0.9953222650189527,
+            -0.995_322_3,
+            -0.520_499_9,
+            0.520_499_9,
+            0.995_322_3,
         ]);
         let result = erf(&pool, input.view());
         expect_equal(&result, &expected)?;

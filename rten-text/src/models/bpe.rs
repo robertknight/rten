@@ -583,6 +583,7 @@ in g";
     #[test]
     fn test_encode() {
         #[derive(Debug)]
+        #[derive(Default)]
         struct Case<'a> {
             text: &'a str,
             expected_tokens: &'a [&'a str],
@@ -592,18 +593,7 @@ in g";
             ignore_merges: bool,
         }
 
-        impl<'a> Default for Case<'a> {
-            fn default() -> Self {
-                Self {
-                    text: "",
-                    expected_tokens: &[],
-                    merges: "",
-                    vocab: None,
-                    end_of_word_suffix: None,
-                    ignore_merges: false,
-                }
-            }
-        }
+        
 
         let cases = [
             // Minimal test using a snippet of the GPT-2 merge list.

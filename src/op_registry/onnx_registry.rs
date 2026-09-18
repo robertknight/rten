@@ -2262,7 +2262,7 @@ mod tests {
 
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
-        assert_eq!(argmax_op.keep_dims, true);
+        assert!(argmax_op.keep_dims);
     }
 
     #[test]
