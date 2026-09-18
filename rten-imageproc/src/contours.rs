@@ -450,7 +450,7 @@ mod tests {
         let n_iters = 100;
         run_bench(n_iters, Some("find_contours"), || {
             let contours = find_contours(mask.view(), RetrievalMode::External);
-            assert_eq!(contours.len(), ((grid_rows * grid_cols)));
+            assert_eq!(contours.len(), grid_rows * grid_cols);
         });
     }
 }

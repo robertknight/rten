@@ -467,7 +467,7 @@ mod tests {
             // Create buckets to count elements in N sub-intervals of
             // `[op.low, op.high]`.
             let mut buckets = [0; 10];
-            let bucket_size = ((op.high - op.low)) / buckets.len() as f32;
+            let bucket_size = (op.high - op.low) / buckets.len() as f32;
 
             // Test generated outputs are within expected range.
             for el in output.iter().copied() {

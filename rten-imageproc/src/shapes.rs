@@ -1382,12 +1382,8 @@ mod tests {
 
     #[test]
     fn test_line_is_horizontal() {
-        assert!(
-            Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(5, 10)).is_horizontal()
-        );
-        assert!(
-            !Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(6, 10)).is_horizontal()
-        );
+        assert!(Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(5, 10)).is_horizontal());
+        assert!(!Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(6, 10)).is_horizontal());
     }
 
     #[test]

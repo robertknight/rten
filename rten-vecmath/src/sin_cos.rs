@@ -133,7 +133,7 @@ mod tests {
 
     // Maximum error of `SinCos` compared to `f32::sin` and `f32::cos` in the
     // `SMALL_X` range.
-    const MAX_ERROR_FOR_SMALL_X: f32 = 2.0 * std::f32::EPSILON; // 2.38e-7
+    const MAX_ERROR_FOR_SMALL_X: f32 = 2.0 * f32::EPSILON; // 2.38e-7
 
     // Range of small/medium X values which we expect most inputs will be in.
     const SMALL_X: ARange<f32> = arange(-10., 10., 0.1f32);

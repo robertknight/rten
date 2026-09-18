@@ -660,7 +660,11 @@ mod tests {
                 &[OutputMeta::NoMeta],
             );
             let axes = Expr::constant(NdTensor::from([0i32]));
-            let dim1_vec = dim1.apply(Unsqueeze {}, std::slice::from_ref(&axes), &[OutputMeta::NoMeta]);
+            let dim1_vec = dim1.apply(
+                Unsqueeze {},
+                std::slice::from_ref(&axes),
+                &[OutputMeta::NoMeta],
+            );
             let dim2_vec = dim2.apply(Unsqueeze {}, &[axes], &[OutputMeta::NoMeta]);
             let dims_vec = dim1_vec.apply(Concat { axis: 0 }, &[dim2_vec], &[OutputMeta::NoMeta]);
             dims_vec.build_graph(["data"])

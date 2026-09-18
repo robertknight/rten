@@ -241,7 +241,6 @@ mod tests {
         let vocab = &["[CLS]", "[SEP]", "[UNK]", "foo", "##bar", "##foo"];
         let opts = WordPieceOptions {
             max_word_len: Some(6),
-            ..Default::default()
         };
         let tokenizer = create_tokenizer(vocab, None, opts);
 

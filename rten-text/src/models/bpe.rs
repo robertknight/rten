@@ -572,18 +572,15 @@ in g";
     /// Generate the simplest valid vocabulary.
     fn minimal_vocab(start_token_id: u32) -> FxHashMap<EncodedBytes, TokenId> {
         let mut vocab = FxHashMap::default();
-        let mut next_token_id = start_token_id;
-        for ch in super::char_to_byte().keys() {
+        for (next_token_id, ch) in (start_token_id..).zip(super::char_to_byte().keys()) {
             vocab.insert(ch.to_string(), next_token_id);
-            next_token_id += 1;
         }
         vocab
     }
 
     #[test]
     fn test_encode() {
-        #[derive(Debug)]
-        #[derive(Default)]
+        #[derive(Debug, Default)]
         struct Case<'a> {
             text: &'a str,
             expected_tokens: &'a [&'a str],
@@ -592,8 +589,6 @@ in g";
             end_of_word_suffix: Option<String>,
             ignore_merges: bool,
         }
-
-        
 
         let cases = [
             // Minimal test using a snippet of the GPT-2 merge list.

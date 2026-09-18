@@ -1524,8 +1524,10 @@ mod tests {
 
     #[test]
     fn test_generator_append_prompt() -> Result<(), Box<dyn Error>> {
-        let mut params = TransformerParams::default();
-        params.n_vocab = 110;
+        let params = TransformerParams {
+            n_vocab: 110,
+            ..Default::default()
+        };
         let output_token_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8];
         let prompt = [99];
         let model = fake_transformer_model(
@@ -1645,8 +1647,10 @@ mod tests {
 
     #[test]
     fn test_filter() -> Result<(), Box<dyn Error>> {
-        let mut params = TransformerParams::default();
-        params.n_vocab = 8; // Must be >2x the max token ID in `expected_token_ids`.
+        let params = TransformerParams {
+            n_vocab: 8, // Must be >2x the max token ID in `expected_token_ids`.
+            ..Default::default()
+        };
 
         let expected_token_ids = [0, 1, 2, 3];
         let prompt = [5, 6, 7];

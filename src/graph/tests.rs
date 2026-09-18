@@ -144,7 +144,7 @@ impl<F: Fn(&OpRunContext) -> Result<OutputList, OpError>> Operator for RunFn<F> 
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        (self.run)(ctx).map(|v| v)
+        (self.run)(ctx)
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {

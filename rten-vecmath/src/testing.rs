@@ -9,17 +9,17 @@ use rten_simd::SimdUnaryOp;
 
 /// Trait for converting containers of initialized values into uninitialized
 /// ones.
-pub trait AsUninit {
+pub trait IntoUninit {
     type Output;
 
     /// Convert all elements from `T` to `MaybeUninit<T>`
-    fn as_uninit(self) -> Self::Output;
+    fn into_uninit(self) -> Self::Output;
 }
 
-impl<'a, T: Copy> AsUninit for &'a mut [T] {
+impl<'a, T: Copy> IntoUninit for &'a mut [T] {
     type Output = &'a mut [MaybeUninit<T>];
 
-    fn as_uninit(self) -> Self::Output {
+    fn into_uninit(self) -> Self::Output {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -226,7 +226,7 @@ pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit
 
     let vecmath_vec_start = Instant::now();
     for _ in 0..iters {
-        vectorized(&input, output.as_mut_slice().as_uninit());
+        vectorized(&input, output.as_mut_slice().into_uninit());
     }
     let vecmath_vec_elapsed = vecmath_vec_start.elapsed().as_micros();
 
@@ -297,8 +297,8 @@ impl<F: Fn(f32) -> f32, S: SimdUnaryOp<f32>, R: Iterator<Item = f32> + Clone>
         }
 
         loop {
-            if with_progress && upper_bound.is_some() {
-                let progress = total as f32 / upper_bound.unwrap() as f32;
+            if with_progress && let Some(upper_bound) = upper_bound {
+                let progress = total as f32 / upper_bound as f32;
                 print!("\rTesting: {:.2}%", progress * 100.);
                 let _ = std::io::stdout().flush();
             }

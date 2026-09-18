@@ -28,7 +28,7 @@ pub enum Source<'a> {
     Path(&'a Path),
     Buffer(&'a [u8]),
     #[cfg(test)]
-    Proto(onnx::ModelProto),
+    Proto(Box<onnx::ModelProto>),
 }
 
 /// Load a serialized ONNX model from a file or buffer.
@@ -47,7 +47,7 @@ pub fn load(
         }
         Source::Buffer(buf) => onnx::ModelProto::parse_buf(buf),
         #[cfg(test)]
-        Source::Proto(proto) => Ok(proto),
+        Source::Proto(proto) => Ok(*proto),
     }
     .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err)))?;
 
@@ -1135,7 +1135,7 @@ mod tests {
         data_loader: Option<&dyn DataLoader>,
     ) -> Result<Model, LoadError> {
         load(
-            Source::Proto(model),
+            Source::Proto(Box::new(model)),
             data_loader,
             // Disable optimization by default to test just the basic graph
             // creation.
@@ -1174,9 +1174,13 @@ mod tests {
             .with_input(onnx::ValueInfoProto::default())
             .into_model();
 
-        let err = load(Source::Proto(model), None, &ModelOptions::default())
-            .err()
-            .unwrap();
+        let err = load(
+            Source::Proto(Box::new(model)),
+            None,
+            &ModelOptions::default(),
+        )
+        .err()
+        .unwrap();
 
         assert_eq!(
             err.to_string(),
@@ -1190,9 +1194,13 @@ mod tests {
             .with_output(onnx::ValueInfoProto::default())
             .into_model();
 
-        let err = load(Source::Proto(model), None, &ModelOptions::default())
-            .err()
-            .unwrap();
+        let err = load(
+            Source::Proto(Box::new(model)),
+            None,
+            &ModelOptions::default(),
+        )
+        .err()
+        .unwrap();
 
         assert_eq!(
             err.to_string(),
@@ -1397,7 +1405,9 @@ mod tests {
         let mut buf = Vec::new();
         buf.extend(0i64.to_le_bytes()); // offset 0
         buf.extend(1i64.to_le_bytes()); // offset 8
-        buf.extend((3.14f32).to_le_bytes()); // offset 16
+        // Preserve the arbitrary 3.14 payload bits; this is not a pi constant.
+        let f32_payload = f32::from_bits(0x4048_f5c3);
+        buf.extend(f32_payload.to_le_bytes()); // offset 16
         buf.extend([0x00, 0x3C]); // offset 20: 1.0 in f16
         buf.push(1u8); // offset 22: bool
         buf.extend((1.23f64).to_le_bytes()); // offset 23
@@ -1409,7 +1419,7 @@ mod tests {
         assert_eq!(tensor, Tensor::from(1i32));
 
         let tensor = model.get_tensor_by_name::<f32>("f32_tensor").unwrap();
-        assert_eq!(tensor, Tensor::from(3.14));
+        assert_eq!(tensor, Tensor::from(f32_payload));
 
         let tensor = model.get_tensor_by_name::<i32>("bool_tensor").unwrap();
         assert_eq!(tensor, Tensor::from(1i32));
@@ -1518,9 +1528,10 @@ mod tests {
         model_proto.producer_name = Some("pytorch".into());
         model_proto.producer_version = Some("2.8.0".into());
 
-        let mut custom_prop = onnx::StringStringEntryProto::default();
-        custom_prop.key = Some("a_key".into());
-        custom_prop.value = Some("a_value".into());
+        let custom_prop = onnx::StringStringEntryProto {
+            key: Some("a_key".into()),
+            value: Some("a_value".into()),
+        };
         model_proto.metadata_props.push(custom_prop);
 
         let model = load_model(model_proto, None).unwrap();
@@ -1597,9 +1608,10 @@ mod tests {
         cases.test_each(|case| {
             let mut model = onnx::GraphProto::default().into_model();
             for (domain, version) in &case.opset_imports {
-                let mut opset = onnx::OperatorSetIdProto::default();
-                opset.domain = domain.map(|d| d.to_string());
-                opset.version = *version;
+                let opset = onnx::OperatorSetIdProto {
+                    domain: domain.map(|d| d.to_string()),
+                    version: *version,
+                };
                 model.opset_import.push(opset);
             }
             let opset_versions = OpsetVersions::from_model(&model);
@@ -1692,13 +1704,17 @@ mod tests {
         let mut shape = onnx::TensorShapeProto::default();
 
         // Add fixed dimension
-        let mut dim1 = onnx::Dimension::default();
-        dim1.dim_value = Some(3);
+        let dim1 = onnx::Dimension {
+            dim_value: Some(3),
+            ..Default::default()
+        };
         shape.dim.push(dim1);
 
         // Add named dynamic dimension
-        let mut dim2 = onnx::Dimension::default();
-        dim2.dim_param = Some("batch".to_string());
+        let dim2 = onnx::Dimension {
+            dim_param: Some("batch".to_string()),
+            ..Default::default()
+        };
         shape.dim.push(dim2);
 
         // Add unnamed dimension

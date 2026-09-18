@@ -38,7 +38,6 @@ fn optimize_graph_infer_shapes(graph: Graph) -> Result<Graph, OptimizeError> {
                 strict: false,
                 ..Default::default()
             }),
-            ..Default::default()
         },
     )
 }

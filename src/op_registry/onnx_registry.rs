@@ -2080,6 +2080,7 @@ impl_read_op!(Xor);
 
 #[cfg(test)]
 mod tests {
+    use rten_base::num::AsUsize;
     use rten_onnx::onnx;
     use rten_simd::f16;
     use rten_testing::TestCases;
@@ -2471,7 +2472,7 @@ mod tests {
             .unused_attrs
             .iter()
             .map(|i| {
-                node.attribute[i as usize]
+                node.attribute[i.as_usize()]
                     .name
                     .as_deref()
                     .unwrap_or_default()

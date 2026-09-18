@@ -1695,14 +1695,7 @@ mod tests {
         let input = Tensor::from_data(&[3, 2, 2], (1..=12).map(|i| i as f32).collect::<Vec<_>>());
         let expected = Tensor::from_data(
             &[3, 2],
-            vec![
-                2.236_068,
-                5.,
-                7.810_25,
-                10.630_146,
-                13.453_624,
-                16.278_82,
-            ],
+            vec![2.236_068, 5., 7.810_25, 10.630_146, 13.453_624, 16.278_82],
         );
 
         let result = reduce_l2(&pool, input.view(), Some(&[2]), false /* keep_dims */).unwrap();

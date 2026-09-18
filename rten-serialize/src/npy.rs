@@ -89,8 +89,9 @@ fn read_typed<T: Element>(header: &Header, mut reader: impl io::Read) -> io::Res
     // FIXME: This copies every element even when the data is already in the
     // requested little-endian, C-contiguous layout and could be used directly.
     let swap_bytes = header.dtype.big_endian && T::ITEM_SIZE > 1;
+    // The size check above guarantees a whole number of elements.
     let values: Vec<T> = data
-        .chunks_exact(T::ITEM_SIZE)
+        .chunks(T::ITEM_SIZE)
         .map(|chunk| {
             let mut bytes = T::Bytes::try_from(chunk)
                 .unwrap_or_else(|_| unreachable!("chunk is T::ITEM_SIZE bytes"));
