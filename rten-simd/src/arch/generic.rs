@@ -227,27 +227,6 @@ macro_rules! bit_ops_common {
 macro_rules! num_ops_common {
     ($simd:ident, $mask:ident) => {
         #[inline]
-        fn add(self, x: $simd, y: $simd) -> $simd {
-            x.map_with(y, |x, y| x + y)
-        }
-
-        #[inline]
-        fn sub(self, x: $simd, y: $simd) -> $simd {
-            x.map_with(y, |x, y| x - y)
-        }
-
-        #[inline]
-        fn mul(self, x: $simd, y: $simd) -> $simd {
-            x.map_with(y, |x, y| x * y)
-        }
-
-        #[inline]
-        fn mul_add(self, a: $simd, b: $simd, c: $simd) -> $simd {
-            let xs = array::from_fn(|i| a.0[i] * b.0[i] + c.0[i]);
-            $simd(xs)
-        }
-
-        #[inline]
         fn eq(self, x: $simd, y: $simd) -> $mask {
             x.map_with(y, |x, y| if x == y { !0 } else { 0 })
         }
@@ -270,6 +249,31 @@ macro_rules! num_ops_common {
         #[inline]
         fn max(self, x: $simd, y: $simd) -> $simd {
             x.map_with(y, |x, y| x.max(y))
+        }
+    };
+}
+
+macro_rules! num_ops_common_int {
+    ($simd:ident, $mask:ident) => {
+        #[inline]
+        fn add(self, x: $simd, y: $simd) -> $simd {
+            x.map_with(y, |x, y| x.wrapping_add(y))
+        }
+
+        #[inline]
+        fn sub(self, x: $simd, y: $simd) -> $simd {
+            x.map_with(y, |x, y| x.wrapping_sub(y))
+        }
+
+        #[inline]
+        fn mul(self, x: $simd, y: $simd) -> $simd {
+            x.map_with(y, |x, y| x.wrapping_mul(y))
+        }
+
+        #[inline]
+        fn mul_add(self, a: $simd, b: $simd, c: $simd) -> $simd {
+            let xs = array::from_fn(|i| a.0[i].wrapping_mul(b.0[i]).wrapping_add(c.0[i]));
+            $simd(xs)
         }
     };
 }
@@ -326,6 +330,27 @@ unsafe impl BitOps<f32> for GenericIsa {
 
 unsafe impl NumOps<f32> for GenericIsa {
     num_ops_common!(F32x4, M32);
+
+    #[inline]
+    fn add(self, x: F32x4, y: F32x4) -> F32x4 {
+        x.map_with(y, |x, y| x + y)
+    }
+
+    #[inline]
+    fn sub(self, x: F32x4, y: F32x4) -> F32x4 {
+        x.map_with(y, |x, y| x - y)
+    }
+
+    #[inline]
+    fn mul(self, x: F32x4, y: F32x4) -> F32x4 {
+        x.map_with(y, |x, y| x * y)
+    }
+
+    #[inline]
+    fn mul_add(self, a: F32x4, b: F32x4, c: F32x4) -> F32x4 {
+        let xs = array::from_fn(|i| (a.0[i] * b.0[i]) + c.0[i]);
+        F32x4(xs)
+    }
 }
 
 impl FloatOps<f32> for GenericIsa {
@@ -373,6 +398,7 @@ macro_rules! impl_simd_int_ops {
 
         unsafe impl NumOps<$elem> for GenericIsa {
             num_ops_common!($simd, $mask);
+            num_ops_common_int!($simd, $mask);
         }
 
         impl IntOps<$elem> for GenericIsa {
@@ -519,9 +545,9 @@ macro_rules! impl_narrow {
             type Output = $to;
 
             fn narrow_saturate(self, lo: $from, hi: $from) -> $to {
-                let mid = lo.0.len() / 2;
+                let mid = lo.0.len();
                 let xs = array::from_fn(|i| {
-                    let x = if i < mid { lo.0[i] } else { hi.0[i] };
+                    let x = if i < mid { lo.0[i] } else { hi.0[i - mid] };
                     x.narrow_saturate()
                 });
                 $to(xs)

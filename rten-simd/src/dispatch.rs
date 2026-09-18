@@ -195,7 +195,12 @@ macro_rules! test_simd_op {
             }
         }
 
-        TestOp {}.dispatch()
+        // Test using preferred SIMD instructions for current platform.
+        TestOp {}.dispatch();
+
+        // Test using generic fallback.
+        let isa = crate::arch::generic::GenericIsa::new();
+        TestOp {}.eval(isa);
     }};
 }
 
