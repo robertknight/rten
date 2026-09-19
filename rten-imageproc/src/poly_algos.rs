@@ -341,7 +341,7 @@ mod tests {
 
             // Rotated rect should never be larger than axis-aligned bounding rect.
             let bounding_rect = Polygon::new(&case.points).bounding_rect();
-            assert!(min_rect.area() <= bounding_rect.area() as f32);
+            assert!(min_rect.area() <= bounding_rect.area());
 
             // Every input point should lie within the rotated rect, otherwise
             // it is too small. Test with a slightly expanded rect to avoid
@@ -350,7 +350,7 @@ mod tests {
             assert!(
                 case.points
                     .iter()
-                    .all(|p| expanded_min_rect.contains(PointF::from_yx(p.y as f32, p.x as f32)))
+                    .all(|p| expanded_min_rect.contains(PointF::from_yx(p.y, p.x)))
             );
 
             // Every edge should touch (within a threshold) an input point,

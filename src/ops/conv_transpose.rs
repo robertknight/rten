@@ -577,7 +577,7 @@ mod tests {
             &pool,
             input.view(),
             kernel.view(),
-            bias.clone(),
+            bias,
             pads.clone(),
             groups,
             &strides,
@@ -634,7 +634,7 @@ mod tests {
         .unwrap();
         expect_equal(&result, &expected)?;
 
-        let mut expected_with_bias = Tensor::from_data(expected.shape().into(), expected.to_vec());
+        let mut expected_with_bias = Tensor::from_data(expected.shape(), expected.to_vec());
         for eb in expected_with_bias.iter_mut() {
             *eb += 1.234;
         }

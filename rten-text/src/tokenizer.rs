@@ -1303,7 +1303,6 @@ mod tests {
             let options = EncodeOptions {
                 max_chunk_len: *max_chunk_len,
                 overlap: *overlap,
-                ..Default::default()
             };
             let chunks = tokenizer
                 .encode_chunks((*query, *context).into(), options)
@@ -1318,7 +1317,7 @@ mod tests {
             // tokens are subwords, and no normalization is being applied, the
             // source text for every token index should be the same as the
             // token's canonical string.
-            for (chunk, chunk_tokens) in chunks.iter().zip(chunk_tokens.into_iter()) {
+            for (chunk, chunk_tokens) in chunks.iter().zip(chunk_tokens) {
                 for (i, token) in chunk_tokens.into_iter().enumerate() {
                     if !token.starts_with("[") {
                         let text = chunk

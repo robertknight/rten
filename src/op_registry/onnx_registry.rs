@@ -2080,6 +2080,7 @@ impl_read_op!(Xor);
 
 #[cfg(test)]
 mod tests {
+    use rten_base::num::AsUsize;
     use rten_onnx::onnx;
     use rten_simd::f16;
     use rten_testing::TestCases;
@@ -2262,7 +2263,7 @@ mod tests {
 
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
-        assert_eq!(argmax_op.keep_dims, true);
+        assert!(argmax_op.keep_dims);
     }
 
     #[test]
@@ -2471,7 +2472,7 @@ mod tests {
             .unused_attrs
             .iter()
             .map(|i| {
-                node.attribute[i as usize]
+                node.attribute[i.as_usize()]
                     .name
                     .as_deref()
                     .unwrap_or_default()

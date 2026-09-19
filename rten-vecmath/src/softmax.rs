@@ -232,7 +232,7 @@ mod tests {
     use rten_simd::SimdOp;
 
     use super::{LogSoftmax, Softmax};
-    use crate::testing::{AsUninit, benchmark_op, check_f32s_are_equal_ulps, triples};
+    use crate::testing::{IntoUninit, benchmark_op, check_f32s_are_equal_ulps, triples};
 
     fn reference_log_softmax(xs: &[f32], ys: &mut [f32]) {
         let max = xs.iter().copied().fold(f32::MIN, |max, x| max.max(x));
@@ -268,7 +268,7 @@ mod tests {
         ]);
         let mut actual = vec![0.; input.len()];
 
-        Softmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
+        Softmax::new(&input, actual.as_mut_slice().into_uninit()).dispatch();
         check_f32s_are_equal_ulps(triples(&input, &actual, expected), 1. /* max ULPs */);
 
         // Test against reference implementation for various lengths.
@@ -278,7 +278,7 @@ mod tests {
             reference_softmax(&input, &mut expected);
 
             let mut actual = vec![0.; input.len()];
-            Softmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
+            Softmax::new(&input, actual.as_mut_slice().into_uninit()).dispatch();
 
             check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 3. /* max ULPs */);
         }
@@ -306,7 +306,7 @@ mod tests {
             reference_log_softmax(&input, &mut expected);
 
             let mut actual = vec![0.; input.len()];
-            LogSoftmax::new(&input, actual.as_mut_slice().as_uninit()).dispatch();
+            LogSoftmax::new(&input, actual.as_mut_slice().into_uninit()).dispatch();
 
             check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 3. /* max ULPs */);
         }

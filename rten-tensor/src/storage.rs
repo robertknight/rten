@@ -703,7 +703,7 @@ mod tests {
     #[should_panic(expected = "invalid slice range 5..2 for storage length 4")]
     fn test_storage_slice_invalid_start() {
         let data = vec![1, 2, 3, 4];
-        Storage::slice(&data, 5..2);
+        Storage::slice(&data, std::ops::Range { start: 5, end: 2 });
     }
 
     #[test]
@@ -717,7 +717,7 @@ mod tests {
     #[should_panic(expected = "invalid slice range 5..2 for storage length 4")]
     fn test_storage_slice_mut_invalid_start() {
         let mut data = vec![1, 2, 3, 4];
-        StorageMut::slice_mut(&mut data, 5..2);
+        StorageMut::slice_mut(&mut data, std::ops::Range { start: 5, end: 2 });
     }
 
     #[test]
