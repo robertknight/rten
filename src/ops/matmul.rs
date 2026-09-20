@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use rayon::prelude::*;
-use rten_base::byte_cast::{FromByteArray, cast_vec};
+use rten_base::byte_cast::FromByteArray;
 use rten_gemm::{
     BiasVector, GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT,
     GemmUninitOptions, PackedBMatrix, QuantParams,
@@ -768,9 +768,7 @@ pub fn cast_scale(
     }
 
     // Transmute tensor from i32 to f32.
-    let shape = data.shape().to_vec();
-    let data = cast_vec::<i32, f32>(data.into_data()).unwrap();
-    Ok(Tensor::from_data(&shape, data))
+    Ok(data.bit_cast())
 }
 
 #[derive(Debug, Default)]
