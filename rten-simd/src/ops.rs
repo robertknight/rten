@@ -537,6 +537,13 @@ pub unsafe trait BitOps<T: Elem>: Copy {
 /// - Add, subtract and multiply
 /// - Comparison (equality, less than, greater than etc.)
 ///
+/// # Overflow handling
+///
+/// For signed integer types, operations such as add and multiply can overflow.
+/// For Rust scalar types, expressions such as `a + b` will panic on overflow in
+/// debug builds and wrap in release builds. On SIMD types these operations
+/// always wrap.
+///
 /// # Safety
 ///
 /// Implementations must ensure they can only be constructed if the
@@ -682,12 +689,17 @@ pub trait IntOps<T: Elem>: NumOps<T> {
 
 /// Operations on SIMD vectors with signed integer elements.
 pub trait SignedIntOps<T: Elem>: IntOps<T> {
-    /// Compute the absolute value of `x`
+    /// Compute the absolute value of `x`.
+    ///
+    /// If the absolute value cannot be represented in type `T`, the operation
+    /// wraps.
     fn abs(self, x: Self::Simd) -> Self::Simd {
         self.select(self.neg(x), x, self.lt(x, self.zero()))
     }
 
     /// Return `-x`.
+    ///
+    /// If `-x` cannot be represented in type `T`, the operation wraps.
     fn neg(self, x: Self::Simd) -> Self::Simd {
         self.sub(self.zero(), x)
     }
