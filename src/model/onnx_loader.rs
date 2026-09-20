@@ -192,6 +192,13 @@ fn load_graph(
             )
             .into());
         }
+
+        // Skip creating value node for output if it already exists. This can
+        // happen if the output is a constant or graph input.
+        if graph.get_node_id(name).is_some() {
+            continue;
+        }
+
         add_value(&mut graph, name, value);
     }
 
@@ -1764,6 +1771,30 @@ mod tests {
             .into_tensor::<f32>()
             .unwrap();
         assert_eq!(output, Tensor::from([2., 3., 4.]));
+    }
+
+    #[test]
+    fn test_initializer_listed_as_output() {
+        let weights = create_tensor_from_view("weights", TensorView::from(&[1., 2., 3.]));
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(weights)
+            .with_output(create_value_info("weights"))
+            .into_model();
+
+        let model = load_model(model_proto, None).unwrap();
+
+        let weights_id = model.find_node("weights").unwrap();
+        assert_eq!(model.output_ids(), &[weights_id]);
+
+        let output = model
+            .run_n(vec![], [weights_id], None)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_tensor::<f32>()
+            .unwrap();
+        assert_eq!(output, Tensor::from([1., 2., 3.]));
     }
 
     // See https://github.com/robertknight/rten/issues/1220.
