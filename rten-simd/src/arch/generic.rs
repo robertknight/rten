@@ -422,7 +422,7 @@ macro_rules! impl_simd_signed_int_ops {
         impl SignedIntOps<$elem> for GenericIsa {
             #[inline]
             fn neg(self, x: $simd) -> $simd {
-                x.map(|x| -x)
+                x.map(|x| x.wrapping_neg())
             }
         }
     };
