@@ -31,6 +31,16 @@ Enable quantization of `Conv` operators.
 Disabled by default for ONNX Runtime compatibility. See https://github.com/microsoft/onnxruntime/issues/15888.
 """,
 )
+dynamic_parser.add_argument(
+    "--quantize-lstm",
+    action="store_true",
+    help="""
+Enable quantization of `LSTM` operators to `DynamicQuantizeLSTM`.
+
+This is disabled by default because `DynamicQuantizeLSTM` is a non-standard
+operator.
+""",
+)
 dynamic_parser.add_argument("input", help="Path to un-quantized input model")
 dynamic_parser.add_argument("output", nargs="?", help="Path to quantized output model")
 
@@ -119,8 +129,9 @@ def do_dynamic_quantize(args):
 
     if args.quantize_conv:
         op_types_to_quantize.append("Conv")  # Replaced by ConvInteger
-        if args.mode != "dynamic":
-            raise Exception("--quantize-conv not supported for this quantization mode")
+
+    if args.quantize_lstm:
+        op_types_to_quantize.append("LSTM")  # Replaced by DynamicQuantizeLSTM
 
     quantize_dynamic(
         args.input,
