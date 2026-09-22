@@ -5,7 +5,7 @@ use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 
-use crate::buffer_pool::{AutoReturn, BufferPool};
+use crate::buffer_pool::{AutoReturn, BufferPool, PoolRef};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
@@ -21,29 +21,29 @@ use super::{Direction, LSTM_GATES, lstm_step, sequence_for_dir};
 
 /// A `W` or `R` input of [`DynamicQuantizeLSTM`].
 #[derive(Clone)]
-struct QuantizedWeights<'a, T> {
+struct QuantizedWeights<'a> {
     /// Weights of shape `[directions, in_size, 4 * hidden_size]` where `in_size`
     /// is the input size for `W` and the hidden size for `R`.
-    weights: NdTensorView<'a, T, 3>,
+    weights: NdTensorView<'a, i8, 3>,
     /// Scale with shape `[directions]` for per-tensor quantization or
     /// `[directions, 4 * hidden_size]` for per-channel quantization along the
     /// `in_size` axis.
     scale: TensorView<'a, f32>,
     /// Zero point with same shape as `scale`.
-    zero_point: Option<TensorView<'a, T>>,
+    zero_point: Option<TensorView<'a, i8>>,
 }
 
 /// One direction of [`QuantizedWeights`].
-struct DirectionWeights<'a, T> {
+struct DirectionWeights<'a> {
     /// Shape `[in_size, 4 * hidden_size]`.
-    weights: NdTensorView<'a, T, 2>,
+    weights: NdTensorView<'a, i8, 2>,
     /// Scale of size `[4 * hidden_size]`.
     scale: NdTensorView<'a, f32, 1>,
     /// Zero point of shape `[4 * hidden_size]` or a scalar.
-    zero_point: Option<TensorView<'a, T>>,
+    zero_point: Option<TensorView<'a, i8>>,
 }
 
-impl<'a, T> QuantizedWeights<'a, T> {
+impl QuantizedWeights<'_> {
     /// Check that the quantization parameters match the weights.
     ///
     /// `name` identifies the weights in error messages.
@@ -81,7 +81,7 @@ impl<'a, T> QuantizedWeights<'a, T> {
 
     /// Extract one direction, broadcasting a per-tensor scale to the gate axis
     /// so the result is always a vector.
-    fn direction(&self, dir: usize) -> DirectionWeights<'_, T> {
+    fn direction(&self, dir: usize) -> DirectionWeights<'_> {
         let weights = self.weights.slice(dir);
         let gates = weights.size(1);
 
@@ -100,21 +100,35 @@ impl<'a, T> QuantizedWeights<'a, T> {
     }
 }
 
+/// Convert a `W` or `R` input and its zero point to i8.
+fn shift_cast_weights<'a, T>(
+    pool: &'a BufferPool,
+    weights: TensorView<'a, T>,
+    zero_point: Option<TensorView<'a, T>>,
+) -> (
+    PoolRef<'a, CowTensor<'a, i8>>,
+    Option<PoolRef<'a, CowTensor<'a, i8>>>,
+)
+where
+    TensorView<'a, T>: ShiftCast<CowTensor<'a, i8>>,
+{
+    (
+        weights.shift_cast_in(pool).auto_return(pool),
+        zero_point.map(|zp| zp.shift_cast_in(pool).auto_return(pool)),
+    )
+}
+
 /// Multiply a float matrix by a quantized one.
 ///
 /// `a` has shape `[m, k]` and `b` has shape `[k, n]`. `b_scale` has length `n`
 /// and `b_zero_point`, if given, is a scalar or a vector of length `n`.
-fn dynamic_quantize_matmul<T>(
+fn dynamic_quantize_matmul(
     pool: &BufferPool,
     a: NdTensorView<f32, 2>,
-    b: NdTensorView<T, 2>,
+    b: NdTensorView<i8, 2>,
     b_scale: NdTensorView<f32, 1>,
-    b_zero_point: Option<TensorView<T>>,
-) -> Result<NdTensor<f32, 2>, OpError>
-where
-    T: Copy + Default + ShiftCast<i8> + 'static,
-    for<'b> TensorView<'b, T>: ShiftCast<CowTensor<'b, i8>>,
-{
+    b_zero_point: Option<TensorView<i8>>,
+) -> Result<NdTensor<f32, 2>, OpError> {
     let DynamicQuantizeOutput {
         quantized: a_quant,
         scale: a_scale,
@@ -150,20 +164,16 @@ where
 ///
 /// `initial_hidden` and `initial_cell` have shape `[directions, batch, hidden_size]`.
 #[allow(clippy::too_many_arguments)]
-fn dynamic_quantize_lstm<T>(
+fn dynamic_quantize_lstm(
     pool: &BufferPool,
     direction: Direction,
     input: NdTensorView<f32, 3>,
-    weights: QuantizedWeights<T>,
-    recurrent_weights: QuantizedWeights<T>,
+    weights: QuantizedWeights,
+    recurrent_weights: QuantizedWeights,
     bias: Option<NdTensorView<f32, 2>>,
     initial_hidden: Option<NdTensorView<f32, 3>>,
     initial_cell: Option<NdTensorView<f32, 3>>,
-) -> Result<Vec<Tensor>, OpError>
-where
-    T: Copy + Default + ShiftCast<i8> + 'static,
-    for<'b> TensorView<'b, T>: ShiftCast<CowTensor<'b, i8>>,
-{
+) -> Result<Vec<Tensor>, OpError> {
     let [seq_len, batch, input_size] = input.shape();
     let num_directions = direction.num_directions();
 
@@ -324,33 +334,46 @@ impl Operator for DynamicQuantizeLSTM {
         let rec_weight_scale = inputs.require_as(10)?;
         let rec_weight_zero_point = inputs.get(11);
 
+        if weights.dtype() != recurrent_weights.dtype() {
+            return Err(OpError::invalid_value("W and R must have the same type"));
+        }
+
         let pool = ctx.pool();
 
-        map_value_view!(weights, w, [UInt8Tensor, Int8Tensor], {
-            let r: TensorView<_> = recurrent_weights
-                .try_into()
-                .map_err(|_| OpError::invalid_value("W and R must have the same type"))?;
-
-            dynamic_quantize_lstm(
+        let (w, w_zero_point) = map_value_view!(weights, w, [UInt8Tensor, Int8Tensor], {
+            shift_cast_weights(
                 pool,
-                self.direction,
-                input,
-                QuantizedWeights {
-                    weights: static_dims!(w, 3, "dir, input, hidden x 4")?,
-                    scale: weight_scale,
-                    zero_point: weight_zero_point.map(|zp| zp.try_into()).transpose()?,
-                },
-                QuantizedWeights {
-                    weights: static_dims!(r, 3, "dir, hidden, hidden x 4")?,
-                    scale: rec_weight_scale,
-                    zero_point: rec_weight_zero_point.map(|zp| zp.try_into()).transpose()?,
-                },
-                bias,
-                initial_hidden,
-                initial_cell,
+                w,
+                weight_zero_point.map(|zp| zp.try_into()).transpose()?,
             )
-            .into_op_result()
-        })
+        });
+        let (r, r_zero_point) = map_value_view!(recurrent_weights, r, [UInt8Tensor, Int8Tensor], {
+            shift_cast_weights(
+                pool,
+                r,
+                rec_weight_zero_point.map(|zp| zp.try_into()).transpose()?,
+            )
+        });
+
+        dynamic_quantize_lstm(
+            pool,
+            self.direction,
+            input,
+            QuantizedWeights {
+                weights: static_dims!(w, 3, "dir, input, hidden x 4")?,
+                scale: weight_scale,
+                zero_point: w_zero_point.as_ref().map(|zp| zp.view()),
+            },
+            QuantizedWeights {
+                weights: static_dims!(r, 3, "dir, hidden, hidden x 4")?,
+                scale: rec_weight_scale,
+                zero_point: r_zero_point.as_ref().map(|zp| zp.view()),
+            },
+            bias,
+            initial_hidden,
+            initial_cell,
+        )
+        .into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -386,7 +409,8 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OutputMask};
     use crate::ops::{Direction, lstm};
-    use crate::value::ValueView;
+    use crate::shift_cast::ShiftCast;
+    use crate::value::{Value, ValueView};
 
     /// Minimum and maximum quantized weight values.
     ///
@@ -460,6 +484,8 @@ mod tests {
         per_channel: bool,
         with_bias: bool,
         with_initial_state: bool,
+        /// Shift-cast weights and zero points to u8 before running the op.
+        u8_weights: bool,
     }
 
     #[test]
@@ -469,21 +495,31 @@ mod tests {
                 per_channel: true,
                 with_bias: true,
                 with_initial_state: false,
+                u8_weights: false,
             },
             Case {
                 per_channel: false,
                 with_bias: true,
                 with_initial_state: false,
+                u8_weights: false,
             },
             Case {
                 per_channel: true,
                 with_bias: false,
                 with_initial_state: false,
+                u8_weights: false,
             },
             Case {
                 per_channel: true,
                 with_bias: true,
                 with_initial_state: true,
+                u8_weights: false,
+            },
+            Case {
+                per_channel: true,
+                with_bias: true,
+                with_initial_state: true,
+                u8_weights: true,
             },
         ];
 
@@ -492,6 +528,7 @@ mod tests {
                 per_channel,
                 with_bias,
                 with_initial_state,
+                u8_weights,
             } = case;
 
             let mut rng = XorShiftRng::new(1234);
@@ -549,8 +586,17 @@ mod tests {
                 (qw, dw, qr, dr)
             };
 
-            let q_weights = q_weights.with_new_axis(0);
-            let q_rec_weights = q_rec_weights.with_new_axis(0);
+            let to_value = |t: Tensor<i8>| -> Value {
+                if u8_weights {
+                    t.map(|&x| ShiftCast::<u8>::shift_cast(x)).into()
+                } else {
+                    t.into()
+                }
+            };
+            let q_weights = to_value(q_weights.with_new_axis(0).into_dyn());
+            let q_rec_weights = to_value(q_rec_weights.with_new_axis(0).into_dyn());
+            let w_zero_point = to_value(w_zero_point);
+            let r_zero_point = to_value(r_zero_point);
 
             let bias = with_bias.then(|| NdTensor::rand([1, 8 * hidden_size], &mut rng));
             let initial_hidden =
@@ -580,17 +626,17 @@ mod tests {
             };
             let inputs: Vec<Option<ValueView>> = vec![
                 Some(input.view().into()),
-                Some(q_weights.view().into()),
-                Some(q_rec_weights.view().into()),
+                Some(q_weights.as_view()),
+                Some(q_rec_weights.as_view()),
                 bias.as_ref().map(|b| b.view().into()),
                 None, // sequence_lens
                 initial_hidden.as_ref().map(|h| h.view().into()),
                 initial_cell.as_ref().map(|c| c.view().into()),
                 None, // P
                 Some(w_scale.view().into()),
-                Some(w_zero_point.view().into()),
+                Some(w_zero_point.as_view()),
                 Some(r_scale.view().into()),
-                Some(r_zero_point.view().into()),
+                Some(r_zero_point.as_view()),
             ];
             let inputs = InputList::from_optional(&inputs);
             let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(3));
@@ -811,12 +857,12 @@ mod tests {
             (case.invalidate)(&mut shapes);
 
             let input = NdTensor::<f32, 3>::zeros(shapes.input);
-            let weights = NdTensor::<u8, 3>::zeros(shapes.weights);
+            let weights = NdTensor::<i8, 3>::zeros(shapes.weights);
             let weight_scale = Tensor::<f32>::zeros(&shapes.weight_scale);
-            let weight_zero_point = Tensor::<u8>::zeros(&shapes.weight_zero_point);
-            let rec_weights = NdTensor::<u8, 3>::zeros(shapes.recurrent_weights);
+            let weight_zero_point = Tensor::<i8>::zeros(&shapes.weight_zero_point);
+            let rec_weights = NdTensor::<i8, 3>::zeros(shapes.recurrent_weights);
             let rec_weight_scale = Tensor::<f32>::zeros(&shapes.rec_weight_scale);
-            let rec_weight_zero_point = Tensor::<u8>::zeros(&shapes.rec_weight_zero_point);
+            let rec_weight_zero_point = Tensor::<i8>::zeros(&shapes.rec_weight_zero_point);
             let bias = NdTensor::<f32, 2>::zeros(shapes.bias);
             let initial_hidden = NdTensor::<f32, 3>::zeros(shapes.initial_hidden);
             let initial_cell = NdTensor::<f32, 3>::zeros(shapes.initial_cell);
