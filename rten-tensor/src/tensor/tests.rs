@@ -119,6 +119,54 @@ fn test_append_then_inner_iter_mut() {
     assert_eq!(sliced.to_vec(), &[0, 10, 40, 50, 80, 90, 120, 130]);
 }
 
+// `Copy` only requires a `Clone` impl, it does not constrain its body, so
+// cloning an element can panic. If that happens partway through `append`, the
+// tensor must not be left describing elements which were never written.
+#[test]
+fn test_append_clone_panic_leaves_tensor_unchanged() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static CLONES: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Debug)]
+    struct PanicOnClone(i32);
+
+    impl Clone for PanicOnClone {
+        fn clone(&self) -> Self {
+            if CLONES.fetch_add(1, Ordering::SeqCst) == 2 {
+                panic!("clone failed");
+            }
+            PanicOnClone(self.0)
+        }
+    }
+
+    impl Copy for PanicOnClone {}
+
+    let mut tensor = NdTensor::<PanicOnClone, 2>::with_capacity([4, 2], 0);
+    let src = NdTensor::from_data(
+        [2, 2],
+        vec![
+            PanicOnClone(1),
+            PanicOnClone(2),
+            PanicOnClone(3),
+            PanicOnClone(4),
+        ],
+    );
+
+    // A non-contiguous source is copied element by element via `Clone`.
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = tensor.append(0, &src.transposed());
+    }));
+    assert!(result.is_err());
+
+    // The append did not complete, so the tensor is still empty. Before this
+    // was fixed the shape was `[2, 2]` while the storage was empty, and
+    // iterating read uninitialized memory.
+    assert_eq!(tensor.shape(), [0, 2]);
+    assert_eq!(tensor.iter().count(), 0);
+}
+
 #[test]
 fn test_concat() {
     // Concat along dim 0 (rows)
