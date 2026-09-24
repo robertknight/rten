@@ -1053,14 +1053,14 @@ mod tests {
             // fill with invalid data to make sure we don't rely on this.
             out.spare_capacity_mut().fill(MaybeUninit::new(f32::NAN));
 
-            let result = gemm
+            let result: &[f32] = gemm
                 .batched_gemm_uninit(
                     out.spare_capacity_mut(),
                     lhs.reshaped([1, lhs.size(0), lhs.size(1)]).view(),
                     bqm,
                 )
                 .unwrap();
-            let result_matrix = NdTensorView::from_data([1, result.len()], result.as_ref());
+            let result_matrix = NdTensorView::from_data([1, result.len()], result);
 
             if let Some(atol) = tolerance {
                 let rtol = 0.;

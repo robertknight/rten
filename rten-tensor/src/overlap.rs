@@ -197,7 +197,7 @@ mod tests {
 
         cases.test_each(|case| {
             assert_eq!(
-                may_have_internal_overlap(&case.shape, &case.strides),
+                may_have_internal_overlap(case.shape, case.strides),
                 case.overlap
             );
         })

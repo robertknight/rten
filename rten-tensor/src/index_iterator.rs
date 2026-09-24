@@ -278,12 +278,14 @@ impl FusedIterator for DynIndices {}
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
     use super::{DynIndices, NdIndices};
 
     #[test]
     fn test_nd_indices() {
         // Empty iterator
-        let mut iter = NdIndices::from_ranges([0..0]);
+        let mut iter = NdIndices::from_ranges([Range { start: 0, end: 0 }]);
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
 
@@ -293,7 +295,7 @@ mod tests {
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
-        let iter = NdIndices::from_ranges([0..5]);
+        let iter = NdIndices::from_ranges([Range { start: 0, end: 5 }]);
         let visited: Vec<_> = iter.collect();
         assert_eq!(visited, &[[0], [1], [2], [3], [4]]);
 
@@ -308,7 +310,7 @@ mod tests {
         type Index = <DynIndices as Iterator>::Item;
 
         // Empty iterator
-        let mut iter = DynIndices::from_ranges(&[0..0]);
+        let mut iter = DynIndices::from_ranges(&[Range { start: 0, end: 0 }]);
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
 
@@ -318,7 +320,7 @@ mod tests {
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
-        let iter = DynIndices::from_ranges(&[0..5]);
+        let iter = DynIndices::from_ranges(&[Range { start: 0, end: 5 }]);
         let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(visited, vec![vec![0], vec![1], vec![2], vec![3], vec![4]]);
 

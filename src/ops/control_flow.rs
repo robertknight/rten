@@ -357,7 +357,7 @@ mod tests {
                     cond_tensor.as_ref().map(ValueView::from),
                 ]
                 .into_iter()
-                .chain(inputs.into_iter().cloned().map(Some)),
+                .chain(inputs.iter().cloned().map(Some)),
             );
 
             let pool = BufferPool::new();
@@ -540,7 +540,7 @@ mod tests {
             assert!(
                 err.to_string().contains(expected),
                 "expected {} to contain {}",
-                err.to_string(),
+                err,
                 expected
             );
         }

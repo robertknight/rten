@@ -241,7 +241,7 @@ where
 {
     GemmExecutor::<L, R, O>::kernel_types()
         .into_iter()
-        .filter_map(|kern_type| GemmExecutor::<L, R, O>::with_kernel(kern_type))
+        .filter_map(GemmExecutor::<L, R, O>::with_kernel)
 }
 
 // Simplest possible test case for easy debugging.
@@ -1036,7 +1036,7 @@ fn test_gemm_f32_with_block_quantized_rhs() {
             block_size,
         } = case;
 
-        let n_bits = 4 as u8;
+        let n_bits = 4u8;
         let elements_per_byte = 8 / n_bits.as_usize();
         let block_bytes = block_size / elements_per_byte;
 
@@ -1350,8 +1350,7 @@ where
         //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
         //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
 
-        let flops =
-            (2 * m as u64 * n as u64 * k as u64 * iters as u64) as f32 / duration.as_secs_f32();
+        let flops = (2 * m as u64 * n as u64 * k as u64 * iters) as f32 / duration.as_secs_f32();
         let gflops = flops / (10f32).powi(9);
         let duration_ms = duration.as_secs_f64() * 1000.0;
 

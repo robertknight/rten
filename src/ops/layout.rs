@@ -1443,7 +1443,7 @@ mod tests {
 
     use rten_tensor::{NdTensorView, TensorView, TensorViewMut};
 
-    fn reference_transpose_into<'a, T: Clone>(src: TensorView<T>, mut dest: TensorViewMut<T>) {
+    fn reference_transpose_into<T: Clone>(src: TensorView<T>, mut dest: TensorViewMut<T>) {
         // Merge axes to maximize iteration count of the innermost loops.
         let mut src = src.clone();
         src.merge_axes();

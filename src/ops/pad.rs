@@ -412,7 +412,7 @@ mod tests {
             let result = pad(&pool, input.view(), &pads.view(), *mode, 0.);
             match (result, expected) {
                 (Ok(result), Ok(expected)) => {
-                    expect_equal(&result, &expected).unwrap();
+                    expect_equal(&result, expected).unwrap();
                 }
                 (result, expected) => assert_eq!(&result, expected),
             }
