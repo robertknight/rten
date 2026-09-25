@@ -1113,11 +1113,10 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
         };
 
         let new_data_len = new_layout.min_data_len();
-        self.layout = new_layout;
 
         // Fast path for the case where we can avoid initializing new elements
         // before copying the data.
-        if self.layout.is_contiguous() && self.data.len() + other.len() == new_data_len {
+        if new_layout.is_contiguous() && self.data.len() + other.len() == new_data_len {
             let added = new_data_len - self.data.len();
             other.copy_into_slice(&mut self.data.spare_capacity_mut()[..added]);
 
@@ -1127,8 +1126,16 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
                 self.data.set_len(new_data_len);
             }
 
+            // Commit the layout only after the new elements have been
+            // initialized. `copy_into_slice` can panic if `T::clone` panics, and
+            // the tensor must not be left describing elements which were never
+            // written.
+            self.layout = new_layout;
+
             return Ok(());
         }
+
+        self.layout = new_layout;
 
         // Initialize new capacity if needed.
         if self.data.len() < new_data_len {
