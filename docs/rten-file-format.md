@@ -1,5 +1,8 @@
 # RTen model format
 
+_Note: The `.rten` file format has been deprecated. Users should use ONNX
+models with external data. See https://github.com/robertknight/rten/issues/1470._
+
 RTen model files (`.rten`) contain the computation graph for a machine learning
 model, model metadata and weights. The format is designed to be efficient to
 load and to minimize additional memory required, beyond the size of the file
