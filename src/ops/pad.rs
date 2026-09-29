@@ -31,14 +31,18 @@ fn crop_amount(pad: i32) -> usize {
     pad.min(0).unsigned_abs() as usize
 }
 
-pub fn pad<T: Copy + Default + PartialEq>(
-    pool: &BufferPool,
-    input: TensorView<T>,
-    padding: &NdTensorView<i32, 1>,
-    mode: PadMode,
-    const_val: T,
-) -> Result<Tensor<T>, OpError> {
-    let ndim = input.ndim();
+struct PadRegion {
+    /// Slice items which select the region of the input to use, or `None` for
+    /// the whole input.
+    input_region: Option<Vec<SliceItem>>,
+
+    /// Shape of the padded output.
+    out_shape: Vec<usize>,
+}
+
+/// Calculate the input region and output shape for a [`Pad`] operation.
+fn pad_region(input_shape: &[usize], padding: NdTensorView<i32, 1>) -> Result<PadRegion, OpError> {
+    let ndim = input_shape.len();
 
     if padding.size(0) != ndim * 2 {
         return Err(OpError::invalid_value(
@@ -46,11 +50,9 @@ pub fn pad<T: Copy + Default + PartialEq>(
         ));
     }
 
-    // Handle negative padding by cropping the input. The positive padding
-    // is then applied to the cropped view.
-    let input = if padding.iter().any(|pad| *pad < 0) {
-        let mut crop_region = Vec::with_capacity(ndim);
-        for (i, size) in input.shape().iter().enumerate() {
+    let input_region = if padding.iter().any(|pad| *pad < 0) {
+        let mut input_region = Vec::with_capacity(ndim);
+        for (i, size) in input_shape.iter().enumerate() {
             let crop_start = crop_amount(padding[i]);
             let crop_end = crop_amount(padding[[ndim + i]]);
             if crop_start + crop_end > *size {
@@ -58,23 +60,61 @@ pub fn pad<T: Copy + Default + PartialEq>(
                     "Negative pads remove more elements than axis contains",
                 ));
             }
-            crop_region.push((crop_start..size - crop_end).into());
+            input_region.push((crop_start..size - crop_end).into());
         }
-        input.slice(crop_region.as_slice())
+        Some(input_region)
     } else {
-        input
+        None
     };
 
-    let out_shape: Vec<_> = input
-        .shape()
+    let out_shape: Vec<_> = input_shape
         .iter()
         .enumerate()
         .map(|(i, size)| {
             let start_pad = pad_amount(padding[i]);
             let end_pad = pad_amount(padding[[ndim + i]]);
-            start_pad + size + end_pad
+            start_pad + size + end_pad - crop_amount(padding[i]) - crop_amount(padding[[ndim + i]])
         })
         .collect();
+
+    Ok(PadRegion {
+        input_region,
+        out_shape,
+    })
+}
+
+/// Return slice items which select the region of [`Pad`] output which is not
+/// part of the padding.
+fn non_pad_region(input_shape: &[usize], padding: NdTensorView<i32, 1>) -> Vec<SliceItem> {
+    input_shape
+        .iter()
+        .enumerate()
+        .map(|(i, size)| {
+            let start_pad = pad_amount(padding[i]);
+            (start_pad..start_pad + size).into()
+        })
+        .collect()
+}
+
+pub fn pad<T: Copy + Default + PartialEq>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    padding: &NdTensorView<i32, 1>,
+    mode: PadMode,
+    const_val: T,
+) -> Result<Tensor<T>, OpError> {
+    let PadRegion {
+        input_region,
+        out_shape,
+    } = pad_region(input.shape(), padding.view())?;
+
+    // Handle negative padding by cropping the input. The positive padding
+    // is then applied to the cropped view.
+    let input = if let Some(crop_region) = input_region {
+        input.slice(crop_region.as_slice())
+    } else {
+        input
+    };
 
     // Just copy the tensor if no padding is required.
     if out_shape == input.shape() {
@@ -83,16 +123,6 @@ pub fn pad<T: Copy + Default + PartialEq>(
 
     let output = match mode {
         PadMode::Constant => {
-            let non_pad_region: Vec<SliceItem> = input
-                .shape()
-                .iter()
-                .enumerate()
-                .map(|(i, size)| {
-                    let start_pad = pad_amount(padding[i]);
-                    (start_pad..start_pad + size).into()
-                })
-                .collect();
-
             let mut output = if const_val == T::default() {
                 // Special case zero for platforms that have optimized
                 // instructions for this.
@@ -102,7 +132,7 @@ pub fn pad<T: Copy + Default + PartialEq>(
             };
 
             output
-                .slice_mut(non_pad_region.as_slice())
+                .slice_mut(non_pad_region(input.shape(), padding.view()).as_slice())
                 .copy_from(&input);
             output
         }
