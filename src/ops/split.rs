@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use rten_base::iter::range_chunks;
 use rten_base::num::AsUsize;
 use rten_shape_inference::ops as shape_ops;
@@ -25,6 +27,58 @@ pub enum SplitSizes<'a> {
     NumSplits(u32),
 }
 
+impl SplitSizes<'_> {
+    /// Get the range of indices for each output slice.
+    fn get_ranges(&self, input_shape: &[usize], axis: usize) -> Result<Vec<Range<usize>>, OpError> {
+        let axis_size = input_shape[axis];
+
+        let split_with_chunk_size = |chunk_size| range_chunks(0..axis_size, chunk_size).collect();
+
+        let outputs = match self {
+            SplitSizes::Size(size) => {
+                if *size < 1 {
+                    return Err(OpError::invalid_value("Split size must be >= 1"));
+                }
+                split_with_chunk_size(*size as usize)
+            }
+            SplitSizes::Sizes(split) => {
+                if split.iter().any(|size| *size < 0) {
+                    return Err(OpError::invalid_value("Split sizes must be >= 0"));
+                }
+                let split_sum = split.iter().sum::<i32>() as usize;
+                if split_sum != input_shape[axis] {
+                    return Err(OpError::invalid_value(
+                        "Split sizes do not sum to dimension size",
+                    ));
+                }
+
+                let mut split_start = 0;
+                split
+                    .iter()
+                    .map(|&split_size| {
+                        let split_size = split_size as usize;
+                        let split_range = split_start..split_start + split_size;
+                        split_start += split_size;
+                        split_range
+                    })
+                    .collect()
+            }
+            SplitSizes::NumSplits(n_splits) => {
+                let n_splits = n_splits.as_usize();
+                if n_splits == 0 {
+                    return Err(OpError::invalid_value("num_outputs must be > 0"));
+                }
+                if n_splits > axis_size {
+                    return Err(OpError::invalid_value("num_outputs exceeds dim size"));
+                }
+                split_with_chunk_size(axis_size.div_ceil(n_splits))
+            }
+        };
+
+        Ok(outputs)
+    }
+}
+
 impl<'a> From<&'a [i32]> for SplitSizes<'a> {
     fn from(val: &'a [i32]) -> Self {
         Self::Sizes(val.into())
@@ -38,55 +92,11 @@ pub fn split<T: Copy>(
     split: SplitSizes,
 ) -> Result<Vec<Tensor<T>>, OpError> {
     let axis = resolve_axis(input.ndim(), axis)?;
-    let axis_size = input.size(axis);
-
-    let split_with_chunk_size = |chunk_size| {
-        range_chunks(0..axis_size, chunk_size)
-            .map(|split_range| input.slice_axis(axis, split_range).to_tensor_in(pool))
-            .collect()
-    };
-
-    let outputs = match split {
-        SplitSizes::Size(size) => {
-            if size < 1 {
-                return Err(OpError::invalid_value("Split size must be >= 1"));
-            }
-            split_with_chunk_size(size as usize)
-        }
-        SplitSizes::Sizes(split) => {
-            if split.iter().any(|size| *size < 0) {
-                return Err(OpError::invalid_value("Split sizes must be >= 0"));
-            }
-            let split_sum = split.iter().sum::<i32>() as usize;
-            if split_sum != input.size(axis) {
-                return Err(OpError::invalid_value(
-                    "Split sizes do not sum to dimension size",
-                ));
-            }
-
-            let mut split_start = 0;
-            split
-                .iter()
-                .map(|&split_size| {
-                    let split_size = split_size as usize;
-                    let split_range = split_start..split_start + split_size;
-                    split_start += split_size;
-                    input.slice_axis(axis, split_range).to_tensor_in(pool)
-                })
-                .collect()
-        }
-        SplitSizes::NumSplits(n_splits) => {
-            let n_splits = n_splits.as_usize();
-            if n_splits == 0 {
-                return Err(OpError::invalid_value("num_outputs must be > 0"));
-            }
-            if n_splits > axis_size {
-                return Err(OpError::invalid_value("num_outputs exceeds dim size"));
-            }
-            split_with_chunk_size(axis_size.div_ceil(n_splits))
-        }
-    };
-
+    let outputs = split
+        .get_ranges(input.shape(), axis)?
+        .into_iter()
+        .map(|range| input.slice_axis(axis, range).to_tensor_in(pool))
+        .collect();
     Ok(outputs)
 }
 
