@@ -2215,21 +2215,22 @@ impl<S: Storage, L: Layout + MatrixLayout> MatrixLayout for TensorBase<S, L> {
     }
 }
 
-impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
-    type Elem = T;
+impl<S: Storage, L: Layout + Clone> AsView for TensorBase<S, L> {
+    type Elem = S::Elem;
     type Layout = L;
 
-    fn iter(&self) -> Iter<'_, T> {
+    fn iter(&self) -> Iter<'_, S::Elem> {
         self.view().iter()
     }
 
-    fn copy_into_slice<'a>(&self, dest: &'a mut [MaybeUninit<T>]) -> &'a [T]
+    fn copy_into_slice<'a>(&self, dest: &'a mut [MaybeUninit<S::Elem>]) -> &'a [S::Elem]
     where
-        T: Copy,
+        S::Elem: Copy,
     {
         if let Some(data) = self.data() {
             // Safety: `[T]` and `[MaybeUninit<T>]` have same layout.
-            let src_uninit = unsafe { std::mem::transmute::<&[T], &[MaybeUninit<T>]>(data) };
+            let src_uninit =
+                unsafe { std::mem::transmute::<&[S::Elem], &[MaybeUninit<S::Elem>]>(data) };
             dest.copy_from_slice(src_uninit);
             // Safety: `copy_from_slice` initializes the whole slice or panics
             // if there is a length mismatch.
@@ -2306,7 +2307,7 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
         self.layout.move_axis(from, to);
     }
 
-    fn view(&self) -> TensorBase<ViewData<'_, T>, L> {
+    fn view(&self) -> TensorBase<ViewData<'_, S::Elem>, L> {
         TensorBase {
             data: self.data.view(),
             layout: self.layout.clone(),
@@ -2323,7 +2324,7 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
         })
     }
 
-    unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &T {
+    unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &S::Elem {
         let offset = self.layout.offset_unchecked(index.as_index());
         unsafe { self.data.get_unchecked(offset) }
     }
@@ -2335,16 +2336,16 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
         self.layout = self.layout.permuted(order);
     }
 
-    fn to_vec(&self) -> Vec<T>
+    fn to_vec(&self) -> Vec<S::Elem>
     where
-        T: Clone,
+        S::Elem: Clone,
     {
         self.to_vec_in(GlobalAlloc::new())
     }
 
-    fn to_vec_in<A: Alloc>(&self, alloc: A) -> Vec<T>
+    fn to_vec_in<A: Alloc>(&self, alloc: A) -> Vec<S::Elem>
     where
-        T: Clone,
+        S::Elem: Clone,
     {
         let len = self.len();
         let mut buf = alloc.alloc(len);
@@ -2363,7 +2364,7 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
 
     fn to_shape<SH: IntoLayout>(&self, shape: SH) -> TensorBase<Vec<Self::Elem>, SH::Layout>
     where
-        T: Clone,
+        S::Elem: Clone,
     {
         TensorBase {
             data: self.to_vec(),
@@ -2382,7 +2383,7 @@ impl<T, S: Storage<Elem = T>, L: Layout + Clone> AsView for TensorBase<S, L> {
     }
 }
 
-impl<T, S: Storage<Elem = T>, const N: usize> TensorBase<S, NdLayout<N>> {
+impl<S: Storage, const N: usize> TensorBase<S, NdLayout<N>> {
     /// Load an array of `M` elements from successive entries of a tensor along
     /// the `dim` axis.
     ///
@@ -2391,12 +2392,12 @@ impl<T, S: Storage<Elem = T>, const N: usize> TensorBase<S, NdLayout<N>> {
     ///
     /// Panics if any of the array indices are out of bounds.
     #[inline]
-    pub fn get_array<const M: usize>(&self, base: [usize; N], dim: usize) -> [T; M]
+    pub fn get_array<const M: usize>(&self, base: [usize; N], dim: usize) -> [S::Elem; M]
     where
-        T: Copy + Default,
+        S::Elem: Copy + Default,
     {
         let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
-        let mut result = [T::default(); M];
+        let mut result = [S::Elem::default(); M];
         for i in 0..M {
             // Safety: `array_offsets` returns valid offsets
             result[i] = unsafe { *self.data.get_unchecked(offsets[i]) };
@@ -2554,15 +2555,15 @@ fn array_offsets<const N: usize, const M: usize>(
     offsets
 }
 
-impl<T, S: StorageMut<Elem = T>, const N: usize> TensorBase<S, NdLayout<N>> {
+impl<S: StorageMut, const N: usize> TensorBase<S, NdLayout<N>> {
     /// Store an array of `M` elements into successive entries of a tensor along
     /// the `dim` axis.
     ///
     /// See [`TensorBase::get_array`] for more details.
     #[inline]
-    pub fn set_array<const M: usize>(&mut self, base: [usize; N], dim: usize, values: [T; M])
+    pub fn set_array<const M: usize>(&mut self, base: [usize; N], dim: usize, values: [S::Elem; M])
     where
-        T: Copy,
+        S::Elem: Copy,
     {
         let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
 
@@ -2573,27 +2574,27 @@ impl<T, S: StorageMut<Elem = T>, const N: usize> TensorBase<S, NdLayout<N>> {
     }
 }
 
-impl<T, S: Storage<Elem = T>> TensorBase<S, NdLayout<1>> {
+impl<S: Storage> TensorBase<S, NdLayout<1>> {
     /// Convert this vector to a static array of length `M`.
     ///
     /// Panics if the length of this vector is not M.
     #[inline]
-    pub fn to_array<const M: usize>(&self) -> [T; M]
+    pub fn to_array<const M: usize>(&self) -> [S::Elem; M]
     where
-        T: Copy + Default,
+        S::Elem: Copy + Default,
     {
         self.get_array([0], 0)
     }
 }
 
-impl<T, S: StorageMut<Elem = T>> TensorBase<S, NdLayout<1>> {
+impl<S: StorageMut> TensorBase<S, NdLayout<1>> {
     /// Fill this vector with values from a static array of length `M`.
     ///
     /// Panics if the length of this vector is not M.
     #[inline]
-    pub fn assign_array<const M: usize>(&mut self, values: [T; M])
+    pub fn assign_array<const M: usize>(&mut self, values: [S::Elem; M])
     where
-        T: Copy + Default,
+        S::Elem: Copy + Default,
     {
         self.set_array([0], 0, values)
     }
@@ -2680,7 +2681,7 @@ impl<T, S: StorageMut<Elem = T>, L: TrustedLayout, I: AsIndex<L>> IndexMut<I> fo
     }
 }
 
-impl<T, S: Storage<Elem = T> + Clone, L: Layout + Clone> Clone for TensorBase<S, L> {
+impl<S: Storage + Clone, L: Layout + Clone> Clone for TensorBase<S, L> {
     fn clone(&self) -> TensorBase<S, L> {
         let data = self.data.clone();
         TensorBase {
@@ -2690,19 +2691,23 @@ impl<T, S: Storage<Elem = T> + Clone, L: Layout + Clone> Clone for TensorBase<S,
     }
 }
 
-impl<T, S: Storage<Elem = T> + Copy, L: Layout + Copy> Copy for TensorBase<S, L> {}
+impl<S: Storage + Copy, L: Layout + Copy> Copy for TensorBase<S, L> {}
 
-impl<T: PartialEq, S: Storage<Elem = T>, L: Layout + Clone, V: AsView<Elem = T>> PartialEq<V>
-    for TensorBase<S, L>
+impl<S: Storage, L: Layout + Clone, V: AsView<Elem = S::Elem>> PartialEq<V> for TensorBase<S, L>
+where
+    S::Elem: PartialEq,
 {
     fn eq(&self, other: &V) -> bool {
         self.shape().iter().eq(other.shape().iter()) && self.iter().eq(other.iter())
     }
 }
 
-impl<T: Eq, S: Storage<Elem = T>, L: Layout + Clone> Eq for TensorBase<S, L> {}
+impl<S: Storage, L: Layout + Clone> Eq for TensorBase<S, L> where S::Elem: Eq {}
 
-impl<T: Hash, S: Storage<Elem = T>, L: Layout + Clone> Hash for TensorBase<S, L> {
+impl<S: Storage, L: Layout + Clone> Hash for TensorBase<S, L>
+where
+    S::Elem: Hash,
+{
     fn hash<H: Hasher>(&self, state: &mut H) {
         for dim in self.shape().iter() {
             dim.hash(state);
@@ -2713,9 +2718,7 @@ impl<T: Hash, S: Storage<Elem = T>, L: Layout + Clone> Hash for TensorBase<S, L>
     }
 }
 
-impl<T, S: Storage<Elem = T>, const N: usize> From<TensorBase<S, NdLayout<N>>>
-    for TensorBase<S, DynLayout>
-{
+impl<S: Storage, const N: usize> From<TensorBase<S, NdLayout<N>>> for TensorBase<S, DynLayout> {
     fn from(tensor: TensorBase<S, NdLayout<N>>) -> Self {
         Self {
             data: tensor.data,
@@ -2724,8 +2727,8 @@ impl<T, S: Storage<Elem = T>, const N: usize> From<TensorBase<S, NdLayout<N>>>
     }
 }
 
-impl<T, S1: Storage<Elem = T>, S2: Storage<Elem = T>, const N: usize>
-    TryFrom<TensorBase<S1, DynLayout>> for TensorBase<S2, NdLayout<N>>
+impl<S1: Storage, S2: Storage<Elem = S1::Elem>, const N: usize> TryFrom<TensorBase<S1, DynLayout>>
+    for TensorBase<S2, NdLayout<N>>
 where
     S1: Into<S2>,
 {
@@ -2833,7 +2836,7 @@ pub struct WeaklyCheckedView<S: Storage, L: Layout> {
     base: TensorBase<S, L>,
 }
 
-impl<T, S: Storage<Elem = T>, L: Layout> Layout for WeaklyCheckedView<S, L> {
+impl<S: Storage, L: Layout> Layout for WeaklyCheckedView<S, L> {
     type Shape<'a>
         = L::Shape<'a>
     where
@@ -2870,8 +2873,9 @@ impl<T, S: Storage<Elem = T>, L: Layout> Layout for WeaklyCheckedView<S, L> {
     }
 }
 
-impl<T, S: Storage<Elem = T>, L: Layout, I: AsIndex<L>> Index<I> for WeaklyCheckedView<S, L> {
-    type Output = T;
+impl<S: Storage, L: Layout, I: AsIndex<L>> Index<I> for WeaklyCheckedView<S, L> {
+    type Output = S::Elem;
+
     fn index(&self, index: I) -> &Self::Output {
         let offset = self.base.layout.offset_unchecked(index.as_index());
         unsafe {
@@ -2881,7 +2885,7 @@ impl<T, S: Storage<Elem = T>, L: Layout, I: AsIndex<L>> Index<I> for WeaklyCheck
     }
 }
 
-impl<T, S: StorageMut<Elem = T>, L: Layout, I: AsIndex<L>> IndexMut<I> for WeaklyCheckedView<S, L> {
+impl<S: StorageMut, L: Layout, I: AsIndex<L>> IndexMut<I> for WeaklyCheckedView<S, L> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.base.layout.offset_unchecked(index.as_index());
         unsafe {
