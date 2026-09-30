@@ -5,6 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+**Breaking changes:**
+
+- The `.rten` format has been deprecated and is no longer enabled by default.
+  RTen can still load models in this format if the `rten_format` crate feature
+  is enabled. Users should use `.onnx` format models instead. See
+  https://github.com/robertknight/rten/issues/1470.
+
+- `Model::input_ids` no longer includes constants ("initializers") which are
+  listed as graph inputs in very old ONNX models (IR version < 4).
+
+### rten
+
+- Added `Softsign` operator (https://github.com/robertknight/rten/pull/1501)
+
+- Added `DynamicQuantizeLSTM` contrib operator
+  (https://github.com/robertknight/rten/pull/1495,
+  https://github.com/robertknight/rten/pull/1498)
+
+- Added `BitCast` operator (https://github.com/robertknight/rten/pull/1479)
+
+- Added `ModelOptions::external_data_static` and the `include_external_data!`
+  macro, which enable embedding external data for ONNX models in the binary
+  without copying it (https://github.com/robertknight/rten/pull/1471)
+
+- Fixed loading ONNX models where a graph output is a constant or graph input
+  (https://github.com/robertknight/rten/pull/1493)
+
+- Fixed a panic in `ScatterND` when running in-place on a non-contiguous input
+  (https://github.com/robertknight/rten/pull/1477)
+
+- Use the buffer pool when making contiguous copies of inputs in scatter and
+  normalization operators (https://github.com/robertknight/rten/pull/1478)
+
+- Reduced compile time and binary size by sharing operator instantiations
+  between element types of the same bit-width and moving code into non-generic
+  helpers. As a side effect, `Tile` and `Trilu` now support i8 and u8 tensors
+  (https://github.com/robertknight/rten/pull/1482,
+  https://github.com/robertknight/rten/pull/1484,
+  https://github.com/robertknight/rten/pull/1509)
+
+### rten-cli
+
+- Added a `rten_format` feature to enable loading `.rten` models
+  (https://github.com/robertknight/rten/pull/1473)
+
+### rten-onnx
+
+- Added support for serializing ONNX models
+  (https://github.com/robertknight/rten/pull/1474)
+
+### rten-simd
+
+- Fixed a panic in `narrow_saturate` in the generic (non-SIMD) implementation,
+  which affected quantization operators
+  (https://github.com/robertknight/rten/pull/1486)
+
+- Integer `add`, `sub`, `mul`, `mul_add`, `neg` and `abs` ops in the generic
+  implementation now wrap on overflow in debug builds, matching native SIMD
+  implementations (https://github.com/robertknight/rten/pull/1486,
+  https://github.com/robertknight/rten/pull/1491)
+
+### rten-tensor
+
+- Fixed an issue in `TensorBase::append` and `concat` where a panic in the
+  element's `Clone` impl could result in a tensor being left with uninitialized
+  elements. These methods have a `T: Copy` bound, so this only affected types
+  with an incorrect `Clone` impl (thanks @tooson9010-spec,
+  https://github.com/robertknight/rten/pull/1496)
+
+- Added `TensorBase::bit_cast` for reinterpreting a tensor's elements as a
+  different type of the same size without copying
+  (https://github.com/robertknight/rten/pull/1468)
+
+- Added `Contiguous::data_mut`, `TensorBase::make_contiguous_in` and
+  `TensorBase::into_contiguous_in`
+  (https://github.com/robertknight/rten/pull/1477,
+  https://github.com/robertknight/rten/pull/1478)
+
+- Added default implementations for `Layout::len`, `Layout::ndim` and
+  `Layout::offset` (https://github.com/robertknight/rten/pull/1464)
+
 ## [0.26.0] - 2026-08-29
 
 **Breaking changes:**
