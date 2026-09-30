@@ -1011,6 +1011,30 @@ impl<T: PartialEq> PartialEq<LaneMut<'_, T>> for LaneMut<'_, T> {
     }
 }
 
+fn make_outer_offsets(
+    outer_shape: &[usize],
+    outer_strides: &[usize],
+    outer_dims: usize,
+    inner_data_len: usize,
+) -> Offsets {
+    // If the inner views are empty, the tensor must have zero-length
+    // storage. Zero the outer strides so that `outer_offsets` always yields
+    // zero - the only valid storage offset.
+    let zero_strides: SmallVec<[usize; 5]>;
+    let outer_strides = if inner_data_len == 0 {
+        zero_strides = SmallVec::from_elem(0, outer_dims);
+        zero_strides.as_ref()
+    } else {
+        outer_strides
+    };
+
+    let outer_layout =
+        DynLayout::from_shape_and_strides(outer_shape, outer_strides, OverlapPolicy::AllowOverlap)
+            .unwrap();
+
+    Offsets::new(&outer_layout)
+}
+
 /// Base for iterators over views of the inner dimensions of a tensor, where
 /// the inner dimensions have layout `L`.
 struct InnerIterBase<L: Layout> {
@@ -1022,10 +1046,10 @@ struct InnerIterBase<L: Layout> {
 }
 
 impl<L: Layout + Clone> InnerIterBase<L> {
-    fn new_impl<PL: Layout, F: Fn(&[usize], &[usize]) -> L>(
+    fn new_impl<PL: Layout>(
         parent_layout: &PL,
         inner_dims: usize,
-        make_inner_layout: F,
+        make_inner_layout: fn(&[usize], &[usize]) -> L,
     ) -> InnerIterBase<L> {
         assert!(parent_layout.ndim() >= inner_dims);
         let outer_dims = parent_layout.ndim() - inner_dims;
@@ -1041,26 +1065,13 @@ impl<L: Layout + Clone> InnerIterBase<L> {
         let inner_layout = make_inner_layout(inner_shape, inner_strides);
         let inner_data_len = inner_layout.min_data_len();
 
-        // If the inner views are empty, the tensor must have zero-length
-        // storage. Zero the outer strides so that `outer_offsets` always yields
-        // zero - the only valid storage offset.
-        let zero_strides: SmallVec<[usize; 5]>;
-        let outer_strides = if inner_data_len == 0 {
-            zero_strides = SmallVec::from_elem(0, outer_dims);
-            zero_strides.as_ref()
-        } else {
-            outer_strides
-        };
-
-        let outer_layout = DynLayout::from_shape_and_strides(
-            outer_shape,
-            outer_strides,
-            OverlapPolicy::AllowOverlap,
-        )
-        .unwrap();
-
         InnerIterBase {
-            outer_offsets: Offsets::new(&outer_layout),
+            outer_offsets: make_outer_offsets(
+                outer_shape,
+                outer_strides,
+                outer_dims,
+                inner_data_len,
+            ),
             inner_data_len,
             inner_layout,
         }
@@ -1069,7 +1080,10 @@ impl<L: Layout + Clone> InnerIterBase<L> {
 
 impl<const N: usize> InnerIterBase<NdLayout<N>> {
     pub(crate) fn new<L: Layout>(parent_layout: &L) -> Self {
-        Self::new_impl(parent_layout, N, |inner_shape, inner_strides| {
+        fn make_inner_layout<const N: usize>(
+            inner_shape: &[usize],
+            inner_strides: &[usize],
+        ) -> NdLayout<N> {
             let inner_shape: [usize; N] = inner_shape.try_into().unwrap();
             let inner_strides: [usize; N] = inner_strides.try_into().unwrap();
             NdLayout::from_shape_and_strides(
@@ -1080,13 +1094,15 @@ impl<const N: usize> InnerIterBase<NdLayout<N>> {
                 OverlapPolicy::AllowOverlap,
             )
             .expect("failed to create layout")
-        })
+        }
+
+        Self::new_impl(parent_layout, N, make_inner_layout::<N>)
     }
 }
 
 impl InnerIterBase<DynLayout> {
     pub(crate) fn new_dyn<L: Layout>(parent_layout: &L, inner_dims: usize) -> Self {
-        Self::new_impl(parent_layout, inner_dims, |inner_shape, inner_strides| {
+        fn make_inner_layout(inner_shape: &[usize], inner_strides: &[usize]) -> DynLayout {
             DynLayout::from_shape_and_strides(
                 inner_shape,
                 inner_strides,
@@ -1095,7 +1111,9 @@ impl InnerIterBase<DynLayout> {
                 OverlapPolicy::AllowOverlap,
             )
             .expect("failed to create layout")
-        })
+        }
+
+        Self::new_impl(parent_layout, inner_dims, make_inner_layout)
     }
 }
 
