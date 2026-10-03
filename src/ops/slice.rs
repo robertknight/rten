@@ -272,7 +272,7 @@ mod tests {
         let shape = sliced.shape();
 
         assert_eq!(shape, vec![ends[0] as usize - starts[0] as usize, 2, 5, 3]);
-        assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
+        assert_eq!(sliced.len(), shape.iter().product::<usize>());
 
         for w in 0..shape[0] {
             for x in 0..shape[1] {
@@ -313,7 +313,7 @@ mod tests {
             sliced.shape(),
             vec![2, 2, ends[0] as usize - starts[0] as usize, 3]
         );
-        assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
+        assert_eq!(sliced.len(), shape.iter().product::<usize>());
 
         for w in 0..shape[0] {
             for x in 0..shape[1] {

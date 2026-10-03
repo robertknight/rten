@@ -265,20 +265,15 @@ impl SliceRange {
     pub fn clamp(&self, dim_size: usize) -> SliceRange {
         let len = dim_size as isize;
 
-        let min_idx;
-        let max_idx;
-
-        if self.step > 0 {
+        let (min_idx, max_idx) = if self.step > 0 {
             // When traversing forwards, the range of valid +ve indexes is `[0,
             // len]` and for -ve indexes `[-len, -1]`.
-            min_idx = -len;
-            max_idx = len;
+            (-len, len)
         } else {
             // When traversing backwards, the range of valid +ve indexes are
             // `[0, len-1]` and for -ve indexes `[-len-1, -1]`.
-            min_idx = -len - 1;
-            max_idx = len - 1;
-        }
+            (-len - 1, len - 1)
+        };
 
         SliceRange::new(
             self.start.clamp(min_idx, max_idx),

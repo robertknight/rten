@@ -364,7 +364,6 @@ mod tests {
                     pattern: r"\s+",
                     invert: true,
                     delimiter: SplitDelimiterBehavior::Isolate,
-                    ..Default::default()
                 },
                 input: "foo bar   baz meep",
                 expected: ["foo", " ", "bar", "   ", "baz", " ", "meep"].into(),

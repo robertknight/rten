@@ -1456,7 +1456,7 @@ fn test_rand() {
     let tensor = NdTensor::<f32, 2>::rand([2, 2], &mut rng);
     assert_eq!(tensor.shape(), [2, 2]);
     for &x in tensor.iter() {
-        assert!(x >= 0. && x <= 1.);
+        assert!((0. ..=1.).contains(&x));
     }
 }
 
@@ -1627,7 +1627,7 @@ fn test_slice_copy() {
     } in cases
     {
         let len = shape.iter().product::<usize>() as i32;
-        let tensor = Tensor::<i32>::arange(0, len as i32, None).into_shape(shape);
+        let tensor = Tensor::<i32>::arange(0, len, None).into_shape(shape);
         let sliced = tensor.slice_copy(slice_range);
         assert_eq!(sliced, expected);
     }

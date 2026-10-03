@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(i8s.len(), i32s.len() * 4);
 
         // Convert back to wider type
-        let i32s_v2 = cast_slice::<i8, i32>(&i8s).unwrap();
+        let i32s_v2 = cast_slice::<i8, i32>(i8s).unwrap();
         assert_eq!(i32s_v2, i32s);
     }
 
