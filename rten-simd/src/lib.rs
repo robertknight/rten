@@ -219,6 +219,7 @@ pub mod isa_detection;
 mod iter;
 pub mod ops;
 mod simd;
+mod slice;
 pub mod span;
 mod writer;
 
@@ -251,6 +252,7 @@ pub use float16::f16;
 pub use iter::{Iter, SimdIterable};
 pub use ops::Isa;
 pub use simd::{Mask, Simd};
+pub use slice::{SimdSlice, SimdSliceMut};
 pub use writer::SliceWriter;
 
 #[cfg(target_arch = "x86_64")]
