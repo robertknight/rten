@@ -560,6 +560,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rten-fft"
+version = "0.27.0"
+dependencies = [
+ "rten-bench",
+ "rten-simd",
+ "rten-tensor",
+ "rten-testing",
+]
+
+[[package]]
 name = "rten-gemm"
 version = "0.27.0"
 dependencies = [
