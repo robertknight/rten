@@ -3,6 +3,7 @@ members = [
   ".",
   "rten-base",
   "rten-cli",
+  "rten-fft",
   "rten-gemm",
   "rten-generate",
   "rten-imageio",
