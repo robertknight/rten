@@ -11,7 +11,7 @@ jobs:
       matrix:
         # The macOS build tests Arm and macOS-specific code paths.
         # The Linux build tests everything else (x64, wasm, Python ...)
-        os: [ubuntu-latest, macos-14, ubuntu-24.04-arm]
+        os: [ubuntu-latest, macos-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout
@@ -37,7 +37,7 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Install Rust x86_64-apple-darwin target
       run: rustup target add x86_64-apple-darwin
-      if: ${{ matrix.os == 'macos-14' }}
+      if: ${{ matrix.os == 'macos-latest' }}
     - name: Cache
       uses: actions/cache@v6
       with:
@@ -74,7 +74,7 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
     - name: Build (Intel macOS)
       run: cargo check --workspace --target x86_64-apple-darwin
-      if: ${{ matrix.os == 'macos-14' }}
+      if: ${{ matrix.os == 'macos-latest' }}
     - name: Lint
       run: |
         just checkformatting
