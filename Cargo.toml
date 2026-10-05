@@ -3,6 +3,7 @@ members = [
   ".",
   "rten-base",
   "rten-cli",
+  "rten-fft",
   "rten-gemm",
   "rten-generate",
   "rten-imageio",
@@ -70,6 +71,7 @@ memmap2 = { version = "0.9.4", optional = true }
 num_cpus = "1.16.0"
 rayon = { workspace = true }
 rten-base = { path = "./rten-base", version = "0.27.0" }
+rten-fft = { path = "./rten-fft", version = "0.27.0", optional = true }
 rten-gemm = { path = "./rten-gemm", version = "0.27.0" }
 rten-model-file = { path = "./rten-model-file", version = "0.27.0", optional = true }
 rten-onnx = { path = "./rten-onnx", version = "0.27.0", optional = true }
@@ -79,7 +81,6 @@ rten-simd = { path = "./rten-simd", version = "0.27.0" }
 rten-tensor = { path = "./rten-tensor", version = "0.27.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.27.0" }
 rustc-hash = { workspace = true }
-rustfft = { workspace = true, optional = true }
 smallvec = { workspace = true }
 typeid = { workspace = true}
 
@@ -100,7 +101,7 @@ all-ops = ["fft", "random"]
 # Enable non-standard "contrib" operators from ONNX Runtime.
 contrib = ["onnx_format"]
 # Enables FFT operators (DFT, STFT etc.)
-fft = ["dep:rustfft"]
+fft = ["dep:rten-fft"]
 # Enable loading models using memory mapping
 mmap = ["dep:memmap2"]
 # Enable support for loading .onnx models

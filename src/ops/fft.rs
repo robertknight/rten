@@ -1,8 +1,7 @@
+use rten_fft::Fft;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
-use rustfft::FftPlanner;
-use rustfft::num_complex::Complex32;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
@@ -99,33 +98,53 @@ pub fn stft(
     let dft_unique_bins = if onesided { n_fft / 2 + 1 } else { n_fft };
     let mut output = NdTensor::zeros_in(pool, [batch, n_frames, dft_unique_bins, 2]);
 
-    // Temporary buffer for FFT input and output.
-    let mut tmp_buf = Vec::new();
+    let fft = Fft::new(n_fft, false /* inverse */);
+    let batch_size = fft.batch_size();
+    let mut scratch = vec![0.; fft.scratch_len() * batch_size];
 
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(n_fft);
-    let mut scratch = vec![Complex32::default(); fft.get_inplace_scratch_len()];
+    // FFT input and output for a group of frames, as separate real and
+    // imaginary parts in `[n_fft][group_size]` layout.
+    let mut tmp_re = vec![0.; n_fft * batch_size];
+    let mut tmp_im = vec![0.; n_fft * batch_size];
 
     for (signal_batch, mut out_batch) in signal.axis_iter(0).zip(output.axis_iter_mut(0)) {
-        for (frame, mut out_frame) in out_batch.axis_iter_mut(0).enumerate() {
-            tmp_buf.clear();
-            tmp_buf.extend((0..n_fft).map(|k| {
-                let offset = frame * frame_step + k;
+        let mut frame = 0;
+        while frame < n_frames {
+            let group_size = if n_frames - frame >= batch_size {
+                batch_size
+            } else {
+                1
+            };
+            let tmp_re = &mut tmp_re[..n_fft * group_size];
+            let tmp_im = &mut tmp_im[..n_fft * group_size];
+
+            for k in 0..n_fft {
                 let weight = window.as_ref().map(|win| win[[k]]).unwrap_or(1.);
-                let re = weight * signal_batch[[offset, 0]];
-                let im = match fft_type {
-                    FftType::Real => 0.,
-                    FftType::Complex => weight * signal_batch[[offset, 1]],
-                };
-                Complex32 { re, im }
-            }));
-
-            fft.process_with_scratch(&mut tmp_buf, &mut scratch);
-
-            for (bin, val) in tmp_buf.iter().take(out_frame.size(0)).enumerate() {
-                out_frame[[bin, 0]] = val.re;
-                out_frame[[bin, 1]] = val.im;
+                for b in 0..group_size {
+                    let offset = (frame + b) * frame_step + k;
+                    tmp_re[k * group_size + b] = weight * signal_batch[[offset, 0]];
+                    tmp_im[k * group_size + b] = match fft_type {
+                        FftType::Real => 0.,
+                        FftType::Complex => weight * signal_batch[[offset, 1]],
+                    };
+                }
             }
+
+            if group_size == 1 {
+                fft.process(tmp_re, tmp_im, &mut scratch[..fft.scratch_len()]);
+            } else {
+                fft.process_batch(tmp_re, tmp_im, &mut scratch);
+            }
+
+            for b in 0..group_size {
+                let mut out_frame = out_batch.slice_mut(frame + b);
+                for bin in 0..dft_unique_bins {
+                    out_frame[[bin, 0]] = tmp_re[bin * group_size + b];
+                    out_frame[[bin, 1]] = tmp_im[bin * group_size + b];
+                }
+            }
+
+            frame += group_size;
         }
     }
 
@@ -292,19 +311,19 @@ pub fn dft(
     let mut output = Tensor::zeros_in(pool, out_shape.as_slice());
     let out_data = output.data_mut().unwrap();
 
-    let mut planner = FftPlanner::new();
-    let fft = if inverse {
-        planner.plan_fft_inverse(n_fft)
-    } else {
-        planner.plan_fft_forward(n_fft)
-    };
+    let fft = Fft::new(n_fft, inverse);
     // ONNX defines the inverse transform with a `1/N` normalization factor,
-    // which `rustfft` does not apply.
-    // See https://docs.rs/rustfft/latest/rustfft/#normalization.
+    // which the transform itself does not apply.
     let scale = if inverse { 1.0 / n_fft as f32 } else { 1.0 };
 
-    let mut buf: Vec<Complex32> = Vec::with_capacity(n_fft);
-    let mut scratch = vec![Complex32::default(); fft.get_inplace_scratch_len()];
+    let batch_size = fft.batch_size();
+    let mut scratch = vec![0.; fft.scratch_len() * batch_size];
+
+    // FFT input and output for a group of lanes, as separate real and
+    // imaginary parts in `[n_fft][group_size]` layout.
+    let mut buf_re = vec![0.; n_fft * batch_size];
+    let mut buf_im = vec![0.; n_fft * batch_size];
+
     let get = |base: usize, i: usize| {
         let re = in_data[base + i * n_components];
         let im = if n_components == 2 {
@@ -312,51 +331,74 @@ pub fn dft(
         } else {
             0.
         };
-        Complex32 { re, im }
+        (re, im)
     };
 
-    for lane in 0..num_lanes {
-        let in_base = lane * signal_len * n_components;
-
-        buf.clear();
-        let n_in = signal_len.min(n_fft);
-        if irfft {
-            // Reconstruct the full conjugate-symmetric spectrum from the half
-            // spectrum: `X[N-k] = conj(X[k])`. For even `N` the Nyquist bin
-            // (`k == N/2`) is its own mirror and is left as the input value.
-            buf.resize(n_fft, Complex32::default());
-            for k in 0..n_in {
-                buf[k] = get(in_base, k);
-            }
-            let conj_end = if n_fft % 2 == 0 {
-                n_in.saturating_sub(1)
-            } else {
-                n_in
-            };
-            for k in 1..conj_end {
-                buf[n_fft - k] = get(in_base, k).conj();
-            }
+    let n_in = signal_len.min(n_fft);
+    let mut lane = 0;
+    while lane < num_lanes {
+        let group_size = if num_lanes - lane >= batch_size {
+            batch_size
         } else {
+            1
+        };
+        let buf_re = &mut buf_re[..n_fft * group_size];
+        let buf_im = &mut buf_im[..n_fft * group_size];
+
+        // Zero the padding. The first `n_in` elements of each signal are
+        // written below.
+        buf_re[n_in * group_size..].fill(0.);
+        buf_im[n_in * group_size..].fill(0.);
+
+        for b in 0..group_size {
+            let in_base = (lane + b) * signal_len * n_components;
+
             // Zero-pad or truncate the signal to `n_fft` values.
-            buf.extend((0..n_in).map(|k| get(in_base, k)));
-            buf.resize(n_fft, Complex32::default());
+            for k in 0..n_in {
+                (buf_re[k * group_size + b], buf_im[k * group_size + b]) = get(in_base, k);
+            }
+
+            if irfft {
+                // Reconstruct the full conjugate-symmetric spectrum from the
+                // half spectrum: `X[N-k] = conj(X[k])`. For even `N` the
+                // Nyquist bin (`k == N/2`) is its own mirror and is left as
+                // the input value.
+                let conj_end = if n_fft % 2 == 0 {
+                    n_in.saturating_sub(1)
+                } else {
+                    n_in
+                };
+                for k in 1..conj_end {
+                    let (re, im) = get(in_base, k);
+                    buf_re[(n_fft - k) * group_size + b] = re;
+                    buf_im[(n_fft - k) * group_size + b] = -im;
+                }
+            }
         }
 
-        fft.process_with_scratch(&mut buf, &mut scratch);
-
-        let out_base = lane * out_len * out_components;
-        if irfft {
-            // IRFFT discards the imaginary part, which is zero up to rounding.
-            for (i, val) in buf.iter().take(out_len).enumerate() {
-                out_data[out_base + i] = val.re * scale;
-            }
+        if group_size == 1 {
+            fft.process(buf_re, buf_im, &mut scratch[..fft.scratch_len()]);
         } else {
-            for (i, val) in buf.iter().take(out_len).enumerate() {
-                let val = val * scale;
-                out_data[out_base + i * 2] = val.re;
-                out_data[out_base + i * 2 + 1] = val.im;
+            fft.process_batch(buf_re, buf_im, &mut scratch);
+        }
+
+        for b in 0..group_size {
+            let out_base = (lane + b) * out_len * out_components;
+            if irfft {
+                // IRFFT discards the imaginary part, which is zero up to
+                // rounding.
+                for i in 0..out_len {
+                    out_data[out_base + i] = buf_re[i * group_size + b] * scale;
+                }
+            } else {
+                for i in 0..out_len {
+                    out_data[out_base + i * 2] = buf_re[i * group_size + b] * scale;
+                    out_data[out_base + i * 2 + 1] = buf_im[i * group_size + b] * scale;
+                }
             }
         }
+
+        lane += group_size;
     }
 
     // If the DFT axis was already the second-from-last dimension, `perm` is
@@ -440,7 +482,10 @@ mod tests {
     use rten_tensor::{NdTensor, Tensor};
     use rten_testing::TestCases;
 
-    use super::{DFT, STFT};
+    use rten_tensor::rng::XorShiftRng;
+
+    use super::{DFT, STFT, dft, stft};
+    use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OperatorExt};
     use crate::ops::tests::{IntoNDim, expect_eq_1e4};
 
@@ -857,5 +902,103 @@ mod tests {
                 _ => assert_eq!(result, case.expected),
             }
         });
+    }
+
+    /// Test that transforming many signals at once, which uses batched FFTs
+    /// for full groups of signals and single FFTs for the remainder, matches
+    /// transforming each signal separately.
+    #[test]
+    fn test_dft_many_lanes() {
+        #[derive(Debug)]
+        struct Case {
+            n_components: usize,
+            inverse: bool,
+            onesided: bool,
+        }
+
+        let cases = [
+            Case {
+                n_components: 1,
+                inverse: false,
+                onesided: true,
+            },
+            Case {
+                n_components: 2,
+                inverse: false,
+                onesided: false,
+            },
+            Case {
+                n_components: 2,
+                inverse: true,
+                onesided: false,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let pool = BufferPool::new();
+            let mut rng = XorShiftRng::new(1234);
+
+            // Enough lanes for several full batches plus a remainder, on any
+            // SIMD vector width.
+            let (n_lanes, signal_len) = (35, 20);
+            let input = Tensor::rand(&[n_lanes, signal_len, case.n_components], &mut rng);
+
+            let batched = dft(&pool, input.view(), None, 1, case.inverse, case.onesided).unwrap();
+
+            for lane in 0..n_lanes {
+                let single = dft(
+                    &pool,
+                    input.slice(lane..lane + 1),
+                    None,
+                    1,
+                    case.inverse,
+                    case.onesided,
+                )
+                .unwrap();
+                expect_eq_1e4(&batched.slice(lane..lane + 1), &single.view()).unwrap();
+            }
+        });
+    }
+
+    /// Test that an STFT with many frames matches the STFT of each frame's
+    /// samples on its own.
+    #[test]
+    fn test_stft_many_frames() {
+        let pool = BufferPool::new();
+        let mut rng = XorShiftRng::new(1234);
+
+        let (n_fft, frame_step) = (20, 8);
+        // Enough frames for several full batches plus a remainder, on any
+        // SIMD vector width.
+        let n_frames = 35;
+        let signal_len = (n_frames - 1) * frame_step + n_fft;
+        let signal = Tensor::rand(&[1, signal_len, 1], &mut rng);
+        let window = NdTensor::rand([n_fft], &mut rng);
+
+        let batched = stft(
+            &pool,
+            signal.view(),
+            frame_step as i32,
+            Some(window.view()),
+            None,
+            true, /* onesided */
+        )
+        .unwrap();
+        assert_eq!(batched.size(1), n_frames);
+
+        for frame in 0..n_frames {
+            let start = frame * frame_step;
+            let single = stft(
+                &pool,
+                signal.slice((.., start..start + n_fft)),
+                frame_step as i32,
+                Some(window.view()),
+                None,
+                true, /* onesided */
+            )
+            .unwrap();
+            assert_eq!(single.size(1), 1);
+            expect_eq_1e4(&batched.slice((.., frame..frame + 1)), &single.view()).unwrap();
+        }
     }
 }
