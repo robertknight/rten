@@ -644,9 +644,26 @@ impl<'a> Generator<'a> {
 
         let use_cache_input = model.find_node(model_inputs.use_cache_flag);
         if let Some(use_cache_input) = use_cache_input {
-            generator = generator.with_varying_input(use_cache_input, &|_batch_size, positions| {
-                Tensor::from(if positions.start == 0 { 0i32 } else { 1 }).into()
-            });
+            let use_cache_info = model.node_info(use_cache_input);
+            let use_cache_shape = use_cache_info.as_ref().map(|info| info.shape());
+            generator = match use_cache_shape {
+                None | Some([]) => {
+                    generator.with_varying_input(use_cache_input, &|_batch_size, positions| {
+                        Tensor::from(if positions.start == 0 { 0i32 } else { 1 }).into()
+                    })
+                }
+                Some([Dimension::Fixed(1)]) => {
+                    generator.with_varying_input(use_cache_input, &|_batch_size, positions| {
+                        NdTensor::from([if positions.start == 0 { 0i32 } else { 1 }]).into()
+                    })
+                }
+                Some(_) => {
+                    return Err(GeneratorError::ShapeMismatch(format!(
+                        "input \"{}\" has unexpected shape. expected () or (1)",
+                        model_inputs.use_cache_flag
+                    )));
+                }
+            };
         }
 
         Ok(generator)
@@ -1067,8 +1084,9 @@ mod tests {
 
     use rten::{Dimension, NodeId, RunOptions, Value, ValueOrView};
     use rten_base::num::AsUsize;
-    use rten_tensor::NdTensor;
     use rten_tensor::prelude::*;
+    use rten_tensor::{NdTensor, Tensor};
+    use rten_testing::TestCases;
 
     use super::{Generator, GeneratorUtils, Logits};
     use crate::filter::LogitsFilter;
@@ -1521,6 +1539,71 @@ mod tests {
     #[test]
     fn test_generator_without_kv_cache() -> Result<(), Box<dyn Error>> {
         test_generator_impl(None)
+    }
+
+    #[test]
+    fn test_generator_use_cache_branch_shape() {
+        #[derive(Debug)]
+        struct Case {
+            shape: Vec<Dimension>,
+            expected: Result<Vec<usize>, &'static str>,
+        }
+
+        let cases = [
+            Case {
+                shape: vec![],
+                expected: Ok(vec![]),
+            },
+            Case {
+                shape: vec![Dimension::Fixed(1)],
+                expected: Ok(vec![1]),
+            },
+            Case {
+                shape: vec![Dimension::Fixed(2)],
+                expected: Err(
+                    "shape mismatch: input \"use_cache_branch\" has unexpected shape. expected () or (1)",
+                ),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let params = TransformerParams::default();
+            let output_token_ids = [0, 1, 2];
+            let prompt = [1, 2, 3];
+            let mut model = fake_transformer_model(
+                params,
+                Some(KvCacheType::EncoderDecoder),
+                prompt.len(),
+                &output_token_ids,
+            );
+            let use_cache_id = model.find_node("use_cache_branch").unwrap();
+            model.nodes[use_cache_id.as_usize()] =
+                NodeInfo::from_name_shape("use_cache_branch", &case.shape);
+
+            let generator = match (Generator::from_model(&model), &case.expected) {
+                (Ok(generator), Ok(_)) => generator,
+                (Err(err), Err(expected_err)) => {
+                    assert_eq!(err.to_string(), *expected_err);
+                    return;
+                }
+                (Ok(_), Err(_)) => panic!("expected generator creation to fail"),
+                (Err(err), Ok(_)) => panic!("generator creation failed: {}", err),
+            };
+
+            let output: Vec<_> = generator
+                .with_prompt(&prompt)
+                .take(2)
+                .map(|id| id.expect("generation failed"))
+                .collect();
+            assert_eq!(output, [0, 1]);
+
+            for step in 0..2 {
+                let use_cache = model.get_inputs(step, use_cache_id).unwrap();
+                let use_cache: Tensor<i32> = use_cache.try_into().unwrap();
+                assert_eq!(Ok(use_cache.shape().to_vec()), case.expected.clone());
+                assert_eq!(use_cache.to_vec(), [if step == 0 { 0 } else { 1 }]);
+            }
+        })
     }
 
     #[test]
