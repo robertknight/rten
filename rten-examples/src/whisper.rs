@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use argh::FromArgs;
 use rten::{Dimension, FloatOperators, Model};
+use rten_fft::{Direction, Fft};
 use rten_generate::filter::{LogitsFilter, token_id_filter};
 use rten_generate::{Generator, GeneratorConfig, GeneratorUtils, Logits};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 use rten_text::Tokenizer;
-use rustfft::{FftPlanner, num_complex::Complex32};
 use serde_derive::Deserialize;
 
 /// Recognize speech in an audio file using OpenAI's Whisper.
@@ -80,7 +80,8 @@ fn hann_window(size: usize) -> Vec<f32> {
 
 /// Compute the Short Time Fourier Transform (STFT) of an input signal.
 ///
-/// Returns a matrix with shape `[n_fft / 2 + 1, n_windows]`.
+/// Returns a matrix with shape `[n_fft / 2 + 1, n_windows]` of `(re, im)`
+/// values.
 ///
 /// See https://pytorch.org/docs/stable/generated/torch.stft.html.
 fn stft(
@@ -88,28 +89,28 @@ fn stft(
     n_fft: usize,
     hop_length: usize,
     window: Option<&[f32]>,
-) -> NdTensor<Complex32, 2> {
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(n_fft);
+) -> NdTensor<(f32, f32), 2> {
+    let fft = Fft::new(n_fft, Direction::Forward);
+    let mut scratch = vec![0.; fft.scratch_len()];
 
     let n_windows = signal.len() / hop_length;
     let out_freqs = n_fft / 2 + 1;
     let mut output = NdTensor::zeros([out_freqs, n_windows]);
 
-    let mut tmp_fft = Vec::with_capacity(n_fft);
+    let mut tmp_re = vec![0.; n_fft];
+    let mut tmp_im = vec![0.; n_fft];
 
     for (w, out_window) in output.lanes_mut(0).enumerate() {
-        tmp_fft.clear();
-        tmp_fft.extend((0..n_fft).map(|k| {
+        for k in 0..n_fft {
             let weight = window.as_ref().map(|win| win[k]).unwrap_or(0.);
-            let re = weight * signal.get(w * hop_length + k).copied().unwrap_or(0.);
-            Complex32 { re, im: 0. }
-        }));
+            tmp_re[k] = weight * signal.get(w * hop_length + k).copied().unwrap_or(0.);
+        }
+        tmp_im.fill(0.);
 
-        fft.process(&mut tmp_fft);
+        fft.process(&mut tmp_re, &mut tmp_im, &mut scratch);
 
-        for (src, dst) in tmp_fft.iter().copied().take(out_freqs).zip(out_window) {
-            *dst = src;
+        for (dst, (re, im)) in out_window.zip(tmp_re.iter().zip(&tmp_im)) {
+            *dst = (*re, *im);
         }
     }
 
@@ -166,7 +167,7 @@ fn log_mel_spectrogram(
     let audio_fft = stft(&padded_audio, N_FFT, hop_length, Some(hann_window));
 
     // Get power spectrum of input.
-    let magnitudes: NdTensor<f32, 2> = audio_fft.map(|&x| x.norm_sqr());
+    let magnitudes: NdTensor<f32, 2> = audio_fft.map(|&(re, im)| re * re + im * im);
 
     let mel_filters: NdTensorView<f32, 2> = match (n_mels, sample_rate, N_FFT) {
         (80, 16_000, 400) => mel_filter_map.mel_80.view(),
