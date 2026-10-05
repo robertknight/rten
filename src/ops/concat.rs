@@ -529,7 +529,7 @@ mod tests {
             } = case;
 
             let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-            expect_equal(&result, &expected).unwrap();
+            expect_equal(&result, expected).unwrap();
         });
     }
 

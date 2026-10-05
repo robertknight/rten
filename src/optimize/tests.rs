@@ -38,7 +38,6 @@ fn optimize_graph_infer_shapes(graph: Graph) -> Result<Graph, OptimizeError> {
                 strict: false,
                 ..Default::default()
             }),
-            ..Default::default()
         },
     )
 }
@@ -719,7 +718,7 @@ fn test_fuse_gelu() {
             .operator()
             .downcast_ref::<Gelu>()
             .expect("expected fused Gelu op");
-        assert_eq!(gelu.approximate, false);
+        assert!(!gelu.approximate);
     });
 }
 
@@ -739,7 +738,7 @@ fn test_fuse_approx_gelu() {
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     let gelu = op.operator().downcast_ref::<Gelu>().unwrap();
-    assert_eq!(gelu.approximate, true);
+    assert!(gelu.approximate);
 }
 
 fn layer_norm_graph(with_bias: bool) -> Graph {
@@ -895,7 +894,7 @@ fn test_fuse_safe_softmax() {
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     let softmax = op.operator().downcast_ref::<Softmax>().unwrap();
     assert_eq!(softmax.axis, -1);
-    assert_eq!(softmax.flush_nans_to_zero, true);
+    assert!(softmax.flush_nans_to_zero);
 }
 
 #[test]
@@ -1642,7 +1641,7 @@ fn test_fuse_grouped_query_attention_matmul() {
 
     // Create RepeatInterleave pattern: Unsqueeze + Expand + Reshape
     let repeat_axis = 1;
-    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
+    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis + 1])));
     let expand_shape = Expr::value_with_info(
         "expand_shape",
         ValueType::Tensor(DataType::Float),
@@ -1691,7 +1690,7 @@ fn test_fuse_grouped_query_attention_matmul() {
         .unwrap();
     assert_eq!(qkv_matmul.repeats, n_repeats);
     assert_eq!(qkv_matmul.alpha, None);
-    assert_eq!(qkv_matmul.transpose_rhs, false);
+    assert!(!qkv_matmul.transpose_rhs);
 }
 
 #[test]
@@ -1726,7 +1725,7 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
 
     // Create RepeatInterleave pattern: Unsqueeze + Expand + Reshape
     let repeat_axis = 1;
-    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis as i32 + 1])));
+    let unsqueeze_axes = Expr::constant(Value::from(NdTensor::from([repeat_axis + 1])));
     let expand_shape = Expr::value_with_info(
         "expand_shape",
         ValueType::Tensor(DataType::Float),
@@ -1779,7 +1778,7 @@ fn test_fuse_grouped_query_attention_matmul_with_transpose_and_scale() {
         .unwrap();
     assert_eq!(qkv_matmul.repeats, n_repeats);
     assert_eq!(qkv_matmul.alpha, Some(1.0 / scale));
-    assert_eq!(qkv_matmul.transpose_rhs, true);
+    assert!(qkv_matmul.transpose_rhs);
 }
 
 #[test]
@@ -1794,7 +1793,7 @@ fn test_infer_shapes() {
         );
         let w = Expr::constant(NdTensor::<f32, _>::zeros([64, 12]));
         let out = x.apply(MatMul {}, &[w], &[OutputMeta::NoMeta]);
-        out.build_graph(&["data"])
+        out.build_graph(["data"])
     };
 
     // Run optimization with shape inference enabled.
@@ -1832,7 +1831,7 @@ fn test_shape_inference_replaces_values_with_constants() {
         let out = x
             .shape()
             .apply(Gather { axis: 0 }, &[indices], &[OutputMeta::NoMeta]);
-        out.build_graph(&["data"])
+        out.build_graph(["data"])
     };
 
     let optimizer = GraphOptimizer::new();
@@ -1863,7 +1862,7 @@ fn test_shape_inference_constants_preserve_value_type() {
         let bias_src = Expr::constant(NdTensor::<f32, _>::full([4], 1.));
         let bias = bias_src.unary(Identity {});
         let out = x.binary(Add {}, bias);
-        out.build_graph(&["data"])
+        out.build_graph(["data"])
     };
 
     let optimizer = GraphOptimizer::new();

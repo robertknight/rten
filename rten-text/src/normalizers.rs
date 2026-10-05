@@ -467,7 +467,6 @@ mod tests {
             let normalizer = Bert::new(BertOptions {
                 lowercase: *lowercase,
                 strip_accents: true,
-                ..Default::default()
             });
 
             let (normalized, offsets) = normalizer.normalize(input).unwrap();

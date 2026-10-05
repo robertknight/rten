@@ -37,18 +37,20 @@ enum_from!(AttrValue, Tensor, onnx::TensorProto);
 pub fn create_attr(name: &str, value: AttrValue) -> onnx::AttributeProto {
     use onnx::AttributeType;
 
-    let mut attr = onnx::AttributeProto::default();
-    attr.name = Some(name.to_string());
-    attr.r#type = Some(match value {
-        AttrValue::Bool(_) | AttrValue::Int(_) => AttributeType::INT,
-        AttrValue::Float(_) => AttributeType::FLOAT,
-        AttrValue::Floats(_) => AttributeType::FLOATS,
-        AttrValue::Graph(_) => AttributeType::GRAPH,
-        AttrValue::Ints(_) => AttributeType::INTS,
-        AttrValue::String(_) => AttributeType::STRING,
-        AttrValue::Strings(_) => AttributeType::STRINGS,
-        AttrValue::Tensor(_) => AttributeType::TENSOR,
-    });
+    let mut attr = onnx::AttributeProto {
+        name: Some(name.to_string()),
+        r#type: Some(match value {
+            AttrValue::Bool(_) | AttrValue::Int(_) => AttributeType::INT,
+            AttrValue::Float(_) => AttributeType::FLOAT,
+            AttrValue::Floats(_) => AttributeType::FLOATS,
+            AttrValue::Graph(_) => AttributeType::GRAPH,
+            AttrValue::Ints(_) => AttributeType::INTS,
+            AttrValue::String(_) => AttributeType::STRING,
+            AttrValue::Strings(_) => AttributeType::STRINGS,
+            AttrValue::Tensor(_) => AttributeType::TENSOR,
+        }),
+        ..Default::default()
+    };
 
     match value {
         AttrValue::Bool(val) => attr.i = Some(val as i64),
@@ -77,10 +79,11 @@ pub trait GraphProtoExt {
 /// Fluent methods for building an [`onnx::GraphProto`].
 impl GraphProtoExt for onnx::GraphProto {
     fn into_model(self) -> onnx::ModelProto {
-        let mut model = onnx::ModelProto::default();
-        model.ir_version = Some(10);
-        model.graph = Some(self);
-        model
+        onnx::ModelProto {
+            ir_version: Some(10),
+            graph: Some(self),
+            ..Default::default()
+        }
     }
 
     fn with_initializer(mut self, tensor: onnx::TensorProto) -> Self {
@@ -110,9 +113,10 @@ impl GraphProtoExt for onnx::GraphProto {
 }
 
 pub fn create_node(op_type: &str) -> onnx::NodeProto {
-    let mut node = onnx::NodeProto::default();
-    node.op_type = Some(op_type.to_string());
-    node
+    onnx::NodeProto {
+        op_type: Some(op_type.to_string()),
+        ..Default::default()
+    }
 }
 
 /// Fluent methods for building an [`onnx::NodeProto`].
@@ -166,10 +170,12 @@ pub fn create_tensor(
     dtype: onnx::DataType,
     data: TensorData,
 ) -> onnx::TensorProto {
-    let mut tensor = onnx::TensorProto::default();
-    tensor.name = Some(name.to_string());
-    tensor.dims = shape.iter().map(|size| *size as i64).collect();
-    tensor.data_type = Some(dtype);
+    let mut tensor = onnx::TensorProto {
+        name: Some(name.to_string()),
+        dims: shape.iter().map(|size| *size as i64).collect(),
+        data_type: Some(dtype),
+        ..Default::default()
+    };
 
     match data {
         TensorData::Raw(raw) => tensor.raw_data = Some(RefCell::new(raw)),
@@ -199,9 +205,10 @@ pub fn create_tensor(
 }
 
 pub fn create_value_info(name: &str) -> onnx::ValueInfoProto {
-    let mut val = onnx::ValueInfoProto::default();
-    val.name = Some(name.into());
-    val
+    onnx::ValueInfoProto {
+        name: Some(name.into()),
+        ..Default::default()
+    }
 }
 
 /// Fluent methods for building an [`onnx::ValueInfoProto`].
