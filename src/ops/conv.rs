@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
 use rten_gemm::{
@@ -291,7 +289,7 @@ where
     let bias = bias.map(|b| b.to_contiguous());
     let bias = bias.as_ref().map(|b| b.view());
 
-    let n_init = AtomicUsize::new(0);
+    let mut n_init = 0;
 
     for (in_chans, out_chans) in range_chunks(0..in_c, in_chans_per_group)
         .zip(range_chunks(0..out_channels, out_chans_per_group))
@@ -314,11 +312,11 @@ where
         };
         let prepacked_kernel = prepacked_kernel.as_deref();
 
-        out_group
+        n_init += out_group
             .axis_iter_mut(0)
             .into_par_iter()
             .zip(in_group.axis_iter(0))
-            .for_each(|(mut out_item, in_item)| {
+            .map(|(mut out_item, in_item)| {
                 let out_mat = out_item
                     .reshaped_mut([out_chans_per_group, out_h * out_w])
                     .unwrap();
@@ -351,14 +349,15 @@ where
                         },
                     )
                     .unwrap();
-                n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
-            });
+                out_mat.len()
+            })
+            .sum::<usize>();
     }
 
     let output = output.into_shape([batch, out_channels, out_h, out_w]);
 
     // Safety: We used `gemm_uninit_bias` to initialize all elements.
-    assert!(n_init.load(Ordering::SeqCst) == output.len());
+    assert!(n_init == output.len());
     let output = unsafe { output.assume_init() };
 
     Ok(output.into())
