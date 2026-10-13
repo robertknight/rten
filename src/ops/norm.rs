@@ -1,5 +1,4 @@
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::bit_set::BitSet;
@@ -493,13 +492,12 @@ fn layer_normalization_impl(
     let mut output = pool.alloc(input.len());
     let chunk_size = normalized_slice_shape.iter().product();
 
-    let n_init = AtomicUsize::new(0);
     let out_uninit = &mut output.spare_capacity_mut()[..input.len()];
-    input
+    let n_init = input
         .data()
         .par_chunks(chunk_size)
         .zip(out_uninit.par_chunks_mut(chunk_size))
-        .for_each(|(in_chunk, out_chunk)| {
+        .map(|(in_chunk, out_chunk)| {
             let normalized = normalize_slice(
                 (in_chunk, out_chunk).into(),
                 NormalizeOptions {
@@ -511,10 +509,11 @@ fn layer_normalization_impl(
                     element_bias: bias_data,
                 },
             );
-            n_init.fetch_add(normalized.len(), Ordering::SeqCst);
-        });
+            normalized.len()
+        })
+        .sum::<usize>();
 
-    assert_eq!(n_init.load(Ordering::SeqCst), input.len());
+    assert_eq!(n_init, input.len());
     unsafe {
         output.set_len(input.len());
     }

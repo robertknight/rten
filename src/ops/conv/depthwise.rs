@@ -1,6 +1,5 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::unroll::unroll_loop;
@@ -333,16 +332,16 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
             })
             .collect();
 
-        let n_init = AtomicUsize::new(0);
+        let mut n_init = 0;
         for n in 0..batch {
             let mut out_chans = output.slice_mut(n);
             let input = input.slice(n);
 
-            out_chans
+            n_init += out_chans
                 .axis_iter_mut(0)
                 .into_par_iter()
                 .enumerate()
-                .for_each(|(out_chan, mut out_chans)| {
+                .map(|(out_chan, mut out_chans)| {
                     let mut out_chans = out_chans
                         .reshaped_mut([1, out_chans.size(0), out_chans.size(1)])
                         .unwrap();
@@ -360,12 +359,13 @@ impl<X: Copy + Default + Sync, W: Copy + Default + Sync, Y: Copy + Default>
                         kernel_zero,
                     );
 
-                    n_init.fetch_add(out_chans.len(), Ordering::SeqCst);
-                });
+                    out_chans.len()
+                })
+                .sum::<usize>();
         }
 
         // Safety: We initialized all output rows
-        assert!(n_init.load(Ordering::SeqCst) == output.len());
+        assert!(n_init == output.len());
         unsafe { output.assume_init() }
     }
 }

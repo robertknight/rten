@@ -1,5 +1,4 @@
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::bit_set::BitSet;
@@ -180,19 +179,17 @@ fn bilinear_resize(
     let [_, in_rows, in_cols] = input.shape();
     let [inv_scale_y, inv_scale_x] = inv_scale;
 
-    let n_init = AtomicUsize::new(0);
-
     let row_chunk = rows.div_ceil(
         std::thread::available_parallelism()
             .map(|c| c.get())
             .unwrap_or(1),
     );
 
-    output
+    let n_init = output
         .axis_chunks_mut(1, row_chunk)
         .into_par_iter()
         .zip(ParIter::from(range_chunks(0..rows, row_chunk)))
-        .for_each(|(mut out_row_chunk, out_row_range)| {
+        .map(|(mut out_row_chunk, out_row_range)| {
             for y in out_row_range.clone() {
                 let in_y = input_coord(y, inv_scale_y, coord_mode, in_rows, rows)
                     .clamp(0., in_rows as f32 - 1.);
@@ -243,9 +240,10 @@ fn bilinear_resize(
                     }
                 }
             }
-            n_init.fetch_add(out_row_chunk.len(), Ordering::SeqCst);
-        });
-    assert!(n_init.load(Ordering::SeqCst) == output.len());
+            out_row_chunk.len()
+        })
+        .sum::<usize>();
+    assert!(n_init == output.len());
 }
 
 /// Resize an NCHW image tensor to a given `[height, width]`.
@@ -438,17 +436,17 @@ fn resize_4d(
         InitEmpty::NotEmpty(ne) => ne,
     };
 
-    let n_init = AtomicUsize::new(0);
+    let mut n_init = 0;
     for n in 0..batch {
         let in_image = input.slice([n]);
         let mut out_batch = output.nd_view_mut::<4>();
         let mut out_image = out_batch.slice_mut([n]);
 
-        out_image
+        n_init += out_image
             .axis_chunks_mut(0, CHAN_GROUP_SIZE)
             .into_par_iter()
             .zip(in_image.axis_chunks(0, CHAN_GROUP_SIZE))
-            .for_each(|(mut out_chans, in_chans)| {
+            .map(|(mut out_chans, in_chans)| {
                 match mode {
                     ResizeMode::Nearest => {
                         nearest_resize(
@@ -463,11 +461,12 @@ fn resize_4d(
                         bilinear_resize(in_chans, out_chans.view_mut(), inv_scale, coord_mode);
                     }
                 };
-                n_init.fetch_add(out_chans.len(), Ordering::SeqCst);
-            });
+                out_chans.len()
+            })
+            .sum::<usize>();
     }
 
-    assert!(n_init.load(Ordering::SeqCst) == output.len());
+    assert!(n_init == output.len());
     let output = unsafe { output.assume_init() };
 
     Ok(output)

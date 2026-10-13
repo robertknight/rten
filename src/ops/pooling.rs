@@ -1,5 +1,4 @@
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_base::num::div_ceil;
@@ -378,13 +377,13 @@ where
     // Work around error if using `fold_init` directly in closure.
     let accum_init_val = || fold_init;
 
-    let n_init = AtomicUsize::new(0);
-    output
+    let n_init = output
         .axis_iter_mut(0)
         .into_par_iter()
         .zip(input.axis_iter(0))
-        .for_each(|(mut out_item, in_item)| {
+        .map(|(mut out_item, in_item)| {
             let [_, out_h, out_w] = out_item.shape();
+            let mut n_init = 0;
 
             // Loop over channel groups.
             const N: usize = CHAN_GROUP_SIZE;
@@ -403,7 +402,7 @@ where
                     fold,
                     average,
                 );
-                n_init.fetch_add(N * out_h * out_w, Ordering::SeqCst);
+                n_init += N * out_h * out_w;
             }
 
             // Loop over remaining channels.
@@ -419,11 +418,14 @@ where
                     fold,
                     average,
                 );
-                n_init.fetch_add(out_h * out_w, Ordering::SeqCst);
+                n_init += out_h * out_w;
             }
-        });
 
-    assert!(n_init.load(Ordering::SeqCst) == output.len());
+            n_init
+        })
+        .sum::<usize>();
+
+    assert!(n_init == output.len());
     let output = unsafe { output.assume_init() };
     Ok(output.into())
 }
