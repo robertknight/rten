@@ -142,7 +142,7 @@ impl RunOptions {
     pub(crate) fn thread_pool(&self) -> &threading::ThreadPool {
         self.thread_pool
             .as_deref()
-            .unwrap_or(threading::thread_pool())
+            .unwrap_or_else(|| threading::thread_pool())
     }
 
     pub fn with_timing(mut self, timing: bool) -> Self {
