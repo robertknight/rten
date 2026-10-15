@@ -30,7 +30,8 @@ impl ThreadPool {
     /// Create a thread pool with a given number of threads.
     ///
     /// If the pool cannot be created, for example because threads are not
-    /// supported, operations run directly on the calling thread. Use
+    /// supported, [`run`](Self::run) calls `op` directly, so parallel work
+    /// inside it may use Rayon's global pool. Use
     /// [`try_with_num_threads`](Self::try_with_num_threads) to detect this.
     pub fn with_num_threads(num_threads: usize) -> ThreadPool {
         Self::try_with_num_threads(num_threads).unwrap_or(ThreadPool { pool: None })
