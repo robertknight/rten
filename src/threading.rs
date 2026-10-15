@@ -1,4 +1,5 @@
 use std::env;
+use std::io;
 use std::sync::OnceLock;
 
 use rten_base::num::AsUsize;
@@ -27,13 +28,24 @@ impl ThreadPool {
     }
 
     /// Create a thread pool with a given number of threads.
+    ///
+    /// If the pool cannot be created, for example because threads are not
+    /// supported, operations run directly on the calling thread. Use
+    /// [`try_with_num_threads`](Self::try_with_num_threads) to detect this.
     pub fn with_num_threads(num_threads: usize) -> ThreadPool {
+        Self::try_with_num_threads(num_threads).unwrap_or(ThreadPool { pool: None })
+    }
+
+    /// Create a thread pool with a given number of threads, or return an error
+    /// if the pool cannot be created.
+    pub fn try_with_num_threads(num_threads: usize) -> io::Result<ThreadPool> {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(num_threads)
             .thread_name(|index| format!("rten-{}", index))
-            .build();
+            .build()
+            .map_err(io::Error::other)?;
 
-        ThreadPool { pool: pool.ok() }
+        Ok(ThreadPool { pool: Some(pool) })
     }
 }
 
@@ -94,12 +106,23 @@ pub fn thread_pool() -> &'static ThreadPool {
 
 #[cfg(test)]
 mod tests {
-    use super::optimal_core_count;
+    use super::{ThreadPool, optimal_core_count};
 
     #[test]
     fn test_optimal_core_count() {
         let max_cores = num_cpus::get_physical() as u32;
         let opt_cores = optimal_core_count();
         assert!(opt_cores >= 1 && opt_cores <= max_cores);
+    }
+
+    #[test]
+    fn test_try_with_num_threads() {
+        let pool = ThreadPool::try_with_num_threads(2);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        assert_eq!(pool.unwrap().run(rayon::current_num_threads), 2);
+
+        #[cfg(target_arch = "wasm32")]
+        assert!(pool.is_err());
     }
 }
