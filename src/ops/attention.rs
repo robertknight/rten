@@ -278,37 +278,35 @@ impl Operator for GroupedQueryAttentionMatMul {
         }
 
         let chunk_size = self.repeats * seq * rhs_n;
-        let out_size = batch * (heads / self.repeats) * chunk_size;
-        let mut out_data = ctx.pool().alloc(out_size);
-        let out_uninit = &mut out_data.spare_capacity_mut()[..out_size];
+        let out_size = batch * rhs_heads * chunk_size;
 
         let gemm = GemmExecutor::default();
-        let lhs_mats = lhs.reshaped_in(
-            ctx.pool(),
-            [batch, heads / self.repeats, self.repeats * seq, k],
-        );
+        let lhs_mats = lhs.reshaped_in(ctx.pool(), [batch, rhs_heads, self.repeats * seq, k]);
         let opts = GemmUninitOptions {
             alpha: self.alpha.unwrap_or(1.0),
             ..Default::default()
         };
 
-        lhs_mats
-            .inner_iter::<2>()
-            .into_par_iter()
-            .zip(rhs.inner_iter::<2>())
-            .zip(out_uninit.par_chunks_mut(chunk_size))
-            .for_each(|((lhs, rhs), out)| {
+        let out_data = rten_parallel::par_init_chunks(
+            ctx.pool().alloc(out_size),
+            out_size,
+            chunk_size,
+            |chunk_idx, out| {
+                let b = chunk_idx / rhs_heads;
+                let h = chunk_idx % rhs_heads;
+
+                let lhs = lhs_mats.slice((b, h));
+                let rhs = rhs.slice((b, h));
+
                 gemm.gemm_uninit(
                     out,
                     GemmInputA::Unpacked(lhs),
                     GemmInputB::Unpacked(rhs),
                     opts.clone(),
                 )
-                .unwrap();
-            });
-
-        // Safety: gemm_uninit initialized the full output data.
-        unsafe { out_data.set_len(out_size) };
+                .unwrap()
+            },
+        );
 
         Tensor::from_data(&[batch, heads, seq, rhs_n], out_data).into_op_result()
     }
@@ -1118,7 +1116,7 @@ mod tests {
 
     #[test]
     fn test_grouped_query_attention_matmul() {
-        let batch = 1;
+        let batch = 2;
         let query_heads = 8;
         let kv_heads = 2;
         let seq = 3;

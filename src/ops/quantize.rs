@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
+use rten_parallel::par_init_chunks;
 use rten_shape_inference::ops as shape_ops;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
@@ -217,20 +218,16 @@ where
         };
 
         if let Some(data) = input.data() {
-            let mut buf = pool.alloc(data.len());
-            let buf_uninit = &mut buf.spare_capacity_mut()[..data.len()];
-
             let chunk_size = 4096;
-            buf_uninit
-                .par_chunks_mut(chunk_size)
-                .zip(data.par_chunks(chunk_size))
-                .for_each(|(out_data, data)| {
-                    Quantize::quantize_slice(data, out_data, inv_scale, zero_point);
-                });
-            let buf_uninit_len = buf_uninit.len();
-
-            // Safety: We initialized `buf_uninit_len` elements.
-            unsafe { buf.set_len(buf_uninit_len) };
+            let buf = par_init_chunks(
+                pool.alloc(data.len()),
+                data.len(),
+                chunk_size,
+                |chunk_idx, dst_chunk| {
+                    let src_chunk = &data[chunk_idx * chunk_size..][..dst_chunk.len()];
+                    Quantize::quantize_slice(src_chunk, dst_chunk, inv_scale, zero_point)
+                },
+            );
 
             Ok(Tensor::from_data(input.shape(), buf))
         } else {
