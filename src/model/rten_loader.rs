@@ -64,7 +64,7 @@ pub fn load(storage: Arc<ConstantStorage>, options: &ModelOptions) -> Result<Mod
 
     let mut weight_cache = WeightCache::new();
     if options.prepack_weights {
-        graph.prepack_weights(&mut weight_cache);
+        graph.prepack_weights(&mut weight_cache, options.thread_pool.as_deref());
     }
 
     let metadata = model.metadata().map(load_metadata).unwrap_or_default();

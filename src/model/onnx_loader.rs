@@ -68,7 +68,7 @@ pub fn load(
 
     let mut weight_cache = WeightCache::new();
     if options.prepack_weights {
-        graph.prepack_weights(&mut weight_cache);
+        graph.prepack_weights(&mut weight_cache, options.thread_pool.as_deref());
     }
 
     let metadata = load_metadata(&model);

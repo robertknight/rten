@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::ThreadId;
 
 use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
@@ -20,6 +21,7 @@ use crate::operator::{
     OutputTypeList, OutputTypesContext, PrepackedInput, SubgraphOperator,
 };
 use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
+use crate::threading::ThreadPool;
 use crate::timing::Profiler;
 use crate::value::{DataType, Value, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
@@ -1903,15 +1905,20 @@ fn test_captures_by_value_if_possible() {
     }
 }
 
-// MatMul wrapper that verifies its B input (ie. the weights) are prepacked.
+// MatMul wrapper that verifies its B input (ie. the weights) are prepacked,
+// and records the thread that prepacked them.
 #[derive(Debug)]
 struct MatMulExpectPacked {
     inner: MatMul,
+    prepack_thread: Arc<Mutex<Option<ThreadId>>>,
 }
 
 impl MatMulExpectPacked {
     fn new() -> Self {
-        MatMulExpectPacked { inner: MatMul {} }
+        MatMulExpectPacked {
+            inner: MatMul {},
+            prepack_thread: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -1933,6 +1940,7 @@ impl Operator for MatMulExpectPacked {
     }
 
     fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
+        *self.prepack_thread.lock().unwrap() = Some(std::thread::current().id());
         self.inner.prepack(index, input)
     }
 
@@ -1976,7 +1984,7 @@ fn test_prepack_weights() {
     graph.set_output_ids(&[subgraph_out]);
 
     // Prepack weights and verify that the cache was populated.
-    graph.prepack_weights(&mut cache);
+    graph.prepack_weights(&mut cache, None);
     assert_eq!(cache.len(), 2);
     assert!(cache.get(weights).is_some());
 
@@ -1997,6 +2005,40 @@ fn test_prepack_weights() {
             None,
         )
         .unwrap();
+}
+
+#[test]
+fn test_prepack_weights_uses_thread_pool() {
+    let mut graph = Graph::new();
+    let input = graph.add_value(Some("input"), None, None);
+    let weights = graph.add_constant(None, Tensor::<f32>::zeros(&[10, 7]).into_arc());
+    let matmul = MatMulExpectPacked::new();
+    let prepack_thread = matmul.prepack_thread.clone();
+    let (_, matmul_out) = graph.add_simple_op("MatMul", matmul, &[input, weights]);
+
+    let mut subgraph = Graph::new();
+    let sg_input = subgraph.add_value(Some("sg-input"), None, None);
+    let sg_weights = subgraph.add_constant(None, Tensor::<f32>::zeros(&[7, 5]).into_arc());
+    let sg_matmul = MatMulExpectPacked::new();
+    let sg_prepack_thread = sg_matmul.prepack_thread.clone();
+    let (_, sg_matmul_out) =
+        subgraph.add_simple_op("sg-MatMul", sg_matmul, &[sg_input, sg_weights]);
+    subgraph.set_input_ids(&[sg_input]);
+    subgraph.set_output_ids(&[sg_matmul_out]);
+
+    let (_, subgraph_out) =
+        graph.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[matmul_out]);
+    graph.set_input_ids(&[input]);
+    graph.set_output_ids(&[subgraph_out]);
+
+    let pool = ThreadPool::with_num_threads(1);
+    let pool_thread = pool.run(|| std::thread::current().id());
+
+    let mut cache = WeightCache::new();
+    graph.prepack_weights(&mut cache, Some(&pool));
+
+    assert_eq!(*prepack_thread.lock().unwrap(), Some(pool_thread));
+    assert_eq!(*sg_prepack_thread.lock().unwrap(), Some(pool_thread));
 }
 
 #[test]

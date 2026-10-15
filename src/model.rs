@@ -15,6 +15,7 @@ use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunErrorImpl, RunOp
 use crate::infer_shapes::InferShapeOptions;
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
+use crate::threading::ThreadPool;
 use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{Value, ValueOrView, ValueType};
 use crate::weight_cache::WeightCache;
@@ -677,6 +678,7 @@ pub struct ModelOptions {
     prepack_weights: bool,
     external_data: HashMap<String, Arc<ConstantStorage>>,
     infer_shapes: ShapeInferenceMode,
+    thread_pool: Option<Arc<ThreadPool>>,
 }
 
 impl ModelOptions {
@@ -696,6 +698,7 @@ impl ModelOptions {
             prepack_weights: false,
             external_data: HashMap::new(),
             infer_shapes: ShapeInferenceMode::On,
+            thread_pool: None,
         }
     }
 
@@ -738,6 +741,16 @@ impl ModelOptions {
     /// for faster inference.
     pub fn prepack_weights(&mut self, prepack: bool) -> &mut Self {
         self.prepack_weights = prepack;
+        self
+    }
+
+    /// Set the thread pool used for work done while loading the model.
+    ///
+    /// This covers constant propagation during graph optimization and weight
+    /// prepacking. By default the global thread pool is used. The pool used
+    /// for inference is set separately, via [`RunOptions::with_thread_pool`].
+    pub fn thread_pool(&mut self, pool: Option<Arc<ThreadPool>>) -> &mut Self {
+        self.thread_pool = pool;
         self
     }
 
@@ -908,6 +921,7 @@ impl ModelOptions {
                         ..Default::default()
                     }),
                 },
+                thread_pool: self.thread_pool.clone(),
             })
         } else {
             OptimizeMode::Off
@@ -966,6 +980,8 @@ macro_rules! include_external_data {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rten_onnx::onnx;
     use rten_tensor::prelude::*;
     use rten_tensor::{NdTensor, Tensor, TensorView};
@@ -977,10 +993,11 @@ mod tests {
     };
     #[cfg(feature = "rten_format")]
     use crate::model::rten_builder::{MetadataArgs, ModelBuilder, ModelFormat, OpType};
-    use crate::model::{LoadErrorKind, Model, ModelOptions};
+    use crate::model::{LoadErrorKind, Model, ModelOptions, OptimizeMode};
     use crate::op_registry;
     #[cfg(feature = "rten_format")]
     use crate::ops;
+    use crate::threading::ThreadPool;
     use crate::value::{DataType, Value, ValueType};
 
     /// Create an ONNX model which concatenates a constant with the model input
@@ -1227,6 +1244,16 @@ mod tests {
                     opts
                 }),
             },
+            // Custom thread pool for load-time work
+            Case {
+                buffer: generate_model_buffer(),
+                opts: Some({
+                    let mut opts = ModelOptions::with_all_ops();
+                    opts.prepack_weights(true)
+                        .thread_pool(Some(Arc::new(ThreadPool::with_num_threads(1))));
+                    opts
+                }),
+            },
         ];
 
         for Case { buffer, opts } in cases {
@@ -1256,6 +1283,21 @@ mod tests {
                 vec![(output_id, Value::FloatTensor(result_tensor))]
             );
         }
+    }
+
+    #[test]
+    fn test_optimize_mode_uses_thread_pool() {
+        let pool = Arc::new(ThreadPool::with_num_threads(1));
+        let mut opts = ModelOptions::with_all_ops();
+        opts.thread_pool(Some(pool.clone()));
+
+        let OptimizeMode::On(optimize_opts) = opts.optimize_mode() else {
+            panic!("expected optimizations to be enabled");
+        };
+        assert!(Arc::ptr_eq(
+            optimize_opts.thread_pool.as_ref().unwrap(),
+            &pool
+        ));
     }
 
     #[test]
