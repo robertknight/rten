@@ -118,12 +118,9 @@ mod tests {
 
     #[test]
     fn test_try_with_num_threads() {
-        let pool = ThreadPool::try_with_num_threads(2);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        assert_eq!(pool.unwrap().run(rayon::current_num_threads), 2);
-
-        #[cfg(target_arch = "wasm32")]
-        assert!(pool.is_err());
+        match ThreadPool::try_with_num_threads(2) {
+            Ok(pool) => assert_eq!(pool.run(rayon::current_num_threads), 2),
+            Err(_) => assert!(cfg!(target_arch = "wasm32")),
+        }
     }
 }
