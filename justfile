@@ -54,7 +54,7 @@ lint:
     # `-D warnings` triggers non-zero exit on warnings. `-A unknown_lints` allows
     # for compiling with an older Rust version (eg. MSRV) that doesn't know about
     # some lints referenced in config/attributes.
-    cargo clippy --workspace -- -D warnings -A unknown_lints
+    cargo clippy --all-targets --workspace -- -D warnings -A unknown_lints
 
 # Run tests under Miri.
 miri:
