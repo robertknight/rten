@@ -2228,13 +2228,7 @@ impl<S: Storage, L: Layout + Clone> AsView for TensorBase<S, L> {
         S::Elem: Copy,
     {
         if let Some(data) = self.data() {
-            // Safety: `[T]` and `[MaybeUninit<T>]` have same layout.
-            let src_uninit =
-                unsafe { std::mem::transmute::<&[S::Elem], &[MaybeUninit<S::Elem>]>(data) };
-            dest.copy_from_slice(src_uninit);
-            // Safety: `copy_from_slice` initializes the whole slice or panics
-            // if there is a length mismatch.
-            unsafe { dest.assume_init() }
+            dest.write_copy_of_slice(data)
         } else {
             copy_into_slice(self.as_dyn(), dest)
         }
