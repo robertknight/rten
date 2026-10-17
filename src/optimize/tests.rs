@@ -1,5 +1,6 @@
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::thread::ThreadId;
 
 use rten_base::byte_cast::cast_slice;
 use rten_shape_inference::{SymExpr, Symbol};
@@ -13,7 +14,10 @@ use crate::graph::builder::{Expr, OutputMeta, dims};
 use crate::graph::{
     CaptureEnv, Constant, Graph, Node, NodeId, OperatorNode, PlanOptions, TypedConstant,
 };
-use crate::infer_shapes::InferShapeOptions;
+use crate::infer_shapes::{InferShapeOptions, InferShapes};
+use crate::operator::{
+    OpError, OpRunContext, Operator, OutputList, OutputTypeList, OutputTypesContext,
+};
 use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf,
     Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN,
@@ -21,6 +25,7 @@ use crate::ops::{
     RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose,
     Unsqueeze, Where,
 };
+use crate::threading::ThreadPool;
 use crate::value::{DataType, Value, ValueType};
 
 fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
@@ -273,6 +278,67 @@ fn test_constant_propagation() -> Result<(), Box<dyn Error>> {
     assert_eq!(input_ids[1], input);
 
     Ok(())
+}
+
+/// Identity operator which records the thread it was run on.
+#[derive(Debug)]
+struct RecordThread {
+    thread: Arc<Mutex<Option<ThreadId>>>,
+}
+
+impl Operator for RecordThread {
+    fn name(&self) -> &str {
+        "RecordThread"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        None
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        *self.thread.lock().unwrap() = Some(std::thread::current().id());
+        Identity {}.run(ctx)
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        None
+    }
+}
+
+#[test]
+fn test_constant_propagation_uses_thread_pool() {
+    let thread = Arc::new(Mutex::new(None));
+    let mut graph = Graph::new();
+    let const_a = graph.add_constant(Some("const_a"), Tensor::from([1, 2, 3]).into_arc());
+    let (_, record_out) = graph.add_simple_op(
+        "record",
+        RecordThread {
+            thread: thread.clone(),
+        },
+        &[const_a],
+    );
+    graph.set_output_ids(&[record_out]);
+
+    let pool = Arc::new(ThreadPool::with_num_threads(1));
+    let pool_thread = pool.run(|| std::thread::current().id());
+
+    let optimizer = GraphOptimizer::new();
+    optimizer
+        .optimize(
+            graph,
+            None,
+            OptimizeOptions {
+                thread_pool: Some(pool),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(*thread.lock().unwrap(), Some(pool_thread));
 }
 
 #[test]
@@ -1805,6 +1871,7 @@ fn test_infer_shapes() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1842,6 +1909,7 @@ fn test_shape_inference_replaces_values_with_constants() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1873,6 +1941,7 @@ fn test_shape_inference_constants_preserve_value_type() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1920,6 +1989,7 @@ fn test_shape_inference_constants_shared_by_values_with_different_types() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();

@@ -12,11 +12,12 @@ use crate::Value;
 use crate::env::str_as_bool;
 use crate::graph::{
     CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
-    PlanOptions, RunError,
+    PlanOptions, RunError, RunOptions,
 };
 use crate::infer_shapes::{InferError, InferShapeOptions, Shape, infer_shapes};
 use crate::operator::Operator;
 use crate::ops::Identity;
+use crate::threading::ThreadPool;
 use crate::value::{DataType, ValueType};
 
 mod diagnostics;
@@ -492,6 +493,10 @@ fn find_operator_output_used_outside_subgraph(
 pub struct OptimizeOptions {
     /// If set, run shape and type inference prior to optimization passes.
     pub infer_shapes: Option<InferShapeOptions>,
+
+    /// Thread pool to use for constant propagation. Defaults to the global
+    /// thread pool.
+    pub thread_pool: Option<Arc<ThreadPool>>,
 }
 
 /// Applies optimizations to a [`Graph`] to enable faster inference.
@@ -619,7 +624,7 @@ impl GraphOptimizer {
         if let Some(capture_env) = capture_env {
             self.convert_captured_values_to_constants(&mut graph_mut, capture_env)?;
         }
-        self.propagate_constants(&mut graph_mut)?;
+        self.propagate_constants(&mut graph_mut, opts.thread_pool)?;
 
         // Fuse operators.
         //
@@ -754,12 +759,17 @@ impl GraphOptimizer {
 
     /// Apply constant propagation to replace parts of the graph which depend
     /// only on constant values with a pre-computed constant.
-    fn propagate_constants(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+    fn propagate_constants(
+        &self,
+        graph: &mut GraphMutator,
+        thread_pool: Option<Arc<ThreadPool>>,
+    ) -> Result<(), OptimizeError> {
         // Do a partial run with no inputs. This evaluates all nodes that
         // transitively depend only on constants.
+        let run_opts = RunOptions::default().with_thread_pool(thread_pool);
         let leaves = graph
             .graph()
-            .partial_run(vec![], graph.output_ids(), None)
+            .partial_run(vec![], graph.output_ids(), Some(run_opts))
             .map_err(OptimizeError::RunError)?;
 
         // Take the resulting (value_node_id, value) list, create new constant
