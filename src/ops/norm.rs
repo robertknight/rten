@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 
 use rayon::prelude::*;
 use rten_base::bit_set::BitSet;
+use rten_parallel::par_init_chunks;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{CowTensor, NdTensorView, Tensor, TensorView};
@@ -488,17 +489,16 @@ fn layer_normalization_impl(
     };
 
     let input = input.to_contiguous_in(pool);
+    let input_data = input.data();
 
-    let mut output = pool.alloc(input.len());
     let chunk_size = normalized_slice_shape.iter().product();
-
-    let out_uninit = &mut output.spare_capacity_mut()[..input.len()];
-    let n_init = input
-        .data()
-        .par_chunks(chunk_size)
-        .zip(out_uninit.par_chunks_mut(chunk_size))
-        .map(|(in_chunk, out_chunk)| {
-            let normalized = normalize_slice(
+    let output = par_init_chunks(
+        pool.alloc(input.len()),
+        input.len(),
+        chunk_size,
+        |chunk_idx, out_chunk| {
+            let in_chunk = &input_data[chunk_idx * chunk_size..][..out_chunk.len()];
+            normalize_slice(
                 (in_chunk, out_chunk).into(),
                 NormalizeOptions {
                     mean_normalize,
@@ -508,15 +508,9 @@ fn layer_normalization_impl(
                     element_scale: scale_data,
                     element_bias: bias_data,
                 },
-            );
-            normalized.len()
-        })
-        .sum::<usize>();
-
-    assert_eq!(n_init, input.len());
-    unsafe {
-        output.set_len(input.len());
-    }
+            )
+        },
+    );
 
     Ok(Tensor::from_data(input.shape(), output))
 }

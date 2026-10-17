@@ -535,22 +535,11 @@ fn global_pool<T: Clone + Send + Sync>(
 
     let n_out = batch * chan;
     let mut out_data = pool.alloc::<T>(n_out);
-    let out_uninit = &mut out_data.spare_capacity_mut()[..n_out];
 
-    input
-        .lanes(2)
-        .into_par_iter()
-        .zip(out_uninit.par_iter_mut())
-        .for_each(|(chan_data, out)| {
-            let chan_slice = chan_data.as_slice().unwrap();
-            let reduced = kernel(chan_slice);
-            out.write(reduced);
-        });
-
-    // Safety: All elements of `out_uninit` have been initialized.
-    unsafe {
-        out_data.set_len(n_out);
-    }
+    out_data.par_extend(input.lanes(2).into_par_iter().map(|chan_data| {
+        let chan_slice = chan_data.as_slice().unwrap();
+        kernel(chan_slice)
+    }));
 
     Ok(Tensor::from_data(&out_shape, out_data))
 }
