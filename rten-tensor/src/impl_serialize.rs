@@ -138,25 +138,23 @@ mod tests {
         let cases = [
             Case {
                 json: "[]",
-                expected: Err(format!(
-                    "expected a tensor with \"shape\" and \"data\" fields"
-                )),
+                expected: Err("expected a tensor with \"shape\" and \"data\" fields".to_string()),
             },
             Case {
                 json: r#"{"data":[]}"#,
-                expected: Err(format!("missing field `shape`")),
+                expected: Err("missing field `shape`".to_string()),
             },
             Case {
                 json: r#"{"data":[], "data": []}"#,
-                expected: Err(format!("duplicate field `data`")),
+                expected: Err("duplicate field `data`".to_string()),
             },
             Case {
                 json: r#"{"shape":[]}"#,
-                expected: Err(format!("missing field `data`")),
+                expected: Err("missing field `data`".to_string()),
             },
             Case {
                 json: r#"{"shape":[], "shape": []}"#,
-                expected: Err(format!("duplicate field `shape`")),
+                expected: Err("duplicate field `shape`".to_string()),
             },
             Case {
                 json: r#"{"data": [1.0, 0.5, 2.0, 1.5], "shape": [2, 2]}"#,
@@ -164,7 +162,7 @@ mod tests {
             },
             Case {
                 json: r#"{"data": [1.0, 0.5, 2.0, 1.5], "shape": [2, 3]}"#,
-                expected: Err(format!("data length does not match shape product")),
+                expected: Err("data length does not match shape product".to_string()),
             },
         ];
 
@@ -172,7 +170,7 @@ mod tests {
             let Case { json, expected } = case;
 
             let actual: Result<Tensor<f32>, String> =
-                serde_json::from_str(&json).map_err(|e| e.to_string());
+                serde_json::from_str(json).map_err(|e| e.to_string());
             match (actual, expected) {
                 (Ok(actual), Ok(expected)) => {
                     assert_eq!(actual, *expected);
@@ -180,7 +178,7 @@ mod tests {
                     // Verify that serializing the result produces the original
                     // JSON.
                     let actual_json = serde_json::to_value(actual).unwrap();
-                    let expected_json: serde_json::Value = serde_json::from_str(&json).unwrap();
+                    let expected_json: serde_json::Value = serde_json::from_str(json).unwrap();
                     assert_eq!(actual_json, expected_json);
                 }
                 (Err(actual_err), Err(expected_err)) => assert!(
@@ -209,7 +207,7 @@ mod tests {
             },
             Case {
                 json: r#"{"data": [1.0, 0.5, 2.0, 1.5], "shape": [1, 2, 2]}"#,
-                expected: Err(format!("incorrect shape length for tensor rank")),
+                expected: Err("incorrect shape length for tensor rank".to_string()),
             },
         ];
 
@@ -217,7 +215,7 @@ mod tests {
             let Case { json, expected } = case;
 
             let actual: Result<NdTensor<f32, 2>, String> =
-                serde_json::from_str(&json).map_err(|e| e.to_string());
+                serde_json::from_str(json).map_err(|e| e.to_string());
 
             match (actual, expected) {
                 (Ok(actual), Ok(expected)) => {
@@ -226,7 +224,7 @@ mod tests {
                     // Verify that serializing the result produces the original
                     // JSON.
                     let actual_json = serde_json::to_value(actual).unwrap();
-                    let expected_json: serde_json::Value = serde_json::from_str(&json).unwrap();
+                    let expected_json: serde_json::Value = serde_json::from_str(json).unwrap();
                     assert_eq!(actual_json, expected_json);
                 }
                 (Err(actual_err), Err(expected_err)) => assert!(

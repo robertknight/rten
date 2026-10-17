@@ -582,7 +582,7 @@ in g";
 
     #[test]
     fn test_encode() {
-        #[derive(Debug)]
+        #[derive(Debug, Default)]
         struct Case<'a> {
             text: &'a str,
             expected_tokens: &'a [&'a str],
@@ -590,19 +590,6 @@ in g";
             vocab: Option<FxHashMap<EncodedBytes, TokenId>>,
             end_of_word_suffix: Option<String>,
             ignore_merges: bool,
-        }
-
-        impl<'a> Default for Case<'a> {
-            fn default() -> Self {
-                Self {
-                    text: "",
-                    expected_tokens: &[],
-                    merges: "",
-                    vocab: None,
-                    end_of_word_suffix: None,
-                    ignore_merges: false,
-                }
-            }
         }
 
         let cases = [

@@ -1572,8 +1572,8 @@ mod tests {
                 })
                 .collect();
 
-            let a = ops.load(&src_a);
-            let b = ops.load(&src_b);
+            let a = ops.load(src_a);
+            let b = ops.load(src_b);
             let ab_lo = ops.concat_low(a, b);
             let ab_hi = ops.concat_high(a, b);
 

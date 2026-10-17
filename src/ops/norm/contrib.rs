@@ -558,7 +558,7 @@ mod tests {
                 1e-5,
                 OutputMask::new(BitSet::from_indices([0]), 4),
             );
-            let err = result.err().expect("expected an error");
+            let err = result.expect_err("expected an error");
             assert_eq!(&err, &case.expected);
         })
     }

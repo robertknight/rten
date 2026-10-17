@@ -680,7 +680,7 @@ mod tests {
             (in_h, in_w),
             (k_h, k_w),
             (stride_y, stride_x),
-            padding.into(),
+            padding,
             Some((dilation_y, dilation_x)),
             RoundMode::default(),
         )
@@ -693,7 +693,7 @@ mod tests {
 
         let mut output = Tensor::zeros(&[batch, out_chans, out_h, out_w]);
 
-        let x_zero = input_zero.unwrap_or(X::default());
+        let x_zero = input_zero.unwrap_or_default();
         let w_zero = kernel_zero
             .map(|kz| kz.to_vec())
             .unwrap_or(vec![W::default(); out_chans]);
@@ -761,11 +761,11 @@ mod tests {
             &pool,
             input.view(),
             kernel.view(),
-            bias.clone(),
+            bias,
             pads.clone(),
             groups,
-            &strides,
-            &dilations,
+            strides,
+            dilations,
         )
         .expect("conv operation failed");
         let reference_result = reference_conv(
@@ -1629,7 +1629,7 @@ mod tests {
                     &pool,
                     input.view(),
                     kernel.view(),
-                    bias.clone(),
+                    bias,
                     padding.clone(),
                     n_groups,
                     &[stride, stride],

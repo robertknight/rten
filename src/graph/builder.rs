@@ -100,7 +100,7 @@ impl Expr {
         outputs: &[OutputMeta],
     ) -> Expr {
         let mut inputs: Vec<_> = [self.clone()].into();
-        inputs.extend(operands.iter().map(|opr| opr.clone()));
+        inputs.extend(operands.iter().cloned());
         Expr::from(ExprKind::Operator(OperatorExpr {
             op: Arc::new(op),
             inputs,

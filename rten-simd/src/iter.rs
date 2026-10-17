@@ -347,13 +347,13 @@ mod tests {
                     |sum, x| ops.mul_add(x, x, sum),
                     |sum, x| ops.add(sum, x),
                 );
-                vec_sum.to_array().into_iter().fold(0, |sum, x| sum + x)
+                vec_sum.to_array().into_iter().sum()
             }
         }
 
         let buf: Vec<_> = (0..TEST_LEN * UNROLL).map(|x| x as i32).collect();
         let expected = buf.iter().fold(0, |acc, &x| {
-            let x = x as i32;
+            let x = x;
             (x * x) + acc
         });
 
@@ -407,7 +407,7 @@ mod tests {
             unroll: false,
         }
         .dispatch();
-        assert_eq!(min, 0. as f32);
+        assert_eq!(min, 0_f32);
         assert_eq!(max, (TEST_LEN - 1) as f32);
     }
 
@@ -419,7 +419,7 @@ mod tests {
             unroll: false,
         }
         .dispatch();
-        assert_eq!(min, 0. as f32);
+        assert_eq!(min, 0_f32);
         assert_eq!(max, (TEST_LEN * UNROLL - 1) as f32);
     }
 }
