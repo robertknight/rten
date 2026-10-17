@@ -126,7 +126,6 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
     let normalizer = normalizers::Bert::new(normalizers::BertOptions {
         lowercase: true,
         strip_accents: true,
-        ..Default::default()
     });
     let model = WordPiece::from_vocab(vocab, Default::default());
     let tokenizer = Tokenizer::new(model, wordpiece_tokenizer_opts())

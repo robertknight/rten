@@ -1076,6 +1076,7 @@ impl<G: Iterator> Iterator for Profiler<'_, G> {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;

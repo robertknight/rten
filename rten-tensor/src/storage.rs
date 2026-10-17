@@ -657,6 +657,7 @@ impl Alloc for GlobalAlloc {
 }
 
 #[cfg(test)]
+#[allow(clippy::reversed_empty_ranges)]
 mod tests {
     use std::borrow::Cow;
 

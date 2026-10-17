@@ -352,10 +352,7 @@ mod tests {
         }
 
         let buf: Vec<_> = (0..TEST_LEN * UNROLL).map(|x| x as i32).collect();
-        let expected = buf.iter().fold(0, |acc, &x| {
-            let x = x;
-            (x * x) + acc
-        });
+        let expected = buf.iter().fold(0, |acc, &x| (x * x) + acc);
 
         let sum = SumSquare { xs: &buf }.dispatch();
         assert_eq!(sum, expected);

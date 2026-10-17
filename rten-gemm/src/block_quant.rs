@@ -1060,7 +1060,7 @@ mod tests {
                     bqm,
                 )
                 .unwrap();
-            let result_matrix = NdTensorView::from_data([1, result.len()], result.as_ref());
+            let result_matrix = NdTensorView::from_data([1, result.len()], &*result);
 
             if let Some(atol) = tolerance {
                 let rtol = 0.;

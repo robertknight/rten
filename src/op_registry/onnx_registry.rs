@@ -2097,6 +2097,7 @@ impl_read_op!(Where);
 impl_read_op!(Xor);
 
 #[cfg(test)]
+#[allow(clippy::as_conversions)]
 mod tests {
     use rten_onnx::onnx;
     use rten_simd::f16;
