@@ -634,7 +634,7 @@ mod tests {
 
         copy_range_into_slice(
             NdTensor::arange(0, 4, None).into_shape([2, 2]).as_dyn(),
-            &mut dest.spare_capacity_mut(),
+            dest.spare_capacity_mut(),
             &[], // Empty range, selects whole tensor
         );
     }

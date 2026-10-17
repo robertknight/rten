@@ -942,7 +942,7 @@ mod tests {
             let bias = &[0.1, 0.2];
             let mean = &[0.5, -0.5];
             let var = &[1.0, 2.0];
-            let epsilon = 1e-5 as f32;
+            let epsilon = 1e-5_f32;
 
             let expected = if input.ndim() >= 2 {
                 let flattened = input.reshaped([input.len()]);
@@ -976,7 +976,7 @@ mod tests {
         let bias = &[0.1, 0.2];
         let mean = &[0.5, -0.5];
         let var = &[1.0, 2.0];
-        let epsilon = 1e-5 as f32;
+        let epsilon = 1e-5_f32;
         let input = Tensor::from(5.0);
 
         let pool = BufferPool::new();
@@ -1004,7 +1004,7 @@ mod tests {
         let mean = &[0.5, -0.5];
         let var = &[1.0, 2.0];
 
-        let epsilon = 1e-5 as f32;
+        let epsilon = 1e-5_f32;
 
         let y1 = (input[[0, 0, 0, 0]] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
         let y2 = (input[[0, 1, 0, 0]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
@@ -1174,7 +1174,7 @@ mod tests {
 
             match (result, expected) {
                 (Ok(result), Ok(expected)) => {
-                    expect_eq_1e4(&result, &expected).unwrap();
+                    expect_eq_1e4(&result, expected).unwrap();
                 }
                 (result, expected) => assert_eq!(result, *expected),
             }

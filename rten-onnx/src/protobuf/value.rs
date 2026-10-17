@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_value_reader() {
-        test_read_value(|buf| ValueReader::from_buf(buf));
+        test_read_value(ValueReader::from_buf);
     }
 
     #[test]
