@@ -572,10 +572,8 @@ in g";
     /// Generate the simplest valid vocabulary.
     fn minimal_vocab(start_token_id: u32) -> FxHashMap<EncodedBytes, TokenId> {
         let mut vocab = FxHashMap::default();
-        let mut next_token_id = start_token_id;
-        for ch in super::char_to_byte().keys() {
+        for (next_token_id, ch) in (start_token_id..).zip(super::char_to_byte().keys()) {
             vocab.insert(ch.to_string(), next_token_id);
-            next_token_id += 1;
         }
         vocab
     }
