@@ -67,7 +67,7 @@ mod tests {
         let mut rng = ReducedRangeRng::new(true, 1234);
         for _ in 0..100 {
             let x: i8 = rng.next();
-            assert!(x >= -64 && x <= 63);
+            assert!((-64..=63).contains(&x));
 
             let x: u8 = rng.next();
             assert!(x <= 127);

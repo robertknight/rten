@@ -277,6 +277,7 @@ impl ExactSizeIterator for DynIndices {}
 impl FusedIterator for DynIndices {}
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use super::{DynIndices, NdIndices};
 
