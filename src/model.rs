@@ -42,6 +42,7 @@ use load_error::LoadErrorImpl;
 pub mod rten_builder;
 
 #[cfg(all(test, feature = "onnx_format"))]
+#[allow(clippy::field_reassign_with_default)]
 pub mod onnx_builder;
 
 /// The central type used to execute machine learning models.

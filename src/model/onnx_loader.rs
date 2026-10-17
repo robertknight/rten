@@ -28,7 +28,7 @@ pub enum Source<'a> {
     Path(&'a Path),
     Buffer(&'a [u8]),
     #[cfg(test)]
-    Proto(onnx::ModelProto),
+    Proto(Box<onnx::ModelProto>),
 }
 
 /// Load a serialized ONNX model from a file or buffer.
@@ -47,7 +47,7 @@ pub fn load(
         }
         Source::Buffer(buf) => onnx::ModelProto::parse_buf(buf),
         #[cfg(test)]
-        Source::Proto(proto) => Ok(proto),
+        Source::Proto(proto) => Ok(*proto),
     }
     .map_err(|err| LoadErrorImpl::ParseFailed(Box::new(err)))?;
 
@@ -1120,6 +1120,7 @@ fn add_operator(
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant, clippy::field_reassign_with_default)]
 mod tests {
     use rten_onnx::onnx;
     use rten_simd::float16::{f16_to_f32, f32_to_f16};
@@ -1142,7 +1143,7 @@ mod tests {
         data_loader: Option<&dyn DataLoader>,
     ) -> Result<Model, LoadError> {
         load(
-            Source::Proto(model),
+            Source::Proto(model.into()),
             data_loader,
             // Disable optimization by default to test just the basic graph
             // creation.
@@ -1181,7 +1182,7 @@ mod tests {
             .with_input(onnx::ValueInfoProto::default())
             .into_model();
 
-        let err = load(Source::Proto(model), None, &ModelOptions::default())
+        let err = load(Source::Proto(model.into()), None, &ModelOptions::default())
             .err()
             .unwrap();
 
@@ -1197,7 +1198,7 @@ mod tests {
             .with_output(onnx::ValueInfoProto::default())
             .into_model();
 
-        let err = load(Source::Proto(model), None, &ModelOptions::default())
+        let err = load(Source::Proto(model.into()), None, &ModelOptions::default())
             .err()
             .unwrap();
 
