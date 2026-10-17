@@ -3,7 +3,7 @@ use std::mem::MaybeUninit;
 use rten_base::bit_set::BitSet;
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
-use rten_tensor::{AssumeInit, InitEmpty, NdTensorView, Tensor, TensorView};
+use rten_tensor::{InitEmpty, NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -169,20 +169,6 @@ impl_infer_shapes!(
     }
 );
 
-/// Copied from `std::MaybeUninit::write_slice` in nightly std.
-fn write_slice<'a, T>(dest: &'a mut [MaybeUninit<T>], src: &[T]) -> &'a mut [T]
-where
-    T: Copy,
-{
-    // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-    let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
-
-    dest.copy_from_slice(uninit_src);
-
-    // SAFETY: Valid elements have just been copied into `this` so it is initialized
-    unsafe { dest.assume_init() }
-}
-
 /// Recursively tile (ie. repeatly copy) chunks of `input` to `output`.
 ///
 /// `input_shape` and `repeats` are equal-length slices specifying the size
@@ -196,7 +182,7 @@ fn tile_inner<T: Copy>(
 ) {
     // Fast path for when remaining dimensions are not repeated.
     if repeats.iter().all(|n| *n == 1) {
-        write_slice(output, input);
+        output.write_copy_of_slice(input);
         return;
     }
 
@@ -206,7 +192,7 @@ fn tile_inner<T: Copy>(
             assert!(input.len() == *size);
             assert!(input.len() * repeats == output.len());
             for out_chunk in output.chunks_mut(input.len()) {
-                n_init += write_slice(out_chunk, input).len();
+                n_init += out_chunk.write_copy_of_slice(input).len();
             }
         }
         ([size, inner_size @ ..], [repeats, inner_repeats @ ..]) => {
@@ -229,7 +215,7 @@ fn tile_inner<T: Copy>(
         }
         ([], []) => {
             // Input is a scalar.
-            n_init += write_slice(output, input).len();
+            n_init += output.write_copy_of_slice(input).len();
         }
         _ => panic!("input_shape.len() != repeats.len()"),
     }
