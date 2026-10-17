@@ -1303,7 +1303,6 @@ mod tests {
             let options = EncodeOptions {
                 max_chunk_len: *max_chunk_len,
                 overlap: *overlap,
-                ..Default::default()
             };
             let chunks = tokenizer
                 .encode_chunks((*query, *context).into(), options)
