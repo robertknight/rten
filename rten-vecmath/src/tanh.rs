@@ -102,6 +102,8 @@ mod tests {
     #[ignore]
     fn bench_tanh() {
         benchmark_op(
+            -0.5,
+            0.5,
             |xs, ys| {
                 xs.iter()
                     .zip(ys.iter_mut())

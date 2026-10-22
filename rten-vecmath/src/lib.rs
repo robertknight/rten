@@ -97,6 +97,7 @@
 mod convert;
 mod erf;
 mod exp;
+mod log;
 mod min_max;
 mod normalize;
 mod quantize;
@@ -116,7 +117,8 @@ mod extend_init;
 
 // Unary functions.
 pub use erf::{ApproxGelu, Erf, Gelu};
-pub use exp::{Elu, Exp, Sigmoid, Silu, Swish};
+pub use exp::{Elu, Exp, Sigmoid, Silu, Softplus, Swish};
+pub use log::{Ln, Ln1p};
 pub use quantize::Quantize;
 pub use relu::LeakyRelu;
 pub use sin_cos::{Cos, Sin};
