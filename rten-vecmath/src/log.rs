@@ -309,11 +309,9 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_ln() {
-        // Note that half of the benchmark inputs are negative. That puts every
-        // vector on this kernel's slow path, but slows the reference down more,
-        // as its branch on the input's sign is unpredictable. Hence this ratio
-        // overstates the speedup for typical inputs.
         benchmark_op(
+            0.01,
+            10.,
             |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.ln()),
             |xs, ys| {
                 Ln {}.map(xs, ys);
@@ -404,6 +402,8 @@ mod tests {
     #[ignore]
     fn bench_ln_1p() {
         benchmark_op(
+            -0.5,
+            0.5,
             |xs, ys| {
                 xs.iter()
                     .zip(ys.iter_mut())

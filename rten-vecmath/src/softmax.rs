@@ -341,7 +341,7 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_softmax() {
-        benchmark_op(reference_softmax, |src, dest| {
+        benchmark_op(-0.5, 0.5, reference_softmax, |src, dest| {
             Softmax::new(src, dest).dispatch();
         });
     }
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_log_softmax() {
-        benchmark_op(reference_log_softmax, |src, dest| {
+        benchmark_op(-0.5, 0.5, reference_log_softmax, |src, dest| {
             LogSoftmax::new(src, dest).dispatch();
         });
     }

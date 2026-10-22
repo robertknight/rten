@@ -200,18 +200,16 @@ pub fn check_f32s_are_equal_ulps<I: Iterator<Item = (f32, f32, f32)>>(
 /// `reference` and `vectorized` are functions which take an input slice of
 /// elements as a first argument and write the results of applying the operation
 /// to the second argument.
+///
+/// Inputs are random values sampled from a uniform distribution over
+/// `[min, max)`.
 pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit<f32>])>(
+    min: f32,
+    max: f32,
     reference: RF,
     vectorized: VF,
 ) {
-    // Generate values in [-0.5, 0.5].
-    //
-    // This range is chosen because a) it is a common range for inputs to NN
-    // functions and b) some of the vectorized functions are activations which
-    // change behavior above/below zero. If we used the default `fastrand::f32`
-    // range of [0, 1] this would give misleading results for reference
-    // implementations as they would always take the same branch.
-    let input: Vec<_> = repeat_with(|| -0.5 + fastrand::f32())
+    let input: Vec<_> = repeat_with(|| min + (max - min) * fastrand::f32())
         .take(1_000_000)
         .collect();
 

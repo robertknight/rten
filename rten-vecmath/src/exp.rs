@@ -489,6 +489,8 @@ mod tests {
     fn bench_elu() {
         let alpha = 0.5;
         benchmark_op(
+            -0.5,
+            0.5,
             |xs, ys| {
                 xs.iter()
                     .zip(ys.iter_mut())
@@ -504,6 +506,8 @@ mod tests {
     #[ignore]
     fn bench_exp() {
         benchmark_op(
+            -0.5,
+            0.5,
             |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.exp()),
             |xs, ys| {
                 Exp {}.map(xs, ys);
@@ -515,6 +519,8 @@ mod tests {
     #[ignore]
     fn bench_softplus() {
         benchmark_op(
+            -0.5,
+            0.5,
             |xs, ys| {
                 xs.iter()
                     .zip(ys.iter_mut())
@@ -530,6 +536,8 @@ mod tests {
     #[ignore]
     fn bench_sigmoid() {
         benchmark_op(
+            -0.5,
+            0.5,
             |xs, ys| {
                 xs.iter()
                     .zip(ys.iter_mut())
