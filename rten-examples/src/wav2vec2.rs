@@ -2,7 +2,7 @@ use std::error::Error;
 
 use argh::FromArgs;
 use rten::Model;
-use rten::ctc::CtcDecoder;
+use rten_sequence::ctc::CtcDecoder;
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 

@@ -550,6 +550,7 @@ dependencies = [
  "rten-generate",
  "rten-imageio",
  "rten-imageproc",
+ "rten-sequence",
  "rten-tensor",
  "rten-text",
  "rustfft",
@@ -626,6 +627,14 @@ version = "0.27.0"
 dependencies = [
  "rayon",
  "rten-base",
+]
+
+[[package]]
+name = "rten-sequence"
+version = "0.27.0"
+dependencies = [
+ "rten-base",
+ "rten-tensor",
 ]
 
 [[package]]

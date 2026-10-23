@@ -7,8 +7,6 @@ use rten_base::num::AsUsize;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
-use crate::Operators;
-
 /// Connectionist Temporal Classification (CTC) [^1] [^2] sequence decoder.
 ///
 /// The decoder takes an input of shape `[sequence, n_labels]`, where the values
@@ -53,6 +51,21 @@ struct BeamState {
 
     /// Log probability of prefix not followed by a blank.
     prob_no_blank: f32,
+}
+
+/// Return the index of the maximum value in `lane`, treating NaN as greater
+/// than other values.
+///
+/// Panics if `lane` is empty.
+fn arg_max<'a>(lane: impl Iterator<Item = &'a f32>) -> usize {
+    let (index, _) = lane
+        .enumerate()
+        .max_by(|(_, a), (_, b)| {
+            a.partial_cmp(b)
+                .unwrap_or_else(|| a.is_nan().cmp(&b.is_nan()))
+        })
+        .expect("label count should be non-zero");
+    index
 }
 
 /// Compute the sum of probabilities in log space.
@@ -151,16 +164,14 @@ impl CtcDecoder {
     /// labels at each time step, where the label value 0 is reserved for the
     /// CTC blank label.
     pub fn decode_greedy(&self, prob_seq: NdTensorView<f32, 2>) -> CtcHypothesis {
-        let label_seq = prob_seq
-            .arg_max(/* axis */ 1, /* keep_dims */ false)
-            .expect("argmax failed");
+        let label_seq = prob_seq.lanes(1).map(arg_max);
 
         let mut last_label = 0;
         let mut steps = Vec::new();
         let mut score = 0.;
 
-        for (pos, label) in label_seq.iter().copied().enumerate() {
-            score += prob_seq[[pos, label as usize]];
+        for (pos, label) in label_seq.enumerate() {
+            score += prob_seq[[pos, label]];
 
             if label == last_label {
                 continue;

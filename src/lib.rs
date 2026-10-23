@@ -180,10 +180,6 @@ mod weight_cache;
 #[cfg(feature = "wasm_api")]
 mod wasm_api;
 
-// Temporarily included in this crate. These functions should be moved into
-// a separate crate in future.
-pub mod ctc;
-
 pub mod ops;
 
 pub use buffer_pool::{BufferPool, ExtractBuffer, PoolRef};
