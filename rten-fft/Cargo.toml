@@ -1,0 +1,26 @@
+[package]
+name = "rten-fft"
+version = "0.27.0"
+edition = "2024"
+authors = ["Robert Knight"]
+description = "SIMD vectorized Fast Fourier Transform"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
+include = ["/src", "/README.md"]
+
+[dependencies]
+rten-simd = { path = "../rten-simd", version = "0.27.0" }
+
+[dev-dependencies]
+rten-bench = { path = "../rten-bench" }
+rten-tensor = { path = "../rten-tensor" }
+rten-testing = { path = "../rten-testing" }
+
+[lib]
+crate-type = ["lib"]
+
+[lints.clippy]
+# See comments about `needless_range_loop` in root Cargo.toml.
+needless_range_loop = "allow"
+too_many_arguments = "allow"
