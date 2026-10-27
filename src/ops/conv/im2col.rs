@@ -64,20 +64,11 @@ pub fn build_im2col<T>(
         }
     }
 
-    // Compute max valid X / Y offsets for testing whether an element is in
-    // the padding region or not.
-    let max_y_offset: i32 = ((image.size(1) - 1) * image.stride(1))
-        .try_into()
-        .expect("invalid im2col params");
-    let max_x_offset: i32 = ((image.size(2) - 1) * image.stride(2))
-        .try_into()
-        .expect("invalid im2col params");
-
-    for _ in n_rows..n_rows_padded {
-        row_chan_offsets.push(0);
-        row_x_offsets.push(max_x_offset + 1);
-        row_y_offsets.push(max_y_offset + 1);
-    }
+    // Extend offsets from `n_rows` up to `n_rows_padded`. Packing writes zeros
+    // for rows beyond `n_rows`, so the value used here does not matter.
+    row_chan_offsets.resize(n_rows_padded, 0);
+    row_x_offsets.resize(n_rows_padded, 0);
+    row_y_offsets.resize(n_rows_padded, 0);
 
     // Build lookup table of column index in the virtual im2col matrix to
     // offsets in the image.
@@ -106,6 +97,15 @@ pub fn build_im2col<T>(
         col_y_offsets.push(img_y * im_stride_h);
         col_x_offsets.push(img_x * im_stride_w);
     }
+
+    // Compute max valid X / Y offsets for testing whether an element is in
+    // the padding region or not.
+    let max_y_offset: i32 = ((image.size(1) - 1) * image.stride(1))
+        .try_into()
+        .expect("invalid im2col params");
+    let max_x_offset: i32 = ((image.size(2) - 1) * image.stride(2))
+        .try_into()
+        .expect("invalid im2col params");
 
     Im2Col {
         image,

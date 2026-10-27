@@ -1523,7 +1523,16 @@ mod tests {
                     },
                 ];
 
-                let paddings = [Padding::zero::<2>(), Padding::Fixed([0, 0, 1, 1].into())];
+                let paddings = [
+                    // No padding.
+                    Padding::zero::<2>(),
+                    // Bottom/right padding only.
+                    Padding::Fixed([0, 0, 1, 1].into()),
+                    // Equal padding on all sides.
+                    Padding::Fixed([1, 1, 1, 1].into()),
+                    // Asymmetric padding with different top and left amounts.
+                    Padding::Fixed([2, 1, 0, 1].into()),
+                ];
 
                 cases.test_each(|case| {
                     let output_chans = case.kernel.size(0);

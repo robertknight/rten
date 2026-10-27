@@ -318,13 +318,17 @@ impl Im2Col<'_, i8> {
                 for i in 0..K_TILE {
                     let k = start_row + i;
 
-                    let pad_elem = if k < self.n_rows {
-                        zero_point
-                    } else if CAST_B_U8 {
-                        i8::MIN
-                    } else {
-                        0
-                    };
+                    // Rows added to round K up to a multiple of `K_TILE` are
+                    // filled with zero, so they don't contribute to the column
+                    // sums.
+                    if k >= self.n_rows {
+                        for col in 0..NR {
+                            let out_elem =
+                                unsafe { out.get_unchecked_mut(out_offset + col * K_TILE + i) };
+                            out_elem.write(0);
+                        }
+                        continue;
+                    }
 
                     let row_x_offset = ops.splat(unsafe { *row_x_offsets.get_unchecked(k) });
                     let row_y_offset = ops.splat(unsafe { *row_y_offsets.get_unchecked(k) });
@@ -358,7 +362,7 @@ impl Im2Col<'_, i8> {
                             let elem = if pad_mask_array[idx] {
                                 src_elem
                             } else {
-                                pad_elem
+                                zero_point
                             };
 
                             if CAST_B_U8 {
