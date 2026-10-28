@@ -34,34 +34,40 @@ impl From<std::io::Error> for VarintError {
 ///
 /// This will read between one and ten bytes from `src`.
 pub fn read_varint<R: BufRead>(mut src: R) -> Result<u64, VarintError> {
-    let mut index = 0;
+    let mut bytes_decoded = 0;
     let mut value = 0;
 
     'outer: loop {
         let buf = src.fill_buf()?;
         if buf.is_empty() {
-            return Err(VarintError::Eof);
+            return Err(if bytes_decoded == 0 {
+                VarintError::Eof
+            } else {
+                VarintError::InvalidVarint
+            });
         }
 
-        let buf_len = buf.len().min(MAX_VARINT_LEN - index);
+        let buf_len = buf.len().min(MAX_VARINT_LEN - bytes_decoded);
         let buf = &buf[..buf_len];
 
         for (i, byte) in buf.iter().copied().enumerate() {
             // High bit is continuation bit. Low 7 bits are the payload.
-            value |= ((byte & 0x7f) as u64) << (index * 7);
+            value |= ((byte & 0x7f) as u64) << (bytes_decoded * 7);
             if byte <= 0x7f {
                 // Only one value bit from the last byte may be used.
-                if index + 1 == MAX_VARINT_LEN && byte > 0x01 {
+                if bytes_decoded + 1 == MAX_VARINT_LEN && byte > 0x01 {
                     break 'outer;
                 }
                 src.consume(i + 1);
                 return Ok(value);
             }
-            index += 1;
+            bytes_decoded += 1;
         }
 
         src.consume(buf_len);
-        if index > MAX_VARINT_LEN {
+
+        // `buf_len` clamping ensures `bytes_decoded <= MAX_VARINT_LEN`.
+        if bytes_decoded == MAX_VARINT_LEN {
             break;
         }
     }
@@ -138,7 +144,7 @@ mod tests {
 
         fn consume(&mut self, len: usize) {
             assert!(len <= 1);
-            (_, self.buf) = self.buf.split_at(1);
+            (_, self.buf) = self.buf.split_at(len);
         }
     }
 
@@ -214,5 +220,30 @@ mod tests {
         buf[9] += 1;
         let decoded = read_varint(&mut Cursor::new(buf));
         assert!(matches!(decoded, Err(VarintError::InvalidVarint)));
+    }
+
+    #[test]
+    fn test_too_many_continuation_bytes() {
+        for len in [10, 11, 64] {
+            let buf = vec![0xff; len];
+
+            let decoded = read_varint(&mut Cursor::new(&buf));
+            assert!(matches!(decoded, Err(VarintError::InvalidVarint)));
+
+            let decoded = read_varint(&mut OneByteCursor::new(&buf));
+            assert!(matches!(decoded, Err(VarintError::InvalidVarint)));
+        }
+    }
+
+    #[test]
+    fn test_truncated_varint() {
+        let buf = encode_varint_vec(u64::MAX);
+        for len in 1..buf.len() {
+            let decoded = read_varint(&mut Cursor::new(&buf[..len]));
+            assert!(matches!(decoded, Err(VarintError::InvalidVarint)));
+
+            let decoded = read_varint(&mut OneByteCursor::new(&buf[..len]));
+            assert!(matches!(decoded, Err(VarintError::InvalidVarint)));
+        }
     }
 }
