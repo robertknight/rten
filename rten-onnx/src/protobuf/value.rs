@@ -294,7 +294,14 @@ impl<'a, R: ReadValue> ReadValue for LimitReader<'a, R> {
     fn read_varint(&mut self) -> Result<u64, ProtobufError> {
         // Varints are at least 1 byte long, and can be up to 10.
         self.check_has_bytes(1)?;
-        self.inner.read_varint()
+        let val = self.inner.read_varint()?;
+
+        // Check for varint extending beyond the limit of this reader
+        if self.position() > self.end {
+            return Err(ProtobufError::new(ErrorKind::InvalidVarint));
+        }
+
+        Ok(val)
     }
 
     fn read_bytes(
@@ -397,5 +404,23 @@ mod tests {
 
         let eof = lr.read_varint().err().unwrap();
         assert!(matches!(eof.kind(), ErrorKind::Eof));
+    }
+
+    #[test]
+    fn test_limit_reader_varint_at_limit() {
+        let mut buf = encode_varint_vec(1234);
+        let varint_len = buf.len();
+        buf.extend(encode_varint_vec(5678));
+
+        // Varint which ends exactly at the limit.
+        let mut reader = ValueReader::from_buf(buf.clone());
+        let mut lr = LimitReader::new(&mut reader, varint_len as u64);
+        assert_eq!(lr.read_varint().unwrap(), 1234);
+
+        // Varint which is truncated by the limit.
+        let mut reader = ValueReader::from_buf(buf);
+        let mut lr = LimitReader::new(&mut reader, varint_len as u64 - 1);
+        let err = lr.read_varint().err().unwrap();
+        assert!(matches!(err.kind(), ErrorKind::InvalidVarint));
     }
 }
