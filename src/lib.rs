@@ -92,7 +92,7 @@
 //! certain crate features are enabled:
 //!
 //! - The `fft` feature enables operators related to the Fast Fourier Transform
-//!   (eg. STFT) using [rustfft](https://docs.rs/crate/rustfft).
+//!   (eg. STFT) using [rten-fft](https://docs.rs/crate/rten-fft).
 //! - The `random` feature enables operators that generate random numbers (eg.
 //!   `RandomUniform`) using [fastrand](https://docs.rs/crate/fastrand).
 //!
