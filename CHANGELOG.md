@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+**Breaking changes:**
+
+- The CTC decoder has moved from `rten::ctc` to the new `rten-sequence` crate
+  (https://github.com/robertknight/rten/pull/1535)
+
+### rten
+
+- Vectorized the `Log` and `Softplus` operators. This also fixes `Softplus`
+  returning infinity for inputs above ~88
+  (https://github.com/robertknight/rten/pull/1534)
+
+- Optimized `LayerNormalization` and `RMSNormalization` by avoiding contended
+  atomic operations (https://github.com/robertknight/rten/pull/1522)
+
+- The global thread pool is no longer created if a custom pool is supplied via
+  `RunOptions::with_thread_pool` (thanks @erkurtharun,
+  https://github.com/robertknight/rten/pull/1523)
+
+### rten-generate
+
+- Fixed an error with Hugging Face Optimum merged decoder models, which declare
+  the `use_cache_branch` input as a 1-element vector rather than a scalar
+  (https://github.com/robertknight/rten/pull/1520)
+
+### rten-onnx
+
+- Fixed possible infinite loop when parsing invalid varints, and truncated
+  varints being accepted instead of producing an error
+  (https://github.com/robertknight/rten/pull/1538,
+  https://github.com/robertknight/rten/pull/1539)
+
+### rten-parallel
+
+- Added `par_init_chunks` for initializing chunks of a buffer in parallel
+  (https://github.com/robertknight/rten/pull/1527)
+
+### rten-sequence
+
+- New crate for sequence decoding algorithms, containing the CTC decoder
+  previously in `rten::ctc` (https://github.com/robertknight/rten/pull/1535)
+
+### rten-simd
+
+- Added `SimdSlice` and `SimdSliceMut` wrappers for loading and storing SIMD
+  vectors at arbitrary offsets in a slice with clamping instead of panicking
+  in release builds (https://github.com/robertknight/rten/pull/1519)
+
+### rten-vecmath
+
+- Added `Ln`, `Ln1p` and `Softplus` kernels
+  (https://github.com/robertknight/rten/pull/1534)
+
 ## [0.27.0] - 2026-10-02
 
 **Breaking changes:**
