@@ -22,7 +22,7 @@ use crate::operator::{
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
 use crate::value::{Value, ValueMeta, ValueOrView, ValueType, ValueView};
-use crate::weight_cache::WeightCache;
+use crate::weight_cache::{PrepackKey, WeightCache};
 
 #[cfg(test)]
 pub mod builder;
@@ -479,6 +479,19 @@ impl Graph {
         self.add_constant_node(const_node)
     }
 
+    /// Return the weight cache key for input `index` of an operator.
+    ///
+    /// Returns `None` if the input is missing. The key may refer to inputs
+    /// which are not constants, in which case it will not be in the cache.
+    fn prepack_key(&self, op_node: &OperatorNode, index: usize) -> Option<PrepackKey> {
+        let input_id = |index: usize| op_node.input_ids().get(index).copied().flatten();
+        let zero_point = op_node
+            .operator()
+            .prepack_zero_point(index)
+            .and_then(|zp_index| Some((zp_index, input_id(zp_index)?)));
+        Some(PrepackKey::new((index, input_id(index)?), zero_point))
+    }
+
     /// Pre-pack constant inputs (ie. weights) to operators.
     ///
     /// When loading models, prepacking should be performed after graph
@@ -487,7 +500,7 @@ impl Graph {
     /// can eliminate these. A common example is when weights are transposed.
     pub fn prepack_weights(&self, cache: &mut WeightCache) {
         enum Entry {
-            Cache((NodeId, PrepackedInput)),
+            Cache((PrepackKey, PrepackedInput)),
             SubgraphCache((NodeId, Vec<WeightCache>)),
         }
 
@@ -503,32 +516,39 @@ impl Graph {
                     let mut entries = Vec::new();
 
                     for input_index in op_node.operator().prepack_inputs() {
-                        let Some(input_id) =
-                            op_node.input_ids().get(input_index).copied().flatten()
-                        else {
+                        let Some(key) = self.prepack_key(op_node, input_index) else {
+                            // Input is missing.
                             continue;
                         };
 
-                        if cache.contains(input_id) {
+                        if cache.contains(&key) {
                             // Input was already pre-packed. This might happen if the
                             // input is used by multiple operators.
                             continue;
                         }
 
-                        let Some(Node::Constant(const_node)) = self.get_node(input_id) else {
-                            // Input is a value computed during inference, so we don't have it to prepack.
+                        let constant = |id| self.get_node(id)?.as_constant();
+                        let Some(input) = constant(key.input_id()) else {
+                            // Input is a value computed during inference.
                             continue;
                         };
+                        let zero_point = match key.zero_point_id().map(constant) {
+                            None => None,
+                            Some(Some(zero_point)) => Some(zero_point.as_view()),
+                            // Zero point is a value computed during inference.
+                            Some(None) => continue,
+                        };
 
-                        let Some(packed) = op_node
-                            .operator()
-                            .prepack(input_index, const_node.as_view())
+                        let Some(packed) =
+                            op_node
+                                .operator()
+                                .prepack(input_index, input.as_view(), zero_point)
                         else {
                             // Operator doesn't support or decided not to prepack this value.
                             continue;
                         };
 
-                        entries.push(Entry::Cache((input_id, packed)));
+                        entries.push(Entry::Cache((key, packed)));
                     }
 
                     let mut subgraph_caches = Vec::new();
@@ -553,7 +573,7 @@ impl Graph {
         // Move the entries into the output cache in serial.
         for entry in entries {
             match entry {
-                Entry::Cache((input_id, packed)) => cache.insert(input_id, packed),
+                Entry::Cache((key, packed)) => cache.insert(key, packed),
                 Entry::SubgraphCache((op_id, subgraph_cache)) => {
                     cache.insert_subgraph_caches(op_id, subgraph_cache)
                 }
@@ -1150,12 +1170,9 @@ impl Graph {
 
             // Run the operation.
             let get_prepacked = |input_index: usize| -> Option<&PrepackedInput> {
-                op_node
-                    .input_ids()
-                    .get(input_index)
-                    .copied()
-                    .flatten()
-                    .and_then(|node_id| weight_cache.and_then(|wc| wc.get(node_id)))
+                let weight_cache = weight_cache?;
+                let key = self.prepack_key(op_node, input_index)?;
+                weight_cache.get(&key)
             };
             let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
             let mut ctx = OpRunContext::new(pool, &inputs, op_node.output_mask());
