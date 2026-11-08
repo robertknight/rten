@@ -181,8 +181,6 @@ unsafe impl Kernel<f32, f32, f32> for FmaKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
-        _a_quant: Option<QuantParams<f32>>,
-        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
@@ -402,8 +400,6 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         depth: usize,
         alpha: f32,
         beta: f32,
-        _a_quant: Option<QuantParams<f32>>,
-        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = Avx512Kernel::MR;
         const NR: usize = Avx512Kernel::NR;
@@ -621,8 +617,6 @@ unsafe impl Kernel<u8, i8, i32> for Avx2Int8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        _a_quant: Option<QuantParams<u8>>,
-        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
@@ -849,8 +843,6 @@ unsafe impl Kernel<u8, i8, i32> for Avx512Int8Kernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        _a_quant: Option<QuantParams<u8>>,
-        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,

@@ -286,8 +286,6 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
         depth: usize,
         alpha: f32,
         beta: OutT,
-        a_quant: Option<QuantParams<LhsT>>,
-        b_quant: Option<QuantParams<RhsT>>,
     );
 
     /// Compute an output block of a vector-matrix product ("gemv").
@@ -559,8 +557,6 @@ mod tests {
                     k,
                     1.,              /* alpha */
                     OutT::default(), // beta
-                    None,            // a_quant
-                    None,            // b_quant
                 );
             }
             // Zero output after each iteration to avoid the possibility of
