@@ -440,6 +440,12 @@ fn test_gemm_u8i8_i32_zero_point() {
     let cases = [
         // Matrix-matrix
         Case { m: 5, n: 7, k: 10 },
+        // Matrix-matrix where M and N span multiple full panels.
+        Case {
+            m: 20,
+            n: 40,
+            k: 10,
+        },
         // Vector-matrix product.
         Case { m: 1, n: 5, k: 10 },
         Case { m: 1, n: 8, k: 4 },

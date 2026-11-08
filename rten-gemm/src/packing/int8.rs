@@ -181,7 +181,7 @@ fn pack_b_impl<const NR: usize, const K_TILE: usize, T: Byte>(
         let meta = PackedBMeta {
             col_sums,
             zero_points: if let Some(zp) = zero_point {
-                std::array::from_fn(|c| i32::from(cast(zp[c])))
+                std::array::from_fn(|c| i32::from(cast(zp[col_panel * NR + c])))
             } else {
                 [i32::from(cast(0)); NR]
             },
@@ -432,7 +432,7 @@ fn pack_a_impl<const MR: usize, const K_TILE: usize, L>(
         let meta = PackedAMeta {
             row_sums,
             zero_points: if let Some(zp) = zero_point {
-                std::array::from_fn(|r| zp[r] as i32)
+                std::array::from_fn(|r| zp[row_tile * MR + r] as i32)
             } else {
                 [0; MR]
             },
@@ -526,7 +526,10 @@ mod tests {
     // K tile use used by Arm i8mm.
     const K_TILE_I8MM: usize = 8;
 
-    fn pack_a_matrix<const MR: usize, const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
+    fn pack_a_matrix<const MR: usize, const K_TILE: usize>(
+        mat: Matrix<u8>,
+        zero_point: Option<&[u8]>,
+    ) -> Vec<u8> {
         let layout = packed_a_layout::<MR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
@@ -537,7 +540,7 @@ mod tests {
         pack_a::<MR, K_TILE>(
             &mut buf.spare_capacity_mut()[..layout.size()],
             mat.view(),
-            None,
+            zero_point,
         );
 
         // Safety: `pack_a` initialized `layout.size()` elements.
@@ -547,7 +550,10 @@ mod tests {
     }
 
     // Un-optimized reference implementation of `pack_a`.
-    fn reference_pack_a<const MR: usize, const K_TILE: usize>(mat: Matrix<u8>) -> Vec<u8> {
+    fn reference_pack_a<const MR: usize, const K_TILE: usize>(
+        mat: Matrix<u8>,
+        zero_point: Option<&[u8]>,
+    ) -> Vec<u8> {
         let layout = packed_a_layout::<MR, K_TILE>(mat.rows(), mat.cols());
         let mut buf = Vec::with_capacity(layout.size());
 
@@ -566,7 +572,12 @@ mod tests {
             }
             let meta = PackedAMeta {
                 row_sums,
-                zero_points: [0; MR],
+                zero_points: std::array::from_fn(|r| {
+                    zero_point
+                        .and_then(|zp| zp.get(row_panel * MR + r))
+                        .copied()
+                        .unwrap_or(0) as i32
+                }),
             };
             buf.extend_from_slice(meta.as_bytes());
         }
@@ -575,7 +586,10 @@ mod tests {
         buf
     }
 
-    fn pack_b_matrix<const NR: usize, const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
+    fn pack_b_matrix<const NR: usize, const K_TILE: usize>(
+        mat: Matrix<i8>,
+        zero_point: Option<&[i8]>,
+    ) -> Vec<i8> {
         let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
 
         // Layout must have space for at least each element in the input, plus
@@ -586,7 +600,7 @@ mod tests {
         pack_b::<NR, K_TILE>(
             &mut buf.spare_capacity_mut()[..layout.size()],
             mat.view(),
-            None,
+            zero_point,
         );
 
         // Safety: `pack_b` initialized `layout.size()` elements.
@@ -596,7 +610,10 @@ mod tests {
     }
 
     // Un-optimized reference implementation of `pack_b`.
-    fn reference_pack_b<const NR: usize, const K_TILE: usize>(mat: Matrix<i8>) -> Vec<i8> {
+    fn reference_pack_b<const NR: usize, const K_TILE: usize>(
+        mat: Matrix<i8>,
+        zero_point: Option<&[i8]>,
+    ) -> Vec<i8> {
         let layout = packed_b_layout::<NR, K_TILE>(mat.rows(), mat.cols());
         let mut buf = Vec::with_capacity(layout.size());
 
@@ -615,7 +632,12 @@ mod tests {
             }
             let meta = PackedBMeta {
                 col_sums,
-                zero_points: [0; NR],
+                zero_points: std::array::from_fn(|c| {
+                    zero_point
+                        .and_then(|zp| zp.get(col_panel * NR + c))
+                        .copied()
+                        .unwrap_or(0) as i32
+                }),
             };
             buf.extend_from_slice(cast_slice(meta.as_bytes()).unwrap());
         }
@@ -650,30 +672,37 @@ mod tests {
 
         fn test_pack_a<const K_TILE: usize>() {
             let mut rng = XorShiftRng::new(5678);
-            for m in 1..MR * 2 {
+            for m in 1..MR * 3 {
+                // Use distinct per-row zero points so that using the wrong
+                // row's zero point is detected.
+                let zero_points: Vec<u8> = (1..=m as u8).collect();
+
                 for k in 1..K_TILE_I8DOT * 2 {
-                    // Test row-major and non-row major inputs, as the implementation
-                    // has a fast path for row-major layouts.
+                    for zp in [None, Some(zero_points.as_slice())] {
+                        // Test row-major and non-row major inputs, as the implementation
+                        // has a fast path for row-major layouts.
 
-                    // Row major layout
-                    let mat = NdTensor::rand([m, k], &mut rng);
-                    let expected = reference_pack_a::<MR, K_TILE_I8DOT>(mat.view());
-                    let actual = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.view());
-                    assert_eq!(
-                        actual, expected,
-                        "packed buffer mismatch for row-major m={} k={}",
-                        m, k
-                    );
+                        // Row major layout
+                        let mat = NdTensor::rand([m, k], &mut rng);
+                        let expected = reference_pack_a::<MR, K_TILE_I8DOT>(mat.view(), zp);
+                        let actual = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.view(), zp);
+                        assert_eq!(
+                            actual, expected,
+                            "packed buffer mismatch for row-major m={} k={} zp={:?}",
+                            m, k, zp
+                        );
 
-                    // Column major layout
-                    let mat = NdTensor::rand([k, m], &mut rng);
-                    let expected = reference_pack_a::<MR, K_TILE_I8DOT>(mat.transposed().view());
-                    let actual = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.transposed().view());
-                    assert_eq!(
-                        actual, expected,
-                        "packed buffer mismatch for col-major m={} k={}",
-                        m, k
-                    );
+                        // Column major layout
+                        let mat = NdTensor::rand([k, m], &mut rng);
+                        let expected =
+                            reference_pack_a::<MR, K_TILE_I8DOT>(mat.transposed().view(), zp);
+                        let actual = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.transposed().view(), zp);
+                        assert_eq!(
+                            actual, expected,
+                            "packed buffer mismatch for col-major m={} k={} zp={:?}",
+                            m, k, zp
+                        );
+                    }
                 }
             }
         }
@@ -688,7 +717,7 @@ mod tests {
             const MR: usize = 8;
 
             let mat = NdTensor::<u8, 2>::from([[1, 2], [3, 4]]);
-            let packed = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.view());
+            let packed = pack_a_matrix::<MR, K_TILE_I8DOT>(mat.view(), None);
 
             let (packed_elems, meta) = extract_packed_a(&packed);
 
@@ -706,17 +735,23 @@ mod tests {
 
         fn test_pack_b<const K_TILE: usize>() {
             let mut rng = XorShiftRng::new(5678);
-            for n in 1..NR * 2 {
-                for k in 1..K_TILE * 2 {
-                    let mat = NdTensor::rand([k, n], &mut rng);
-                    let expected = reference_pack_b::<NR, K_TILE>(mat.view());
-                    let actual = pack_b_matrix::<NR, K_TILE>(mat.view());
+            for n in 1..NR * 3 {
+                // Use distinct per-column zero points so that using the wrong
+                // column's zero point is detected.
+                let zero_points: Vec<i8> = (1..=n as i8).collect();
 
-                    assert_eq!(
-                        actual, expected,
-                        "packed buffer mismatch for n={} k={}",
-                        n, k
-                    );
+                for k in 1..K_TILE * 2 {
+                    for zp in [None, Some(zero_points.as_slice())] {
+                        let mat = NdTensor::rand([k, n], &mut rng);
+                        let expected = reference_pack_b::<NR, K_TILE>(mat.view(), zp);
+                        let actual = pack_b_matrix::<NR, K_TILE>(mat.view(), zp);
+
+                        assert_eq!(
+                            actual, expected,
+                            "packed buffer mismatch for n={} k={} zp={:?}",
+                            n, k, zp
+                        );
+                    }
                 }
             }
         }
@@ -729,7 +764,7 @@ mod tests {
         const NR: usize = 8;
 
         let mat = NdTensor::<i8, 2>::from([[1, 2], [3, 4]]);
-        let packed = pack_b_matrix::<NR, K_TILE_I8DOT>(mat.view());
+        let packed = pack_b_matrix::<NR, K_TILE_I8DOT>(mat.view(), None);
 
         let (packed_elems, meta) = extract_packed_b(cast_slice(&packed).unwrap());
 
