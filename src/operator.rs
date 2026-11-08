@@ -622,14 +622,24 @@ pub trait Operator: Any + Debug {
         SmallVec::new()
     }
 
+    /// Return the ID of the zero point input for pre-packed input `index`, if
+    /// the pre-packed data depends on it.
+    fn prepack_zero_point(&self, #[allow(unused)] index: usize) -> Option<usize> {
+        None
+    }
+
     /// Pre-pack an input for more efficient inference later.
     ///
     /// `index` specifies the input ID and should be one of the inputs returned
-    /// by [`prepack_inputs`](Operator::prepack_inputs).
+    /// by [`prepack_inputs`](Operator::prepack_inputs). `input` is the value
+    /// of that input. `zero_point` is the value of its zero point, if the
+    /// operator declares one via
+    /// [`prepack_zero_point`](Operator::prepack_zero_point) and it is provided.
     fn prepack(
         &self,
         #[allow(unused)] index: usize,
         #[allow(unused)] input: ValueView,
+        #[allow(unused)] zero_point: Option<ValueView>,
     ) -> Option<PrepackedInput> {
         None
     }

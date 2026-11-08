@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use rten_base::bit_set::BitSet;
 use rten_tensor::prelude::*;
+use rten_tensor::rng::XorShiftRng;
 use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
 use rten_tensor::{Tensor, TensorView};
 use rten_testing::TestCases;
@@ -19,10 +20,10 @@ use crate::operator::{
     InPlaceInputs, IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputMask,
     OutputTypeList, OutputTypesContext, PrepackedInput, SubgraphOperator,
 };
-use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, Mul, Relu, Shape};
+use crate::ops::{Add, Concat, Conv, Identity, If, MatMul, MatMulInteger, Mul, Relu, Shape};
 use crate::timing::Profiler;
 use crate::value::{DataType, Value, ValueType, ValueView};
-use crate::weight_cache::WeightCache;
+use crate::weight_cache::{PrepackKey, WeightCache};
 
 #[derive(Clone, Debug, Default)]
 struct Metrics {
@@ -1930,8 +1931,13 @@ impl Operator for MatMulExpectPacked {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
-        self.inner.prepack(index, input)
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
+        self.inner.prepack(index, input, zero_point)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -1976,13 +1982,17 @@ fn test_prepack_weights() {
     // Prepack weights and verify that the cache was populated.
     graph.prepack_weights(&mut cache);
     assert_eq!(cache.len(), 2);
-    assert!(cache.get(weights).is_some());
+    assert!(cache.get(&PrepackKey::new((1, weights), None)).is_some());
 
     let sg_cache = cache
         .get_subgraph_caches(subgraph_op)
         .map(|caches| &caches[0])
         .unwrap();
-    assert!(sg_cache.get(sg_weights).is_some());
+    assert!(
+        sg_cache
+            .get(&PrepackKey::new((1, sg_weights), None))
+            .is_some()
+    );
 
     // Run the graph, passing the cache. The MatMul wrapper will verify
     // that the B / RHS inputs were passed from the cache.
@@ -1995,6 +2005,61 @@ fn test_prepack_weights() {
             None,
         )
         .unwrap();
+}
+
+#[test]
+fn test_prepack_weights_shared_with_different_inputs() {
+    // Create a graph with several operators that share the same weights.
+    // Operators with the same weight zero point share prepacked weights. An
+    // operator with a different weight zero point needs separately prepacked
+    // weights.
+    let mut graph = Graph::new();
+    let mut rng = XorShiftRng::new(1234);
+
+    let input = graph.add_value(Some("input"), None, None);
+    let weights = graph.add_constant(None, Tensor::<i8>::rand(&[10, 7], &mut rng).into_arc());
+    let input_zero = graph.add_constant(None, Tensor::from(3u8).into_arc());
+    let input_zero_2 = graph.add_constant(None, Tensor::from(4u8).into_arc());
+    let zero_a = graph.add_constant(None, Tensor::from(5i8).into_arc());
+    let zero_b = graph.add_constant(None, Tensor::from(-7i8).into_arc());
+
+    let (_, out_a) = graph.add_simple_op(
+        "matmul_a",
+        MatMulInteger {},
+        &[input, weights, input_zero, zero_a],
+    );
+    let (_, out_a2) = graph.add_simple_op(
+        "matmul_a2",
+        MatMulInteger {},
+        &[input, weights, input_zero_2, zero_a],
+    );
+    let (_, out_b) = graph.add_simple_op(
+        "matmul_b",
+        MatMulInteger {},
+        &[input, weights, input_zero, zero_b],
+    );
+    graph.set_input_ids(&[input]);
+    graph.set_output_ids(&[out_a, out_a2, out_b]);
+
+    let mut cache = WeightCache::new();
+    graph.prepack_weights(&mut cache);
+    assert_eq!(cache.len(), 2);
+
+    // Check that results using the cache match results without it.
+    let input_value = Tensor::<u8>::rand(&[3, 10], &mut rng);
+    let run = |cache| {
+        graph
+            .run(
+                [(input, input_value.view().into())].into(),
+                &[out_a, out_a2, out_b],
+                cache,
+                None,
+            )
+            .unwrap()
+    };
+    let expected = run(None);
+    let actual = run(Some(&cache));
+    assert_eq!(actual, expected);
 }
 
 #[test]

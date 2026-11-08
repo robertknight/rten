@@ -171,6 +171,7 @@ enum MatmulStrategy {
 
 fn matmul_prepack_b<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     input: ValueView,
+    zero_point: Option<ValueView>,
 ) -> Option<PrepackedInput>
 where
     GemmExecutor<LhsT, RhsT, OutT>: Default,
@@ -180,7 +181,24 @@ where
     let executor = GemmExecutor::default();
     let tensor: TensorView<RhsT> = input.try_into().ok()?;
     let matrix: Matrix<RhsT> = tensor.try_into().ok()?;
-    Some(executor.prepack_b(matrix).into())
+    let packed = match zero_point {
+        Some(zero_point) => {
+            let zero_point: TensorView<RhsT> = zero_point.try_into().ok()?;
+            let zero_point = zero_point_to_vec(Some(zero_point), matrix.size(1))
+                .ok()??
+                .to_vec();
+            executor
+                .prepack_b_quantized(
+                    matrix,
+                    QuantParams {
+                        zero_point: &zero_point,
+                    },
+                )
+                .ok()?
+        }
+        None => executor.prepack_b(matrix),
+    };
+    Some(packed.into())
 }
 
 pub fn matmul<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
@@ -422,9 +440,14 @@ impl Operator for MatMul {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        _zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
         if index == 1 {
-            matmul_prepack_b::<f32, f32, f32>(input)
+            matmul_prepack_b::<f32, f32, f32>(input, None)
         } else {
             None
         }
@@ -500,9 +523,14 @@ impl Operator for FusedMatMul {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        _zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
         if index == 1 {
-            matmul_prepack_b::<f32, f32, f32>(input)
+            matmul_prepack_b::<f32, f32, f32>(input, None)
         } else {
             None
         }
@@ -665,19 +693,9 @@ impl Operator for MatMulInteger {
         let a = inputs.require(0)?;
         let b = inputs.require(1)?;
 
-        // `prepack` only packs i8 inputs, and without a zero point, so the
-        // packed data can only be used if B has no zero point or it is zero.
-        let packed_b = if let ValueView::Int8Tensor(_) = b
-            && inputs
-                .get_as::<TensorView<i8>>(3)?
-                .is_none_or(|zp| zp.iter().all(|&z| z == 0))
-        {
-            inputs
-                .get_prepacked(1)
-                .and_then(|packed| packed.try_into().ok())
-        } else {
-            None
-        };
+        let packed_b = inputs
+            .get_prepacked(1)
+            .and_then(|packed| packed.try_into().ok());
 
         macro_rules! matmul_integer {
             ($a:expr, $b:expr) => {{
@@ -701,9 +719,18 @@ impl Operator for MatMulInteger {
         [1].into()
     }
 
-    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
+    fn prepack_zero_point(&self, index: usize) -> Option<usize> {
+        (index == 1).then_some(3)
+    }
+
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
         if index == 1 {
-            matmul_prepack_b::<u8, i8, i32>(input)
+            matmul_prepack_b::<u8, i8, i32>(input, zero_point)
         } else {
             None
         }
@@ -808,8 +835,17 @@ impl Operator for MatMulIntegerToFloat {
         self.matmul.prepack_inputs()
     }
 
-    fn prepack(&self, index: usize, input: ValueView) -> Option<PrepackedInput> {
-        self.matmul.prepack(index, input)
+    fn prepack_zero_point(&self, index: usize) -> Option<usize> {
+        self.matmul.prepack_zero_point(index)
+    }
+
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
+        self.matmul.prepack(index, input, zero_point)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -844,7 +880,7 @@ mod tests {
 
     use crate::buffer_pool::AutoReturn;
     use crate::buffer_pool::BufferPool;
-    use crate::operator::{InputList, Operator, OutputMask};
+    use crate::operator::{InputList, Operator, OutputMask, PrepackedInput};
     use crate::ops::binary_elementwise::broadcast_shapes;
 
     use super::{
@@ -1225,7 +1261,7 @@ mod tests {
 
         for Case { op, bias_input } in cases {
             let packed_b_input = Tensor::rand(&[10, 3], &mut rng);
-            let packed_b = op.prepack(1, packed_b_input.view().into()).unwrap();
+            let packed_b = op.prepack(1, packed_b_input.view().into(), None).unwrap();
 
             let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
 
@@ -1563,6 +1599,7 @@ mod tests {
     fn test_matmul_integer_with_prepacked_inputs() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let op = MatMulInteger {};
+        let pool = BufferPool::new();
 
         let a = Tensor::<u8>::rand(&[5, 10], &mut rng);
 
@@ -1571,45 +1608,42 @@ mod tests {
         // the same shape so we can verify if the packed data was used.
         let b = Tensor::<i8>::rand(&[10, 3], &mut rng);
         let packed_b_input = Tensor::<i8>::rand(&[10, 3], &mut rng);
-        let packed_b = op.prepack(1, packed_b_input.view().into()).unwrap();
-
-        let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
-
-        let pool = BufferPool::new();
-        let get_prepacked = |idx| {
-            if idx == 1 { Some(&packed_b) } else { None }
-        };
-        let inputs =
-            InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
-        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
-        let mut result = op.run(&ctx).unwrap();
-        let result: Tensor<i32> = result.remove(0).try_into().unwrap();
-
-        expect_equal(&result, &expected)?;
-
-        // B is prepacked without a zero point, so the prepacked input should
-        // be ignored if there is a non-zero zero point.
         let b_zero = Tensor::from(5i8);
+
+        let run_op = |packed_b: &PrepackedInput, b_zero: Option<&Tensor<i8>>| {
+            let get_prepacked = |idx| {
+                if idx == 1 { Some(packed_b) } else { None }
+            };
+            let input_values = [
+                Some(a.view().into()),
+                Some(b.view().into()),
+                None,
+                b_zero.map(|zp| zp.view().into()),
+            ];
+            let inputs = InputList::from_optional(&input_values).with_prepacked(&get_prepacked);
+            let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
+            let result: Tensor<i32> = op.run(&ctx).unwrap().remove(0).try_into().unwrap();
+            result
+        };
+
+        // B with no zero point.
+        let packed_b = op.prepack(1, packed_b_input.view().into(), None).unwrap();
+        let expected = reference_matmul(a.view(), packed_b_input.view(), MatMulOpts::default());
+        expect_equal(&run_op(&packed_b, None), &expected)?;
+
+        // B with a constant zero point.
+        let packed_b = op
+            .prepack(1, packed_b_input.view().into(), Some(b_zero.view().into()))
+            .unwrap();
         let expected = reference_matmul(
             a.view(),
-            b.view(),
+            packed_b_input.view(),
             MatMulOpts {
                 b_zero: Some(b_zero.view()),
                 ..Default::default()
             },
         );
-        let input_values = [
-            Some(a.view().into()),
-            Some(b.view().into()),
-            None,
-            Some(b_zero.view().into()),
-        ];
-        let inputs = InputList::from_optional(&input_values).with_prepacked(&get_prepacked);
-        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
-        let mut result = op.run(&ctx).unwrap();
-        let result: Tensor<i32> = result.remove(0).try_into().unwrap();
-
-        expect_equal(&result, &expected)?;
+        expect_equal(&run_op(&packed_b, Some(&b_zero)), &expected)?;
 
         Ok(())
     }
