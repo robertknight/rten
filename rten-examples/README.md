@@ -4,19 +4,6 @@ This crate contains example projects showing how to convert and run models for
 common tasks across various modalities. See [Example
 descriptions](#example-descriptions) for a summary of what each example does.
 
-## ONNX format support
-
-The example instructions use models in `.onnx` format. This is only supported
-by rten v0.23 and later. To run examples with earlier versions of rten, you
-will need to convert the models to `.rten` format first:
-
-```sh
-$ pip install rten-convert
-$ rten-convert model.onnx
-```
-
-This will create a `model.rten` file in the same directory as the model.
-
 ## Running an example
 
 Each example has a `main` function with a comment above it describing the steps

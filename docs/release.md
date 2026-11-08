@@ -13,6 +13,3 @@ multiple crates from a single repository.
    crates with changes in the new release. You can also use the `--exclude` flag
    to exclude packages that haven't changed.
 4. If the dry run looks good, run step 2 again with the `--execute` flag
-5. Bump the package version of `rten-convert` in its `pyproject.toml` file
-6. Publish `rten-convert` to PyPI by running `make release` in the directory
-   containing rten-convert's pyproject.toml.
