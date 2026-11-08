@@ -13,6 +13,11 @@ pub enum GemmError {
     WrongBiasSize,
     /// Quantization parameter size does not match corresponding input size.
     WrongQuantParamSize,
+    /// Quantization parameters were provided for a pre-packed input.
+    ///
+    /// Quantization parameters for pre-packed inputs must be provided when
+    /// the input is packed.
+    QuantParamsWithPackedInput,
     /// The buffer provided for the output is too short.
     OutputSizeMismatch,
     /// The data was packed with a kernel that uses a different layout than
@@ -39,6 +44,9 @@ impl Display for GemmError {
             Self::WrongBiasSize => write!(fmt, "bias vector length is incorrect"),
             Self::WrongQuantParamSize => {
                 write!(fmt, "quantization parameter size does not match input")
+            }
+            Self::QuantParamsWithPackedInput => {
+                write!(fmt, "quantization parameters provided for pre-packed input")
             }
             Self::OutputSizeMismatch => write!(fmt, "output buffer has wrong length"),
             Self::PackedDataKernelMismatch => {

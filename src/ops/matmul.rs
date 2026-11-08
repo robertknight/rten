@@ -318,7 +318,11 @@ where
     // special case vector-matrix algorithm that doesn't benefit from packing.
     let prepacked_a = (num_a_matrices == 1 && num_b_matrices > 1 && a_rows > 1).then(|| {
         let a_matrix = a.inner_iter::<2>().next().unwrap();
-        gemm.prepack_a_in(pool, a_matrix).auto_return(pool)
+        match a_quant {
+            Some(quant) => gemm.prepack_a_quantized_in(pool, a_matrix, quant).unwrap(),
+            None => gemm.prepack_a_in(pool, a_matrix),
+        }
+        .auto_return(pool)
     });
     let prepacked_a = prepacked_a.as_deref();
 
@@ -326,7 +330,11 @@ where
         (num_b_matrices == 1 && num_a_matrices > 1 && a_rows > 1 && packed_b.is_none()).then(
             || {
                 let b_matrix = b.inner_iter::<2>().next().unwrap();
-                gemm.prepack_b_in(pool, b_matrix).auto_return(pool)
+                match b_quant {
+                    Some(quant) => gemm.prepack_b_quantized_in(pool, b_matrix, quant).unwrap(),
+                    None => gemm.prepack_b_in(pool, b_matrix),
+                }
+                .auto_return(pool)
             },
         );
     let prepacked_b = prepacked_b
@@ -367,8 +375,10 @@ where
             GemmUninitOptions {
                 alpha: alpha.unwrap_or(1.),
                 bias,
-                a_quant,
-                b_quant,
+                // Quantization parameters for pre-packed inputs are stored in
+                // the packed data.
+                a_quant: a_quant.filter(|_| prepacked_a.is_none()),
+                b_quant: b_quant.filter(|_| prepacked_b.is_none()),
             },
         )
         .unwrap()
@@ -618,15 +628,6 @@ where
     let b_cast = b.shift_cast_in(pool).auto_return(pool);
     let b_zero_cast: Vec<i8> = b_zero.shift_cast();
 
-    // Pre-packed B can only be used when the original RHS is i8. For other
-    // RHS types we shift cast to i8 and ignore any prepacked data, since
-    // prepacking only happens for i8 RHS inputs.
-    let packed_b = if TypeId::of::<RhsT>() == TypeId::of::<i8>() {
-        packed_b
-    } else {
-        None
-    };
-
     let a_quant = QuantParams {
         zero_point: a_zero_cast.as_slice(),
     };
@@ -664,13 +665,24 @@ impl Operator for MatMulInteger {
         let a = inputs.require(0)?;
         let b = inputs.require(1)?;
 
+        // `prepack` only packs i8 inputs, and without a zero point, so the
+        // packed data can only be used if B has no zero point or it is zero.
+        let packed_b = if let ValueView::Int8Tensor(_) = b
+            && inputs
+                .get_as::<TensorView<i8>>(3)?
+                .is_none_or(|zp| zp.iter().all(|&z| z == 0))
+        {
+            inputs
+                .get_prepacked(1)
+                .and_then(|packed| packed.try_into().ok())
+        } else {
+            None
+        };
+
         macro_rules! matmul_integer {
             ($a:expr, $b:expr) => {{
                 let a_zero_point = inputs.get_as(2)?;
                 let b_zero_point = inputs.get_as(3)?;
-                let packed_b = inputs
-                    .get_prepacked(1)
-                    .and_then(|packed| packed.try_into().ok());
                 matmul_integer(ctx.pool(), $a, $b, a_zero_point, b_zero_point, packed_b)
                     .into_op_result()
             }};
@@ -1404,6 +1416,14 @@ mod tests {
                 b_zero_point: Some(Tensor::from([3, 4])),
                 expected_err: None,
             },
+            // RHS batch input with vector zero points. This prepacks the LHS.
+            Case {
+                a: Tensor::from([[1, 2], [3, 4]]),
+                b: Tensor::from([[[5, 6], [7, 8]], [[1, 2], [3, 4]], [[9, 10], [11, 12]]]),
+                a_zero_point: Some(Tensor::from([1, 2])),
+                b_zero_point: Some(Tensor::from([3, 4])),
+                expected_err: None,
+            },
             // LHS input has one row
             Case {
                 a: Tensor::from([[1, 2, 3, 4]]),
@@ -1561,6 +1581,30 @@ mod tests {
         };
         let inputs =
             InputList::from(&[a.view().into(), b.view().into()]).with_prepacked(&get_prepacked);
+        let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
+        let mut result = op.run(&ctx).unwrap();
+        let result: Tensor<i32> = result.remove(0).try_into().unwrap();
+
+        expect_equal(&result, &expected)?;
+
+        // B is prepacked without a zero point, so the prepacked input should
+        // be ignored if there is a non-zero zero point.
+        let b_zero = Tensor::from(5i8);
+        let expected = reference_matmul(
+            a.view(),
+            b.view(),
+            MatMulOpts {
+                b_zero: Some(b_zero.view()),
+                ..Default::default()
+            },
+        );
+        let input_values = [
+            Some(a.view().into()),
+            Some(b.view().into()),
+            None,
+            Some(b_zero.view().into()),
+        ];
+        let inputs = InputList::from_optional(&input_values).with_prepacked(&get_prepacked);
         let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
         let mut result = op.run(&ctx).unwrap();
         let result: Tensor<i32> = result.remove(0).try_into().unwrap();
