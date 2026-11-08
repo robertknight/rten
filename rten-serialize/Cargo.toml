@@ -25,7 +25,7 @@ rten-tensor = { path = "../rten-tensor", version = "0.27.0" }
 # We disable default features in these crates to reduce dependencies and build
 # times.
 safetensors = { version = "0.8.0", default-features = false, optional = true }
-zip = { version = "8.6.0", default-features = false, optional = true }
+zip = { version = "9.4.2", default-features = false, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
