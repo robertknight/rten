@@ -461,8 +461,7 @@ fn read_safetensors(path: &Path) -> Result<HashMap<String, Value>, Box<dyn Error
 /// generated inputs.
 ///
 /// ```
-/// rten-convert model.onnx output.rten
-/// cargo run -p rten-cli --release output.rten
+/// cargo run -p rten-cli --release model.onnx
 /// ```
 ///
 /// To get detailed timing information set the `RTEN_TIMING` env var before

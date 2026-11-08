@@ -1764,9 +1764,6 @@ impl_read_op!(Resize, |attrs: &Attrs| {
     attrs.require_min_opset("Resize", 11)?;
 
     attrs.check_eq("antialias", 0)?;
-
-    // rten-convert treats differences from the default as a warning rather than
-    // an error, but there is no mechanism to do that here.
     attrs.check_eq("cubic_coeff_a", -0.75)?;
 
     attrs.check_eq("exclude_outside", 0)?;
