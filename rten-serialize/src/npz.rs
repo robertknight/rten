@@ -68,11 +68,13 @@ where
 /// produced by `numpy.savez`) are supported.
 pub fn read(reader: impl io::Read + io::Seek) -> io::Result<HashMap<String, Value>> {
     let mut archive = ZipArchive::new(reader)?;
-    let names = archive
-        .file_names()
-        .filter(|name| name.ends_with(".npy"))
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+    let mut names = Vec::new();
+    for name in archive.file_names() {
+        let name = name?;
+        if name.ends_with(".npy") {
+            names.push(name.into_owned());
+        }
+    }
     let mut arrays = HashMap::new();
 
     for name in names {
