@@ -1523,26 +1523,39 @@ mod tests {
                     },
                 ];
 
+                let paddings = [
+                    // No padding.
+                    Padding::zero::<2>(),
+                    // Bottom/right padding only.
+                    Padding::Fixed([0, 0, 1, 1].into()),
+                    // Equal padding on all sides.
+                    Padding::Fixed([1, 1, 1, 1].into()),
+                    // Asymmetric padding with different top and left amounts.
+                    Padding::Fixed([2, 1, 0, 1].into()),
+                ];
+
                 cases.test_each(|case| {
                     let output_chans = case.kernel.size(0);
-                    check_conv_int8(
-                        case.input.view(),
-                        case.kernel.view(),
-                        Padding::zero::<2>(),
-                        case.groups,
-                        &[1, 1], // strides
-                        &[1, 1], // dilations
-                        case.input_zero
-                            .map(|zero| Tensor::from(zero))
-                            .as_ref()
-                            .map(|t| t.view()),
-                        case.kernel_zero
-                            .clone()
-                            .map(|zero| Tensor::from_data(&[output_chans], zero))
-                            .as_ref()
-                            .map(|t| t.view()),
-                    )
-                    .unwrap();
+                    for padding in &paddings {
+                        check_conv_int8(
+                            case.input.view(),
+                            case.kernel.view(),
+                            padding.clone(),
+                            case.groups,
+                            &[1, 1], // strides
+                            &[1, 1], // dilations
+                            case.input_zero
+                                .map(|zero| Tensor::from(zero))
+                                .as_ref()
+                                .map(|t| t.view()),
+                            case.kernel_zero
+                                .clone()
+                                .map(|zero| Tensor::from_data(&[output_chans], zero))
+                                .as_ref()
+                                .map(|t| t.view()),
+                        )
+                        .unwrap();
+                    }
                 })
             }
         };
