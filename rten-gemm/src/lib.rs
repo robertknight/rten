@@ -223,7 +223,29 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
     pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
-        prepack::prepack_a(&*self.kernel, alloc, a)
+        // Packing can only fail if quantization parameters are invalid.
+        prepack::prepack_a(&*self.kernel, alloc, a, None).unwrap()
+    }
+
+    /// Prepack a quantized matrix for use as the left-hand or "A" input.
+    #[allow(unused)]
+    pub fn prepack_a_quantized(
+        &self,
+        a: Matrix<LhsT>,
+        quant: QuantParams<LhsT>,
+    ) -> GemmResult<PackedAMatrix<LhsT>> {
+        self.prepack_a_quantized_in(GlobalAlloc::new(), a, quant)
+    }
+
+    /// Variant of [`prepack_a_quantized`](GemmExecutor::prepack_a_quantized)
+    /// which takes an allocator.
+    pub fn prepack_a_quantized_in<A: Alloc>(
+        &self,
+        alloc: A,
+        a: Matrix<LhsT>,
+        quant: QuantParams<LhsT>,
+    ) -> GemmResult<PackedAMatrix<LhsT>> {
+        prepack::prepack_a(&*self.kernel, alloc, a, Some(quant))
     }
 
     /// Return column count step for building an [`Im2Col`] input.
@@ -249,7 +271,29 @@ impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT
     /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
     /// allocator.
     pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
-        prepack::prepack_b(&*self.kernel, alloc, b)
+        // Packing can only fail if quantization parameters are invalid.
+        prepack::prepack_b(&*self.kernel, alloc, b, None).unwrap()
+    }
+
+    /// Prepack a quantized matrix for use as the right-hand or "B" input.
+    #[allow(unused)]
+    pub fn prepack_b_quantized(
+        &self,
+        b: Matrix<RhsT>,
+        quant: QuantParams<RhsT>,
+    ) -> GemmResult<PackedBMatrix<RhsT>> {
+        self.prepack_b_quantized_in(GlobalAlloc::new(), b, quant)
+    }
+
+    /// Variant of [`prepack_b_quantized`](GemmExecutor::prepack_b_quantized)
+    /// which takes an allocator.
+    pub fn prepack_b_quantized_in<A: Alloc>(
+        &self,
+        alloc: A,
+        b: Matrix<RhsT>,
+        quant: QuantParams<RhsT>,
+    ) -> GemmResult<PackedBMatrix<RhsT>> {
+        prepack::prepack_b(&*self.kernel, alloc, b, Some(quant))
     }
 
     /// Perform a General Matrix Multiplication ("gemm").
@@ -402,9 +446,17 @@ pub struct GemmOptions<'a, LhsT, RhsT, OutT: Default> {
     pub bias: Option<BiasVector<'a, OutT>>,
 
     /// Quantization parameters (scale, zero point) for LHS / A input.
+    ///
+    /// This must be `None` if A is pre-packed. The quantization parameters
+    /// for a pre-packed input are provided when it is packed, using
+    /// [`GemmExecutor::prepack_a_quantized`].
     pub a_quant: Option<QuantParams<'a, LhsT>>,
 
     /// Quantization parameters (scale, zero point) for RHS / B input.
+    ///
+    /// This must be `None` if B is pre-packed. The quantization parameters
+    /// for a pre-packed input are provided when it is packed, using
+    /// [`GemmExecutor::prepack_b_quantized`].
     pub b_quant: Option<QuantParams<'a, RhsT>>,
 }
 
@@ -433,9 +485,17 @@ pub struct GemmUninitOptions<'a, LhsT, RhsT, OutT> {
     pub bias: Option<BiasVector<'a, OutT>>,
 
     /// Quantization parameters (scale, zero point) for LHS / A input.
+    ///
+    /// This must be `None` if A is pre-packed. The quantization parameters
+    /// for a pre-packed input are provided when it is packed, using
+    /// [`GemmExecutor::prepack_a_quantized`].
     pub a_quant: Option<QuantParams<'a, LhsT>>,
 
     /// Quantization parameters (scale, zero point) for RHS / B input.
+    ///
+    /// This must be `None` if B is pre-packed. The quantization parameters
+    /// for a pre-packed input are provided when it is packed, using
+    /// [`GemmExecutor::prepack_b_quantized`].
     pub b_quant: Option<QuantParams<'a, RhsT>>,
 }
 
@@ -815,16 +875,22 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
         return Err(GemmError::WrongBiasSize);
     }
 
-    if let Some(a_quant) = a_quant
-        && a_quant.zero_point.len() != a.rows()
-    {
-        return Err(GemmError::WrongQuantParamSize);
+    if let Some(a_quant) = a_quant {
+        if let GemmInputA::Packed(_) = a {
+            return Err(GemmError::QuantParamsWithPackedInput);
+        }
+        if a_quant.zero_point.len() != a.rows() {
+            return Err(GemmError::WrongQuantParamSize);
+        }
     }
 
-    if let Some(b_quant) = b_quant
-        && b_quant.zero_point.len() != b.cols()
-    {
-        return Err(GemmError::WrongQuantParamSize);
+    if let Some(b_quant) = b_quant {
+        if let GemmInputB::Packed(_) = b {
+            return Err(GemmError::QuantParamsWithPackedInput);
+        }
+        if b_quant.zero_point.len() != b.cols() {
+            return Err(GemmError::WrongQuantParamSize);
+        }
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.

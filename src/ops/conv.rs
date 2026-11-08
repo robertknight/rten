@@ -306,7 +306,15 @@ where
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
-            Some(gemm.prepack_a_in(pool, kernel_mat.view()).auto_return(pool))
+            Some(
+                match kernel_quant {
+                    Some(quant) => gemm
+                        .prepack_a_quantized_in(pool, kernel_mat.view(), quant)
+                        .unwrap(),
+                    None => gemm.prepack_a_in(pool, kernel_mat.view()),
+                }
+                .auto_return(pool),
+            )
         } else {
             None
         };
@@ -343,7 +351,9 @@ where
                         GemmInputB::Im2Col(&im2col),
                         GemmUninitOptions {
                             bias: bias_vec,
-                            a_quant: kernel_quant,
+                            // Zero points for the pre-packed kernel are
+                            // stored in the packed data.
+                            a_quant: kernel_quant.filter(|_| prepacked_kernel.is_none()),
                             b_quant: input_quant,
                             ..Default::default()
                         },
@@ -1449,6 +1459,23 @@ mod tests {
                         input_zero: Some(12),
                         kernel_zero: Some([1, 2, 3, 4].into()),
                         groups: 2,
+                    },
+                    // General convolution with batch size > 1. This prepacks
+                    // the kernel.
+                    Case {
+                        input: Tensor::rand(&[2, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[3, 2, 3, 3], &mut kernel_rng),
+                        input_zero: Some(12),
+                        kernel_zero: Some([1, 2, 3].into()),
+                        groups: 1,
+                    },
+                    // General convolution with batch size > 1 and no zero point.
+                    Case {
+                        input: Tensor::rand(&[2, 2, 5, 5], &mut rng),
+                        kernel: Tensor::rand(&[3, 2, 3, 3], &mut kernel_rng),
+                        input_zero: None,
+                        kernel_zero: None,
+                        groups: 1,
                     },
                     // General convolution with no zero point.
                     Case {

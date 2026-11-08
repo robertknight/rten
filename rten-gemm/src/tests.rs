@@ -791,6 +791,138 @@ fn test_gemm_prepack() {
     })
 }
 
+#[test]
+fn test_gemm_prepack_int8_quant() {
+    let (m, n, k) = (10, 20, 30);
+    let mut rng = XorShiftRng::new(1234);
+    let a = NdTensor::<u8, 2>::rand([m, k], &mut rng);
+    let b = NdTensor::<i8, 2>::rand([k, n], &mut rng);
+    let a_zero: Vec<u8> = (0..m as u8).collect();
+    let b_zero: Vec<i8> = (0..n as i8).collect();
+    let a_quant = QuantParams {
+        zero_point: &a_zero,
+    };
+    let b_quant = QuantParams {
+        zero_point: &b_zero,
+    };
+
+    let gemm = GemmExecutor::<u8, i8, i32>::default();
+    let packed_a = gemm.prepack_a_quantized(a.view(), a_quant).unwrap();
+    let packed_b = gemm.prepack_b_quantized(b.view(), b_quant).unwrap();
+
+    let run_gemm = |a: GemmInputA<u8>,
+                    b: GemmInputB<i8>,
+                    a_quant: Option<QuantParams<u8>>,
+                    b_quant: Option<QuantParams<i8>>| {
+        let mut result = NdTensor::zeros([m, n]);
+        gemm.gemm(
+            result.data_mut().unwrap(),
+            a,
+            b,
+            GemmOptions {
+                a_quant,
+                b_quant,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        result
+    };
+
+    let expected = run_gemm(
+        GemmInputA::Unpacked(a.view()),
+        GemmInputB::Unpacked(b.view()),
+        Some(a_quant),
+        Some(b_quant),
+    );
+    let packed_a_result = run_gemm(
+        GemmInputA::Packed(&packed_a),
+        GemmInputB::Unpacked(b.view()),
+        None,
+        Some(b_quant),
+    );
+    let packed_b_result = run_gemm(
+        GemmInputA::Unpacked(a.view()),
+        GemmInputB::Packed(&packed_b),
+        Some(a_quant),
+        None,
+    );
+
+    assert_eq!(packed_a_result, expected);
+    assert_eq!(packed_b_result, expected);
+}
+
+#[test]
+fn test_gemm_packed_input_with_quant_params() {
+    let (m, n, k) = (4, 5, 6);
+    let a = NdTensor::<u8, 2>::zeros([m, k]);
+    let b = NdTensor::<i8, 2>::zeros([k, n]);
+    let a_zero = vec![1u8; m];
+    let b_zero = vec![2i8; n];
+    let a_quant = QuantParams {
+        zero_point: &a_zero,
+    };
+    let b_quant = QuantParams {
+        zero_point: &b_zero,
+    };
+
+    let gemm = GemmExecutor::<u8, i8, i32>::default();
+    let packed_a = gemm.prepack_a_quantized(a.view(), a_quant).unwrap();
+    let packed_b = gemm.prepack_b_quantized(b.view(), b_quant).unwrap();
+    let mut result = NdTensor::zeros([m, n]);
+
+    let packed_a_err = gemm.gemm(
+        result.data_mut().unwrap(),
+        GemmInputA::Packed(&packed_a),
+        GemmInputB::Unpacked(b.view()),
+        GemmOptions {
+            a_quant: Some(a_quant),
+            b_quant: Some(b_quant),
+            ..Default::default()
+        },
+    );
+    assert_eq!(packed_a_err, Err(GemmError::QuantParamsWithPackedInput));
+
+    let packed_b_err = gemm.gemm(
+        result.data_mut().unwrap(),
+        GemmInputA::Unpacked(a.view()),
+        GemmInputB::Packed(&packed_b),
+        GemmOptions {
+            a_quant: Some(a_quant),
+            b_quant: Some(b_quant),
+            ..Default::default()
+        },
+    );
+    assert_eq!(packed_b_err, Err(GemmError::QuantParamsWithPackedInput));
+}
+
+#[test]
+fn test_gemm_prepack_wrong_quant_param_size() {
+    let (m, n, k) = (4, 5, 6);
+    let a = NdTensor::<u8, 2>::zeros([m, k]);
+    let b = NdTensor::<i8, 2>::zeros([k, n]);
+    let a_zero = vec![1u8; m - 1];
+    let b_zero = vec![2i8; n - 1];
+
+    let gemm = GemmExecutor::<u8, i8, i32>::default();
+
+    let packed_a = gemm.prepack_a_quantized(
+        a.view(),
+        QuantParams {
+            zero_point: &a_zero,
+        },
+    );
+    assert_eq!(packed_a.err(), Some(GemmError::WrongQuantParamSize));
+
+    let packed_b = gemm.prepack_b_quantized(
+        b.view(),
+        QuantParams {
+            zero_point: &b_zero,
+        },
+    );
+    assert_eq!(packed_b.err(), Some(GemmError::WrongQuantParamSize));
+}
+
 // Simplified version of the im2col builder used by convolution code.
 //
 // This builds a mapping between elements of an image and a

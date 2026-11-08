@@ -6,7 +6,7 @@ use rten_tensor::storage::Alloc;
 use rten_tensor::{Matrix, MatrixLayout};
 
 use super::packing::PackingBuffer;
-use super::{GemmError, Kernel, LhsBlock, RhsBlock, depth_block_size};
+use super::{GemmError, Kernel, LhsBlock, QuantParams, RhsBlock, depth_block_size};
 
 /// Common data and logic for a pre-packed A or B matrix.
 ///
@@ -173,12 +173,19 @@ pub fn prepack_a<A: Alloc, LhsT, RhsT, OutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     alloc: A,
     a: Matrix<LhsT>,
-) -> PackedAMatrix<LhsT> {
+    quant: Option<QuantParams<LhsT>>,
+) -> Result<PackedAMatrix<LhsT>, GemmError> {
+    if let Some(quant) = quant
+        && quant.zero_point.len() != a.rows()
+    {
+        return Err(GemmError::WrongQuantParamSize);
+    }
+
     let depth_block = depth_block_size::<RhsT>(a.cols(), None);
 
-    let layout = kernel.packed_a_layout(a, a.rows(), depth_block, None);
+    let layout = kernel.packed_a_layout(a, a.rows(), depth_block, quant);
     let tail_layout = if !a.cols().is_multiple_of(depth_block) {
-        Some(kernel.packed_a_layout(a, a.rows(), a.cols() % depth_block, None))
+        Some(kernel.packed_a_layout(a, a.rows(), a.cols() % depth_block, quant))
     } else {
         None
     };
@@ -198,7 +205,7 @@ pub fn prepack_a<A: Alloc, LhsT, RhsT, OutT>(
     for (col_block, block_data) in
         range_chunks(0..a.cols(), depth_block).zip(uninit_data.chunks_mut(layout.size()))
     {
-        kernel.pack_a_block(block_data, a, 0..a.rows(), col_block, None);
+        kernel.pack_a_block(block_data, a, 0..a.rows(), col_block, quant);
     }
 
     // Safety: We used `pack_a_block` to initialize `total_size` bytes
@@ -206,7 +213,7 @@ pub fn prepack_a<A: Alloc, LhsT, RhsT, OutT>(
         data.set_len(total_size);
     }
 
-    PackedAMatrix {
+    Ok(PackedAMatrix {
         base: PackedMatrixBase {
             data,
             nm_size: a.rows(),
@@ -221,7 +228,7 @@ pub fn prepack_a<A: Alloc, LhsT, RhsT, OutT>(
             kernel_name: kernel.name(),
         },
         _marker: PhantomData,
-    }
+    })
 }
 
 /// Prepack a GEMM RHS input for use with a given kernel.
@@ -229,12 +236,19 @@ pub fn prepack_b<A: Alloc, LhsT, RhsT, OutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     alloc: A,
     b: Matrix<RhsT>,
-) -> PackedBMatrix<RhsT> {
+    quant: Option<QuantParams<RhsT>>,
+) -> Result<PackedBMatrix<RhsT>, GemmError> {
+    if let Some(quant) = quant
+        && quant.zero_point.len() != b.cols()
+    {
+        return Err(GemmError::WrongQuantParamSize);
+    }
+
     let depth_block = depth_block_size::<RhsT>(b.rows(), None);
 
-    let layout = kernel.packed_b_layout(depth_block, b.cols(), None);
+    let layout = kernel.packed_b_layout(depth_block, b.cols(), quant);
     let tail_layout = if !b.rows().is_multiple_of(depth_block) {
-        Some(kernel.packed_b_layout(b.rows() % depth_block, b.cols(), None))
+        Some(kernel.packed_b_layout(b.rows() % depth_block, b.cols(), quant))
     } else {
         None
     };
@@ -253,7 +267,7 @@ pub fn prepack_b<A: Alloc, LhsT, RhsT, OutT>(
     for (row_block, block_data) in
         range_chunks(0..b.rows(), depth_block).zip(uninit_data.chunks_mut(layout.size()))
     {
-        kernel.pack_b_block(block_data, b, row_block, 0..b.cols(), None);
+        kernel.pack_b_block(block_data, b, row_block, 0..b.cols(), quant);
     }
 
     // Safety: We used `pack_b_block` to initialize `layout.size` bytes.
@@ -261,7 +275,7 @@ pub fn prepack_b<A: Alloc, LhsT, RhsT, OutT>(
         data.set_len(total_size);
     }
 
-    PackedBMatrix {
+    Ok(PackedBMatrix {
         base: PackedMatrixBase {
             data,
             depth_size: b.rows(),
@@ -276,5 +290,5 @@ pub fn prepack_b<A: Alloc, LhsT, RhsT, OutT>(
             kernel_name: kernel.name(),
         },
         _marker: PhantomData,
-    }
+    })
 }
