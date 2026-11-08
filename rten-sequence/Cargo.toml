@@ -1,6 +1,6 @@
 [package]
 name = "rten-sequence"
-version = "0.27.0"
+version = "0.28.0"
 edition = "2024"
 authors = ["Robert Knight"]
 description = "Sequence decoding algorithms for ML model outputs"
@@ -13,8 +13,8 @@ include = ["/src", "/README.md"]
 crate-type = ["lib"]
 
 [dependencies]
-rten-base = { path = "../rten-base", version = "0.27.0" }
-rten-tensor = { path = "../rten-tensor", version = "0.27.0" }
+rten-base = { path = "../rten-base", version = "0.28.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.28.0" }
 
 [lints.clippy]
 uninlined_format_args = "allow"
