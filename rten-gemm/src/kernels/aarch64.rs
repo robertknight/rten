@@ -134,8 +134,6 @@ unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
-        _a_quant: Option<QuantParams<f32>>,
-        _b_quant: Option<QuantParams<f32>>,
     ) {
         const MR: usize = ArmNeonKernel::MR;
         const NR: usize = ArmNeonKernel::NR;
@@ -326,8 +324,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8DotKernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        _a_quant: Option<QuantParams<u8>>,
-        _b_quant: Option<QuantParams<i8>>,
     ) {
         let a_data = match a {
             Lhs::Packed(data) => data,
@@ -494,8 +490,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MlalKernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        _a_quant: Option<QuantParams<u8>>,
-        _b_quant: Option<QuantParams<i8>>,
     ) {
         use rten_simd::{
             Isa, Simd,
@@ -910,8 +904,6 @@ unsafe impl Kernel<u8, i8, i32> for ArmInt8MMKernel {
         depth: usize,
         _alpha: f32,
         beta: i32,
-        _a_quant: Option<QuantParams<u8>>,
-        _b_quant: Option<QuantParams<i8>>,
     ) {
         use rten_simd::{
             Isa,
