@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
+- Fixed several issues that could cause `ConvInteger` and `MatMulInteger` to
+  produce incorrect results due to incorrect handling of non-zero zero points
+  and (for `ConvInteger`) padding
+  (https://github.com/robertknight/rten/pull/1541,
+  https://github.com/robertknight/rten/pull/1542,
+  https://github.com/robertknight/rten/pull/1543,
+  https://github.com/robertknight/rten/pull/1544)
+
 - Vectorized the `Log` and `Softplus` operators. This also fixes `Softplus`
   returning infinity for inputs above ~88
   (https://github.com/robertknight/rten/pull/1534)
@@ -24,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The global thread pool is no longer created if a custom pool is supplied via
   `RunOptions::with_thread_pool` (thanks @erkurtharun,
   https://github.com/robertknight/rten/pull/1523)
+
+### rten-gemm
+
+- Optimized the generic (non-SIMD) int8 GEMM kernel
+  (https://github.com/robertknight/rten/pull/1540)
 
 ### rten-generate
 
