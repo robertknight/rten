@@ -76,6 +76,14 @@ pub fn stft(
         ));
     };
 
+    // `frame_length` was validated above, so this can only fail if the frame
+    // length came from `window`.
+    if n_fft < 1 || n_fft > signal_len {
+        return Err(OpError::invalid_value(
+            "window length must be in range [1, signal_length]",
+        ));
+    }
+
     let fft_type = match n_components {
         1 => FftType::Real,
         2 => FftType::Complex,
@@ -625,6 +633,26 @@ mod tests {
                 window: Some([0., 0.5].into()),
                 expected: Err(OpError::invalid_value(
                     "window length must equal frame_length",
+                )),
+                ..Default::default()
+            },
+            // Window longer than signal, without frame_length
+            Case {
+                signal: real_signal.clone(),
+                frame_step: 4,
+                window: Some(NdTensor::full([real_signal.size(1) + 1], 1.)),
+                expected: Err(OpError::invalid_value(
+                    "window length must be in range [1, signal_length]",
+                )),
+                ..Default::default()
+            },
+            // Empty window, without frame_length
+            Case {
+                signal: real_signal.clone(),
+                frame_step: 4,
+                window: Some(NdTensor::zeros([0])),
+                expected: Err(OpError::invalid_value(
+                    "window length must be in range [1, signal_length]",
                 )),
                 ..Default::default()
             },
