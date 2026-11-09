@@ -930,6 +930,10 @@ impl Graph {
         mut profiler: Option<&mut Profiler<'a>>,
         opts: &RunOptions,
     ) -> Result<Vec<Value>, RunError> {
+        let is_subgraph = captures.is_some();
+        let start_pool_allocs = pool.alloc_count();
+        let start_pool_hits = pool.hit_count();
+
         let mut temp_values = ValueMap::new();
         temp_values.enable_mem_profiling(profiler.is_some());
 
@@ -1209,7 +1213,12 @@ impl Graph {
                     Some(&temp_values),
                     by_value_captures,
                 );
-                subgraph_op
+
+                let current_bytes = temp_values.current_bytes();
+                if let Some(profiler) = profiler.as_deref_mut() {
+                    profiler.enter_subgraph(current_bytes);
+                }
+                let result = subgraph_op
                     .run_subgraph(
                         &ctx,
                         capture_env,
@@ -1217,7 +1226,11 @@ impl Graph {
                         profiler.as_deref_mut(),
                         Some(opts.clone()),
                     )
-                    .map_err(|err| RunError::subgraph_error(op_node.name(), err))
+                    .map_err(|err| RunError::subgraph_error(op_node.name(), err));
+                if let Some(profiler) = profiler.as_deref_mut() {
+                    profiler.exit_subgraph(current_bytes);
+                }
+                result
             } else {
                 op_node
                     .operator()
@@ -1295,8 +1308,17 @@ impl Graph {
 
         // Record memory allocation metrics
         if let Some(profiler) = &mut profiler {
-            profiler.set_max_value_bytes(temp_values.max_bytes());
-            profiler.add_pool_metrics(pool.alloc_count(), pool.hit_count());
+            profiler.add_max_value_bytes(temp_values.max_bytes());
+
+            // Subgraphs are assumed to share their parent graph's pool, so pool
+            // metrics are only updated when the top-level graph finishes.
+            // Updating them in subgraphs as well would overcount allocations.
+            if !is_subgraph {
+                profiler.add_pool_metrics(
+                    pool.alloc_count() - start_pool_allocs,
+                    pool.hit_count() - start_pool_hits,
+                );
+            }
         }
 
         // Return the requested outputs
