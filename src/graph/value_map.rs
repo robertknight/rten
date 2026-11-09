@@ -69,6 +69,11 @@ impl ValueMap {
         }
     }
 
+    /// Return the combined size of all values currently in the map.
+    pub fn current_bytes(&self) -> usize {
+        self.current_bytes
+    }
+
     /// Return the peak combined size of all values in the map.
     pub fn max_bytes(&self) -> usize {
         self.max_bytes

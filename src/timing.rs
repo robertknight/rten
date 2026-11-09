@@ -447,6 +447,10 @@ pub struct Profiler<'a> {
 
     /// Maximum combined size of temporary values stored during the run.
     max_value_bytes: usize,
+
+    /// Combined size of temporary values held by the graphs enclosing the
+    /// subgraph currently being run.
+    outer_value_bytes: usize,
 }
 
 impl<'a> Profiler<'a> {
@@ -458,6 +462,7 @@ impl<'a> Profiler<'a> {
             pool_allocs: 0,
             pool_hits: 0,
             max_value_bytes: 0,
+            outer_value_bytes: 0,
         }
     }
 
@@ -472,10 +477,27 @@ impl<'a> Profiler<'a> {
         self.pool_hits += hits;
     }
 
-    /// Record the maximum memory usage of temporary values (operator outputs)
-    /// during the graph run.
-    pub fn set_max_value_bytes(&mut self, bytes: usize) {
-        self.max_value_bytes = bytes;
+    /// Record the peak memory usage of temporary values (operator outputs)
+    /// during a graph or subgraph run.
+    ///
+    /// `bytes` is the peak for the graph being run, excluding values held by
+    /// enclosing graphs.
+    pub fn add_max_value_bytes(&mut self, bytes: usize) {
+        self.max_value_bytes = self.max_value_bytes.max(self.outer_value_bytes + bytes);
+    }
+
+    /// Record that a graph holding `bytes` of temporary values is about to
+    /// run a subgraph.
+    ///
+    /// Must be paired with a call to [`exit_subgraph`](Self::exit_subgraph).
+    pub fn enter_subgraph(&mut self, bytes: usize) {
+        self.outer_value_bytes += bytes;
+    }
+
+    /// Record that a subgraph run started with
+    /// [`enter_subgraph`](Self::enter_subgraph) has finished.
+    pub fn exit_subgraph(&mut self, bytes: usize) {
+        self.outer_value_bytes -= bytes;
     }
 
     /// Print a summary of the profile to stdout.
@@ -523,5 +545,33 @@ impl fmt::Display for Bytes {
             bytes if bytes < (1024 * 1024) => write!(f, "{} KB", bytes / 1024),
             bytes => write!(f, "{} MB", bytes / (1024 * 1024)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Profiler;
+
+    #[test]
+    fn test_profiler_max_value_bytes() {
+        let mut profiler = Profiler::with_capacity(0);
+
+        // Subgraph run while the parent graph holds 100 bytes.
+        profiler.enter_subgraph(100);
+        profiler.add_max_value_bytes(50);
+        profiler.exit_subgraph(100);
+        assert_eq!(profiler.max_value_bytes, 150);
+
+        // A later, smaller subgraph run doesn't reduce the peak.
+        profiler.enter_subgraph(10);
+        profiler.add_max_value_bytes(20);
+        profiler.exit_subgraph(10);
+        assert_eq!(profiler.max_value_bytes, 150);
+
+        // Parent graph's own peak, which excludes values held by subgraphs.
+        profiler.add_max_value_bytes(120);
+        assert_eq!(profiler.max_value_bytes, 150);
+        profiler.add_max_value_bytes(200);
+        assert_eq!(profiler.max_value_bytes, 200);
     }
 }
