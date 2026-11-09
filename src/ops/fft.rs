@@ -70,7 +70,17 @@ pub fn stft(
         ));
     }
 
-    let Some(n_fft) = frame_length.or_else(|| window.map(|w| w.size(0))) else {
+    let n_fft = if let Some(len) = frame_length {
+        len
+    } else if let Some(w) = window {
+        let window_len = w.size(0);
+        if window_len < 1 || window_len > signal_len {
+            return Err(OpError::invalid_value(
+                "window length must be in range [1, signal_length]",
+            ));
+        }
+        window_len
+    } else {
         return Err(OpError::invalid_value(
             "Either frame_length or window must be set",
         ));
@@ -625,6 +635,26 @@ mod tests {
                 window: Some([0., 0.5].into()),
                 expected: Err(OpError::invalid_value(
                     "window length must equal frame_length",
+                )),
+                ..Default::default()
+            },
+            // Window longer than signal, without frame_length
+            Case {
+                signal: real_signal.clone(),
+                frame_step: 4,
+                window: Some(NdTensor::full([real_signal.size(1) + 1], 1.)),
+                expected: Err(OpError::invalid_value(
+                    "window length must be in range [1, signal_length]",
+                )),
+                ..Default::default()
+            },
+            // Empty window, without frame_length
+            Case {
+                signal: real_signal.clone(),
+                frame_step: 4,
+                window: Some(NdTensor::zeros([0])),
+                expected: Err(OpError::invalid_value(
+                    "window length must be in range [1, signal_length]",
                 )),
                 ..Default::default()
             },
