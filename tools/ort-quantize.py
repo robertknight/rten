@@ -1,9 +1,14 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
+import logging
 import os
 
 from onnxruntime.quantization import quantize_dynamic, quantize
 import onnxruntime.quantization.matmul_nbits_quantizer as nbits
 from onnxruntime.quantization.quant_utils import QuantFormat
+
+# Importing `matmul_nbits_quantizer` sets the root logging level to INFO which
+# adds unnecessary noise. Reset it to show only warnings.
+logging.getLogger().setLevel(logging.WARNING)
 
 parser = ArgumentParser(description="Quantize ONNX models.")
 mode_parsers = parser.add_subparsers(
@@ -24,22 +29,14 @@ Widely supported by ONNX runtimes.
 )
 dynamic_parser.add_argument(
     "--quantize-conv",
-    action="store_true",
-    help="""
-Enable quantization of `Conv` operators.
-
-Disabled by default for ONNX Runtime compatibility. See https://github.com/microsoft/onnxruntime/issues/15888.
-""",
+    action=BooleanOptionalAction,
+    default=True,
+    help="quantize `Conv` operators. Enabled by default.",
 )
 dynamic_parser.add_argument(
     "--quantize-lstm",
     action="store_true",
-    help="""
-Enable quantization of `LSTM` operators to `DynamicQuantizeLSTM`.
-
-This is disabled by default because `DynamicQuantizeLSTM` is a non-standard
-operator.
-""",
+    help="quantize `LSTM` operators to `DynamicQuantizeLSTM`. Disabled by default because this is a non-standard operator",
 )
 dynamic_parser.add_argument("input", help="Path to un-quantized input model")
 dynamic_parser.add_argument("output", nargs="?", help="Path to quantized output model")
