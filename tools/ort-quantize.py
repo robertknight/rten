@@ -1,9 +1,14 @@
 from argparse import ArgumentParser, BooleanOptionalAction
+import logging
 import os
 
 from onnxruntime.quantization import quantize_dynamic, quantize
 import onnxruntime.quantization.matmul_nbits_quantizer as nbits
 from onnxruntime.quantization.quant_utils import QuantFormat
+
+# Importing `matmul_nbits_quantizer` sets the root logging level to INFO which
+# adds unnecessary noise. Reset it to show only warnings.
+logging.getLogger().setLevel(logging.WARNING)
 
 parser = ArgumentParser(description="Quantize ONNX models.")
 mode_parsers = parser.add_subparsers(
