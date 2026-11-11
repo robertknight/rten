@@ -213,12 +213,241 @@ impl<'d> SimdOp for F32ToBF16<'_, 'd> {
     }
 }
 
+/// Round `f32` values in place to the nearest value representable as `f16`.
+///
+/// This is equivalent to converting `f32` -> `f16` -> `f32`, using the same
+/// rounding as [`F32ToF16`].
+pub struct RoundToF16<'d> {
+    data: &'d mut [f32],
+}
+
+impl<'d> RoundToF16<'d> {
+    /// Create an operation which rounds the values in `data` in place.
+    pub fn new(data: &'d mut [f32]) -> Self {
+        RoundToF16 { data }
+    }
+}
+
+impl<'d> SimdOp for RoundToF16<'d> {
+    type Output = &'d mut [f32];
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let f32_ops = isa.f32();
+        let half_ops = isa.f16();
+        let v_len = f32_ops.len();
+
+        // Main loop. Narrow two `f32` vectors into one `f16` vector, then
+        // extend both halves back to `f32`.
+        let mut chunks = self.data.chunks_exact_mut(v_len * 2);
+        for chunk in chunks.by_ref() {
+            let xs = f32_ops.load_many::<2>(chunk);
+            let half = NarrowSaturate::<f32, f16>::narrow_saturate(f32_ops, xs[0], xs[1]);
+            let (lo, hi) = chunk.split_at_mut(v_len);
+            f32_ops.store(half_ops.extend_low(half), lo);
+            f32_ops.store(half_ops.extend_high(half), hi);
+        }
+
+        // Round a remaining whole `f32` vector, if any.
+        let mut chunks = chunks.into_remainder().chunks_exact_mut(v_len);
+        for chunk in chunks.by_ref() {
+            let x = f32_ops.load(chunk);
+            let half = NarrowSaturate::<f32, f16>::narrow_saturate(f32_ops, x, x);
+            f32_ops.store(half_ops.extend_low(half), chunk);
+        }
+
+        // Round tail elements which don't fill a whole vector.
+        for x in chunks.into_remainder() {
+            *x = f16::from_f32(*x).to_f32();
+        }
+
+        self.data
+    }
+}
+
+/// Round `f32` values in place to the nearest value representable as `bf16`.
+///
+/// This is equivalent to converting `f32` -> `bf16` -> `f32`, using the same
+/// rounding as [`F32ToBF16`].
+pub struct RoundToBF16<'d> {
+    data: &'d mut [f32],
+}
+
+impl<'d> RoundToBF16<'d> {
+    /// Create an operation which rounds the values in `data` in place.
+    pub fn new(data: &'d mut [f32]) -> Self {
+        RoundToBF16 { data }
+    }
+}
+
+impl<'d> SimdOp for RoundToBF16<'d> {
+    type Output = &'d mut [f32];
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) -> Self::Output {
+        let f32_ops = isa.f32();
+        let half_ops = isa.bf16();
+        let v_len = f32_ops.len();
+
+        // Main loop. Narrow two `f32` vectors into one `bf16` vector, then
+        // extend both halves back to `f32`.
+        let mut chunks = self.data.chunks_exact_mut(v_len * 2);
+        for chunk in chunks.by_ref() {
+            let xs = f32_ops.load_many::<2>(chunk);
+            let half = NarrowSaturate::<f32, bf16>::narrow_saturate(f32_ops, xs[0], xs[1]);
+            let (lo, hi) = chunk.split_at_mut(v_len);
+            f32_ops.store(half_ops.extend_low(half), lo);
+            f32_ops.store(half_ops.extend_high(half), hi);
+        }
+
+        // Round a remaining whole `f32` vector, if any.
+        let mut chunks = chunks.into_remainder().chunks_exact_mut(v_len);
+        for chunk in chunks.by_ref() {
+            let x = f32_ops.load(chunk);
+            let half = NarrowSaturate::<f32, bf16>::narrow_saturate(f32_ops, x, x);
+            f32_ops.store(half_ops.extend_low(half), chunk);
+        }
+
+        // Round tail elements which don't fill a whole vector.
+        for x in chunks.into_remainder() {
+            *x = bf16::from_f32(*x).to_f32();
+        }
+
+        self.data
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_simd::ops::BitOps;
     use rten_simd::{Isa, SimdOp, bf16, f16};
 
-    use super::{BF16ToF32, F16ToF32, F32ToBF16, F32ToF16};
+    use super::{BF16ToF32, F16ToF32, F32ToBF16, F32ToF16, RoundToBF16, RoundToF16};
+    use crate::testing::AllF32s;
+
+    /// Return values which exercise rounding edge cases for 16-bit floats.
+    fn half_float_rounding_cases() -> Vec<f32> {
+        [
+            0.,
+            -0.,
+            1.,
+            -1.,
+            // Halfway between 1.0 and the next f16 (ties to even rounds down).
+            1.0 + 2f32.powi(-11),
+            // Halfway between the next f16 after 1.0 and the one after that
+            // (ties to even rounds up).
+            1.0 + 3. * 2f32.powi(-11),
+            // Halfway between 1.0 and the next bf16.
+            1.0 + 2f32.powi(-8),
+            1.0 + 3. * 2f32.powi(-8),
+            1.01,
+            -5.03,
+            // Largest finite f16, and a value which rounds to f16 infinity.
+            65504.,
+            65520.,
+            // Values which are subnormal or underflow in f16.
+            1e-5,
+            1e-8,
+            f32::MAX,
+            f32::MIN_POSITIVE,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ]
+        .into()
+    }
+
+    /// Return the number of `f32` lanes in a SIMD vector.
+    fn f32_vec_len() -> usize {
+        struct F32VecLen {}
+        impl SimdOp for F32VecLen {
+            type Output = usize;
+            fn eval<I: Isa>(self, isa: I) -> usize {
+                isa.f32().len()
+            }
+        }
+        F32VecLen {}.dispatch()
+    }
+
+    /// Check that `round` matches `reference` for each element in `values`.
+    fn check_round(values: &[f32], round: impl Fn(&mut [f32]), reference: impl Fn(f32) -> f32) {
+        let mut actual = values.to_vec();
+        round(&mut actual);
+
+        for (&x, &actual) in values.iter().zip(&actual) {
+            let expected = reference(x);
+            assert!(
+                actual.to_bits() == expected.to_bits() || (actual.is_nan() && expected.is_nan()),
+                "mismatch for {x}. Actual {actual} Expected {expected}"
+            );
+        }
+    }
+
+    /// Return a slice of values containing rounding edge cases, with a length
+    /// that exercises the main loop, single vector loop and scalar tail.
+    fn round_test_values() -> Vec<f32> {
+        let cases = half_float_rounding_cases();
+        let len = f32_vec_len() * 3 + cases.len().min(f32_vec_len() - 1);
+        cases.iter().copied().cycle().take(len).collect()
+    }
+
+    /// Check rounding against a reference for every `f32` value.
+    fn check_round_exhaustive(round: impl Fn(&mut [f32]), reference: impl Fn(f32) -> f32) {
+        let mut chunk = Vec::with_capacity(1 << 16);
+        let mut values = AllF32s::new();
+        loop {
+            chunk.clear();
+            chunk.extend(values.by_ref().take(chunk.capacity()));
+            if chunk.is_empty() {
+                break;
+            }
+            check_round(&chunk, &round, &reference);
+        }
+    }
+
+    #[test]
+    fn test_round_to_f16() {
+        check_round(
+            &round_test_values(),
+            |xs| {
+                RoundToF16::new(xs).dispatch();
+            },
+            |x| f16::from_f32(x).to_f32(),
+        );
+    }
+
+    #[test]
+    #[ignore] // Ignored by default due to long runtime
+    fn test_round_to_f16_exhaustive() {
+        check_round_exhaustive(
+            |xs| {
+                RoundToF16::new(xs).dispatch();
+            },
+            |x| f16::from_f32(x).to_f32(),
+        );
+    }
+
+    #[test]
+    fn test_round_to_bf16() {
+        check_round(
+            &round_test_values(),
+            |xs| {
+                RoundToBF16::new(xs).dispatch();
+            },
+            |x| bf16::from_f32(x).to_f32(),
+        );
+    }
+
+    #[test]
+    #[ignore] // Ignored by default due to long runtime
+    fn test_round_to_bf16_exhaustive() {
+        check_round_exhaustive(
+            |xs| {
+                RoundToBF16::new(xs).dispatch();
+            },
+            |x| bf16::from_f32(x).to_f32(),
+        );
+    }
 
     /// Return the number of `f16` lanes in a SIMD vector.
     fn f16_vec_len() -> usize {

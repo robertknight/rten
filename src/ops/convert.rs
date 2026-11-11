@@ -4,8 +4,11 @@ use rten_base::bit_set::BitSet;
 use rten_base::byte_cast::FromByteArray;
 use rten_base::num;
 
+use rayon::prelude::*;
+use rten_simd::SimdOp;
 use rten_tensor::Tensor;
 use rten_tensor::prelude::*;
+use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
 use crate::infer_shapes::{
@@ -102,9 +105,70 @@ fn cast_in_place(input: Value, dtype: DataType) -> Result<Value, Value> {
     }
 }
 
+/// Target type of a [`Cast`] operator.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum CastTarget {
+    /// Convert to a data type which RTen supports natively.
+    Type(DataType),
+
+    /// Convert to `f32` and round to the precision of `f16`.
+    ///
+    /// RTen represents `f16` tensors as `f32`.
+    F16,
+
+    /// Convert to `f32` and round to the precision of `bf16`.
+    ///
+    /// RTen represents `bf16` tensors as `f32`.
+    BF16,
+}
+
+impl CastTarget {
+    /// Return the data type of the cast's output.
+    pub fn dtype(&self) -> DataType {
+        match self {
+            Self::Type(dtype) => *dtype,
+            Self::F16 | Self::BF16 => DataType::Float,
+        }
+    }
+
+    /// Round each element of a float tensor to the precision of the target
+    /// type.
+    ///
+    /// Values of other types are left unchanged.
+    fn round(&self, pool: &BufferPool, value: Value) -> Value {
+        let round_chunk: fn(&mut [f32]) = match self {
+            Self::Type(_) => return value,
+            Self::F16 => |chunk| {
+                vecmath::RoundToF16::new(chunk).dispatch();
+            },
+            Self::BF16 => |chunk| {
+                vecmath::RoundToBF16::new(chunk).dispatch();
+            },
+        };
+        let Value::FloatTensor(mut t) = value else {
+            return value;
+        };
+        t.make_contiguous_in(pool);
+        t.data_mut()
+            .expect("should be contiguous")
+            .par_chunks_mut(ROUND_CHUNK_SIZE)
+            .for_each(round_chunk);
+        t.into()
+    }
+}
+
+/// Minimum number of elements in a chunk that is rounded on a single thread.
+const ROUND_CHUNK_SIZE: usize = 32 * 1024;
+
+impl From<DataType> for CastTarget {
+    fn from(dtype: DataType) -> Self {
+        Self::Type(dtype)
+    }
+}
+
 #[derive(Debug)]
 pub struct Cast {
-    pub to: DataType,
+    pub to: CastTarget,
 }
 
 impl Operator for Cast {
@@ -118,7 +182,8 @@ impl Operator for Cast {
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let input = ctx.inputs().require(0)?;
-        cast(ctx.pool(), input, self.to).into_op_result()
+        let output = cast(ctx.pool(), input, self.to.dtype())?;
+        self.to.round(ctx.pool(), output).into_op_result()
     }
 
     fn in_place_inputs(&self) -> BitSet<u16> {
@@ -133,14 +198,15 @@ impl Operator for Cast {
         ctx: &OpRunContext,
     ) -> Result<OutputList, OpError> {
         let input = in_place.into_single();
-        match cast_in_place(input, self.to) {
-            Ok(output) => output.into_op_result(),
+        let output = match cast_in_place(input, self.to.dtype()) {
+            Ok(output) => output,
             Err(input) => {
-                let converted = cast(ctx.pool(), input.as_view(), self.to)?;
+                let converted = cast(ctx.pool(), input.as_view(), self.to.dtype())?;
                 input.add_to_pool(ctx.pool());
-                converted.into_op_result()
+                converted
             }
-        }
+        };
+        self.to.round(ctx.pool(), output).into_op_result()
     }
 
     fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
@@ -148,7 +214,7 @@ impl Operator for Cast {
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
-        Some([OutputType::Fixed(ValueType::Tensor(self.to))].into())
+        Some([OutputType::Fixed(ValueType::Tensor(self.to.dtype()))].into())
     }
 }
 
@@ -162,7 +228,7 @@ impl InferShapes for Cast {
 
         // If this is a no-op cast from int to int, preserve symbolic values.
         // Otherwise preserve just the shape like a generic unary operator.
-        let value = if data.values().is_some() && self.to == DataType::Int32 {
+        let value = if data.values().is_some() && self.to == CastTarget::Type(DataType::Int32) {
             data.clone()
         } else if let Some(shape) = data.shape() {
             SymTensor::from_shape(shape.collect())
@@ -193,7 +259,7 @@ impl Operator for CastLike {
                 "expected target_type to be a tensor",
             ));
         };
-        Cast { to }.run(ctx)
+        Cast { to: to.into() }.run(ctx)
     }
 
     fn in_place_inputs(&self) -> BitSet<u16> {
@@ -211,7 +277,7 @@ impl Operator for CastLike {
                 "expected target_type to be a tensor",
             ));
         };
-        Cast { to }.run_in_place(in_place, ctx)
+        Cast { to: to.into() }.run_in_place(in_place, ctx)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -285,7 +351,7 @@ mod tests {
     use rten_tensor::Tensor;
     use rten_testing::TestCases;
 
-    use super::{BitCast, Cast, CastLike};
+    use super::{BitCast, Cast, CastLike, CastTarget};
     use crate::operator::{InputList, OpError, OperatorExt};
     use crate::value::{DataType, Value, ValueType};
 
@@ -420,7 +486,9 @@ mod tests {
 
         cases.test_each(|case| {
             // Copying cast.
-            let cast_op = Cast { to: case.dtype };
+            let cast_op = Cast {
+                to: case.dtype.into(),
+            };
             let result: Value = cast_op.run_simple(&case.input).unwrap();
             assert_eq!(result, case.expected);
 
@@ -436,6 +504,58 @@ mod tests {
                     .unwrap();
                 assert_eq!(result, case.expected);
             }
+        })
+    }
+
+    #[test]
+    fn test_cast_to_half_float() {
+        #[derive(Debug)]
+        struct Case {
+            input: Value,
+            to: CastTarget,
+            expected: Tensor<f32>,
+        }
+
+        let cases = [
+            // Float -> f16. Values are rounded to nearest, with ties to even.
+            Case {
+                input: Tensor::from([1.0f32, 1.0 + 2f32.powi(-11), 1.01, 65520., 1e-8]).into(),
+                to: CastTarget::F16,
+                expected: Tensor::from([1.0, 1.0, 1.0097656, f32::INFINITY, 0.]),
+            },
+            // Int -> f16.
+            Case {
+                input: Tensor::from([2048i32, 2049, 2051]).into(),
+                to: CastTarget::F16,
+                expected: Tensor::from([2048., 2048., 2052.]),
+            },
+            // Float -> bf16.
+            Case {
+                input: Tensor::from([1.0f32, 1.0 + 2f32.powi(-8), 1.01, -5.03]).into(),
+                to: CastTarget::BF16,
+                expected: Tensor::from([1.0, 1.0, 1.0078125, -5.03125]),
+            },
+            // Int -> bf16.
+            Case {
+                input: Tensor::from([256i32, 257, 259]).into(),
+                to: CastTarget::BF16,
+                expected: Tensor::from([256., 256., 260.]),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let cast_op = Cast { to: case.to };
+            let expected: Value = case.expected.clone().into();
+
+            // Copying cast.
+            let result: Value = cast_op.run_simple(&case.input).unwrap();
+            assert_eq!(result, expected);
+
+            // In-place cast.
+            let result: Value = cast_op
+                .run_simple_in_place(case.input.clone(), InputList::new())
+                .unwrap();
+            assert_eq!(result, expected);
         })
     }
 

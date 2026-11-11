@@ -468,7 +468,7 @@ impl_read_op!(
 );
 impl_read_op!(Cast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
     let to = convert_dtype("to", attrs.to())?;
-    Ok(ops::Cast { to })
+    Ok(ops::Cast { to: to.into() })
 });
 impl_read_op!(
     CastLike,

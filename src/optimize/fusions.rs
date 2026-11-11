@@ -14,10 +14,10 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat,
-    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat,
-    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish,
-    SymbolInfo, Transpose,
+    AddSoftmax, BatchNormalization, Cast, CastTarget, ComputeShape, Conv, ConvInteger,
+    ConvIntegerToFloat, FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization,
+    MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu,
+    Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -503,11 +503,14 @@ impl FusionVisitor for CastElimination {
         _op_node_id: NodeId,
         op_node: &OperatorNode,
     ) -> Result<Fusion, FusionError> {
-        let to_dtype = op_node
+        let to = op_node
             .operator()
             .downcast_ref::<Cast>()
             .map(|op| op.to)
             .ok_or(FusionError::NoMatch)?;
+        let CastTarget::Type(to_dtype) = to else {
+            return Err(FusionError::CheckFailed("cast rounds to 16-bit float"));
+        };
 
         let &[Some(input_id)] = op_node.input_ids() else {
             return Err(FusionError::CheckFailed("wrong input count"));

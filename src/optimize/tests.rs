@@ -15,11 +15,11 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf,
-    Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN,
-    LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean,
-    RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose,
-    Unsqueeze, Where,
+    Add, BatchNormalization, Cast, CastTarget, ComputeShape, Conv, ConvInteger,
+    DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul,
+    Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow,
+    RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split,
+    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -81,7 +81,7 @@ trait OpExprs {
 
 impl OpExprs for Expr {
     fn cast(&self, to: DataType) -> Expr {
-        self.unary(Cast { to })
+        self.unary(Cast { to: to.into() })
     }
 
     fn erf(&self) -> Expr {
@@ -1029,6 +1029,31 @@ fn test_eliminate_noop_cast() {
 }
 
 #[test]
+fn test_no_eliminate_cast_to_half_float() {
+    let graph = {
+        let x = Expr::value_with_info(
+            "x",
+            ValueType::Tensor(DataType::Float),
+            &[Dimension::Symbolic("x".to_string())],
+        );
+        x.unary(Cast {
+            to: CastTarget::BF16,
+        })
+        .erf()
+        .build_graph(["x"])
+    };
+    let graph = optimize_graph(graph).unwrap();
+
+    // Cast to a 16-bit float type rounds its input, so it is not a no-op even
+    // though RTen represents these types as f32.
+    let input_id = graph.input_ids()[0];
+    assert_eq!(
+        graph.get_consuming_op(input_id).unwrap().operator().name(),
+        "Cast"
+    );
+}
+
+#[test]
 fn test_no_eliminate_value_captured_by_subgraph() {
     let mut graph = Graph::new();
     let input = graph.add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)));
@@ -1039,7 +1064,7 @@ fn test_no_eliminate_value_captured_by_subgraph() {
     let (_cast_op, _cast_out) = graph.add_simple_op(
         "cast",
         Cast {
-            to: DataType::Float,
+            to: DataType::Float.into(),
         },
         &[input],
     );
@@ -1243,7 +1268,7 @@ fn test_fuse_matmulinteger_cast_scale() {
                 &[OutputMeta::NoMeta],
             )
             .unary(Cast {
-                to: DataType::Float,
+                to: DataType::Float.into(),
             })
             * (quant_scale * const_scale);
         expr.build_graph(["x"])
@@ -1312,7 +1337,7 @@ fn test_fuse_convinteger_cast_scale() {
                     &[OutputMeta::NoMeta],
                 )
                 .unary(Cast {
-                    to: DataType::Float,
+                    to: DataType::Float.into(),
                 })
                 * (quant_scale * weight_scale);
             expr.build_graph(["x"])

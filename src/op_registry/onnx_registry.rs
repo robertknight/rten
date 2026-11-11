@@ -896,7 +896,12 @@ impl_read_op!(Cast, |attrs: &Attrs| {
     // "round_mode" only applies to conversions to float8e8m0.
     attrs.check_eq("round_mode", "up")?;
 
-    let to = attrs.require("to")?.as_dtype()?;
+    let to_attr = attrs.require("to")?;
+    let to = match onnx::DataType(to_attr.cast_int()?) {
+        onnx::DataType::FLOAT16 => ops::CastTarget::F16,
+        onnx::DataType::BFLOAT16 => ops::CastTarget::BF16,
+        _ => ops::CastTarget::Type(to_attr.as_dtype()?),
+    };
     Ok(ops::Cast { to })
 });
 
@@ -2166,13 +2171,14 @@ mod tests {
     #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding, Upsample,
+        ArgMax, Cast, CastTarget, ConstantOfShape, Conv, GridSample, Padding, ResizeMode,
+        RotaryEmbedding, Upsample,
     };
     #[cfg(feature = "contrib")]
     use crate::ops::{
         Direction, DynamicQuantizeLSTM, GroupQueryAttention, RotaryEmbeddingMicrosoft,
     };
-    use crate::value::Scalar;
+    use crate::value::{DataType, Scalar};
 
     #[derive(Default)]
     struct FakeOpLoadContext {
@@ -2359,6 +2365,46 @@ mod tests {
         let argmax_op = op.downcast_ref::<ArgMax>().unwrap();
         assert_eq!(argmax_op.axis, 1);
         assert!(argmax_op.keep_dims);
+    }
+
+    #[test]
+    fn test_read_cast() {
+        #[derive(Debug)]
+        struct Case {
+            to: onnx::DataType,
+            expected_to: CastTarget,
+        }
+
+        let cases = [
+            Case {
+                to: onnx::DataType::FLOAT,
+                expected_to: CastTarget::Type(DataType::Float),
+            },
+            Case {
+                to: onnx::DataType::FLOAT16,
+                expected_to: CastTarget::F16,
+            },
+            Case {
+                to: onnx::DataType::BFLOAT16,
+                expected_to: CastTarget::BF16,
+            },
+            Case {
+                to: onnx::DataType::INT64,
+                expected_to: CastTarget::Type(DataType::Int32),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let reg = OnnxOpRegistry::with_all_ops();
+            let node = create_node("Cast").with_attr("to", i64::from(case.to.0));
+            let op = reg
+                .read_op(&node, &FakeOpLoadContext::default())
+                .unwrap()
+                .op;
+
+            let cast_op = op.downcast_ref::<Cast>().unwrap();
+            assert_eq!(cast_op.to, case.expected_to);
+        })
     }
 
     #[test]
