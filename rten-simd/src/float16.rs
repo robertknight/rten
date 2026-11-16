@@ -6,6 +6,8 @@
 //! This can be replaced with f16 from the Rust standard library when that is
 //! stabilized. See <https://github.com/rust-lang/rust/issues/116909>.
 
+use rten_base::byte_cast::{FromByteArray, ToByteArray};
+
 use crate::elem::{Elem, WrappingAdd};
 
 /// A 16-bit floating point number, stored in IEEE 754 half-precision format.
@@ -49,13 +51,6 @@ impl std::fmt::Debug for f16 {
     }
 }
 
-impl From<f32> for f16 {
-    #[inline]
-    fn from(x: f32) -> f16 {
-        f16::from_f32(x)
-    }
-}
-
 impl From<f16> for f32 {
     #[inline]
     fn from(x: f16) -> f32 {
@@ -69,6 +64,23 @@ impl WrappingAdd for f16 {
 
     fn wrapping_add(self, x: Self) -> Self {
         f16::from_f32(self.to_f32() + x.to_f32())
+    }
+}
+
+// Safety: `f16` is a `repr(transparent)` wrapper around `u16`, and every bit
+// pattern is a valid `f16`.
+unsafe impl ToByteArray for f16 {
+    type Align = [u8; 2];
+    type Bytes = [u8; 2];
+
+    fn to_bytes(self) -> [u8; 2] {
+        self.0.to_ne_bytes()
+    }
+}
+
+unsafe impl FromByteArray for f16 {
+    fn from_bytes(bytes: [u8; 2]) -> Self {
+        f16(u16::from_ne_bytes(bytes))
     }
 }
 
@@ -265,7 +277,7 @@ mod tests {
     fn test_f16_wrapper() {
         assert_eq!(f16::from_f32(1.0).to_bits(), 0x3C00);
         assert_eq!(f16::from_bits(0x4000).to_f32(), 2.0);
-        assert_eq!(f32::from(f16::from(3.5f32)), 3.5);
+        assert_eq!(f32::from(f16::from_f32(3.5)), 3.5);
         assert_eq!(format!("{:?}", f16::from_f32(1.5)), "1.5");
     }
 }
