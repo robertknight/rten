@@ -715,6 +715,9 @@ dependencies = [
 [[package]]
 name = "rten-simd"
 version = "0.28.0"
+dependencies = [
+ "rten-base",
+]
 
 [[package]]
 name = "rten-tensor"

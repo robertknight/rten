@@ -13,6 +13,9 @@ rust-version = "1.94.0"
 [lib]
 crate-type = ["lib"]
 
+[dependencies]
+rten-base = { path = "../rten-base", version = "0.28.0" }
+
 [lints.clippy]
 # See comments about `needless_range_loop` in root Cargo.toml.
 needless_range_loop = "allow"
