@@ -20,7 +20,7 @@ use crate::ops;
 use crate::ops::AccuracyLevel;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DepthToSpaceMode, Direction, NearestMode, PadMode, Padding,
-    ResizeMode, ScatterReduction,
+    ResizeMode, ScanDirection, ScatterReduction,
 };
 use crate::value::{DataType, Scalar};
 
@@ -235,6 +235,7 @@ impl OnnxOpRegistry {
         register_op!(ReverseSequence);
         register_op!(RotaryEmbedding);
         register_op!(Round);
+        register_op!(Scan);
         register_op!(Scatter);
         register_op!(ScatterElements);
         register_op!(ScatterND);
@@ -1324,6 +1325,63 @@ impl ReadOp for ops::Loop {
         let attrs = Attrs::new(&op.attribute, ctx.opset_version());
         let body = ctx.load_graph(attrs.require("body")?.as_graph()?)?;
         Ok(ops::Loop { body }.into())
+    }
+}
+
+/// Read a `Scan` attribute which specifies a direction per scan input or
+/// output.
+fn read_scan_directions(
+    attrs: &Attrs,
+    name: &'static str,
+) -> Result<Option<Vec<ScanDirection>>, ReadOpError> {
+    let Some(attr) = attrs.get(name) else {
+        return Ok(None);
+    };
+    attr.as_ints()
+        .iter()
+        .map(|dir| match dir {
+            0 => Ok(ScanDirection::Forward),
+            1 => Ok(ScanDirection::Reverse),
+            _ => Err(ReadOpError::attr_error(name, "unsupported value")),
+        })
+        .collect::<Result<_, _>>()
+        .map(Some)
+}
+
+impl ReadOp for ops::Scan {
+    fn id() -> OpId<'static> {
+        OpId::new("Scan")
+    }
+
+    fn read(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> Result<ParsedOp<Self>, ReadOpError> {
+        let attrs = Attrs::new(&op.attribute, ctx.opset_version());
+
+        // This operator changed significantly from v8 to v9+. We only support
+        // the newer version.
+        attrs.require_min_opset("Scan", 9)?;
+
+        let body = ctx.load_graph(attrs.require("body")?.as_graph()?)?;
+        let num_scan_inputs = attrs.require("num_scan_inputs")?.cast_int()?;
+        let scan_input_axes = attrs
+            .get("scan_input_axes")
+            .map(|attr| attr.cast_ints())
+            .transpose()?;
+        let scan_output_axes = attrs
+            .get("scan_output_axes")
+            .map(|attr| attr.cast_ints())
+            .transpose()?;
+        let scan_input_directions = read_scan_directions(&attrs, "scan_input_directions")?;
+        let scan_output_directions = read_scan_directions(&attrs, "scan_output_directions")?;
+
+        Ok(ops::Scan {
+            body,
+            num_scan_inputs,
+            scan_input_axes,
+            scan_input_directions,
+            scan_output_axes,
+            scan_output_directions,
+        }
+        .into())
     }
 }
 
