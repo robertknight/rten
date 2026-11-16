@@ -51,13 +51,6 @@ impl std::fmt::Debug for f16 {
     }
 }
 
-impl From<f32> for f16 {
-    #[inline]
-    fn from(x: f32) -> f16 {
-        f16::from_f32(x)
-    }
-}
-
 impl From<f16> for f32 {
     #[inline]
     fn from(x: f16) -> f32 {
@@ -284,7 +277,7 @@ mod tests {
     fn test_f16_wrapper() {
         assert_eq!(f16::from_f32(1.0).to_bits(), 0x3C00);
         assert_eq!(f16::from_bits(0x4000).to_f32(), 2.0);
-        assert_eq!(f32::from(f16::from(3.5f32)), 3.5);
+        assert_eq!(f32::from(f16::from_f32(3.5)), 3.5);
         assert_eq!(format!("{:?}", f16::from_f32(1.5)), "1.5");
     }
 }
