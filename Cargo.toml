@@ -42,7 +42,6 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 libm = "0.2.6"
 rayon = "1.7.0"
 rustc-hash = "2.1.2"
-rustfft = { version = "6.4.0" }
 serde = { version = "1" }
 serde_derive = { version = "1" }
 serde_json = { version = "1" }
