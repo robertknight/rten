@@ -80,22 +80,21 @@ pub fn load(storage: Arc<ConstantStorage>, options: &ModelOptions) -> Result<Mod
 fn load_metadata(meta: sg::Metadata) -> ModelMetadata {
     let mut fields = Vec::new();
 
-    macro_rules! add_field {
-        ($variant:ident, $method:ident) => {
-            if let Some(val) = meta.$method() {
-                fields.push((MetadataField::$variant, val.to_string()));
-            }
-        };
+    let rten_fields = [
+        ("onnx_hash", meta.onnx_hash()),
+        ("description", meta.description()),
+        ("license", meta.license()),
+        ("commit", meta.commit()),
+        ("code_repository", meta.code_repository()),
+        ("model_repository", meta.model_repository()),
+        ("run_id", meta.run_id()),
+        ("run_url", meta.run_url()),
+    ];
+    for (name, val) in rten_fields {
+        if let Some(val) = val {
+            fields.push((MetadataField::Custom(name.to_string()), val.to_string()));
+        }
     }
-
-    add_field!(OnnxHash, onnx_hash);
-    add_field!(Description, description);
-    add_field!(License, license);
-    add_field!(Commit, commit);
-    add_field!(CodeRepository, code_repository);
-    add_field!(ModelRepository, model_repository);
-    add_field!(RunId, run_id);
-    add_field!(RunUrl, run_url);
 
     ModelMetadata::from_fields(fields)
 }
