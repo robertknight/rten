@@ -80,6 +80,21 @@ python -m tools.export-timm-model timm/resnet50.a1_in1k
 cargo run -p rten-examples --release --bin imagenet resnet50.a1_in1k.onnx image.png
 ```
 
+## Command-line tool
+
+The `rten` CLI tool can be used to inspect ONNX models and run them with
+randomly generated inputs. This is useful for testing whether a model is
+compatible with RTen and measuring its performance.
+
+```sh
+cargo install rten-cli
+
+# Print model inputs, outputs and metadata, then run it with random inputs.
+rten model.onnx
+```
+
+See the [rten-cli README](rten-cli/) for more information.
+
 ## Usage in JavaScript
 
 To use this library in a JavaScript application, there are two approaches:
