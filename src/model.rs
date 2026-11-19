@@ -437,7 +437,7 @@ impl Model {
         self.graph.get_node(id).map(|node| NodeInfo { node })
     }
 
-    /// Return metadata about the model.
+    /// Return the model's embedded metadata.
     pub fn metadata(&self) -> &ModelMetadata {
         &self.metadata
     }
@@ -1169,9 +1169,18 @@ mod tests {
         assert_eq!(model.metadata().producer_name(), Some("rten-test"));
         assert_eq!(model.metadata().producer_version(), Some("1.2.3"));
         assert_eq!(model.metadata().get("description"), Some("test model"));
+    }
 
-        // Fields which are only set in `.rten` format models.
-        assert_eq!(model.metadata().onnx_hash(), None);
+    #[cfg(feature = "rten_format")]
+    #[test]
+    fn test_rten_metadata() {
+        let buffer = generate_rten_model_buffer(ModelFormat::V2);
+        let model = Model::load(buffer).unwrap();
+        assert_eq!(model.metadata().get("onnx_hash"), Some("abc"));
+        assert_eq!(
+            model.metadata().fields().collect::<Vec<_>>(),
+            &[("onnx_hash", "abc")]
+        );
     }
 
     #[test]
