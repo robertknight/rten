@@ -221,9 +221,32 @@ fn fill_pad<T: Copy, P: PadSource>(
     let src_rows = src.size(0);
     let src_cols = src.size(1);
 
+    // Columns which are copied from the same column of the source, offset by
+    // `pad_left`.
+    let interior_cols = pad_left..(pad_left + src_cols).min(out_cols);
+    let contiguous_rows = dest.stride(1) == 1 && src.stride(1) == 1;
+
     for y in 0..out_rows {
         let src_y = src_index.src_index(y, src_rows, pad_top);
         debug_assert!(src_y < src_rows);
+
+        if contiguous_rows {
+            let src_row = src.slice(src_y);
+            let src_row = src_row.data().unwrap();
+            let mut dest_row = dest.slice_mut(y);
+            let dest_row = dest_row.data_mut().unwrap();
+
+            for (x, dest_el) in dest_row[..interior_cols.start].iter_mut().enumerate() {
+                dest_el.write(src_row[src_index.src_index(x, src_cols, pad_left)]);
+            }
+            for (dest_el, src_el) in dest_row[interior_cols.clone()].iter_mut().zip(src_row) {
+                dest_el.write(*src_el);
+            }
+            for (x, dest_el) in dest_row.iter_mut().enumerate().skip(interior_cols.end) {
+                dest_el.write(src_row[src_index.src_index(x, src_cols, pad_left)]);
+            }
+            continue;
+        }
 
         for x in 0..out_cols {
             let src_x = src_index.src_index(x, src_cols, pad_left);
@@ -440,6 +463,17 @@ mod tests {
 
             let pool = BufferPool::new();
             let result = pad(&pool, input.view(), &pads.view(), *mode, 0.);
+            match (result, expected) {
+                (Ok(result), Ok(expected)) => {
+                    expect_equal(&result, expected).unwrap();
+                }
+                (result, expected) => assert_eq!(&result, expected),
+            }
+
+            // Repeat with an input whose rows are not contiguous.
+            let transposed = input.transposed().to_tensor();
+            let non_contiguous = transposed.transposed();
+            let result = pad(&pool, non_contiguous, &pads.view(), *mode, 0.);
             match (result, expected) {
                 (Ok(result), Ok(expected)) => {
                     expect_equal(&result, expected).unwrap();
