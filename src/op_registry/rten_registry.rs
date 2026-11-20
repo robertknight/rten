@@ -568,7 +568,16 @@ impl_read_op!(DFT, attrs_as_dftattrs, |attrs: sg::DFTAttrs| {
         onesided: attrs.onesided(),
     })
 });
-impl_read_op!(DequantizeLinear, attrs_as_dequantize_linear_attrs, axis);
+impl_read_op!(
+    DequantizeLinear,
+    attrs_as_dequantize_linear_attrs,
+    |attrs: sg::DequantizeLinearAttrs| {
+        Ok(ops::DequantizeLinear {
+            axis: attrs.axis() as isize,
+            block_size: 0, // Not supported in .rten format
+        })
+    }
+);
 impl_read_op!(
     DepthToSpace,
     attrs_as_depth_to_space_attrs,
