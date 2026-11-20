@@ -7,7 +7,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 use rten_shape_inference::{SymExpr, Symbol};
-use rten_tensor::{ArcTensor, AsView, Layout, NdTensorView, SliceRange, Tensor};
+use rten_tensor::{ArcTensor, AsView, Layout, NdTensorView, SliceRange, Tensor, TensorView};
 
 use crate::buffer_pool::BufferPool;
 use crate::graph::{
@@ -19,9 +19,9 @@ use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
     ConvIntegerToFloat, DequantizeLinear, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
-    InstanceNormalization, LayerNormalization, MatMulIntegerToFloat, RMSNormalization, Reciprocal,
-    ReduceMean, RepeatInterleave, Shape, Silu, Snake, Softmax, Swish, SymbolInfo, Transpose,
-    dequantize_linear,
+    InstanceNormalization, LayerNormalization, MatMul, MatMulDynamicQuant, MatMulIntegerToFloat,
+    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Snake, Softmax, Swish,
+    SymbolInfo, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::{DataType, ValueType};
@@ -1343,15 +1343,6 @@ pub struct ConvDynamicQuantFusion {
     pub weight_name_patterns: Vec<String>,
 }
 
-impl ConvDynamicQuantFusion {
-    fn matches_name(&self, name: Option<&str>) -> bool {
-        let name = name.unwrap_or("");
-        self.weight_name_patterns
-            .iter()
-            .any(|pattern| pattern == "*" || name.contains(pattern.as_str()))
-    }
-}
-
 impl FusionVisitor for ConvDynamicQuantFusion {
     type State = ();
 
@@ -1377,27 +1368,11 @@ impl FusionVisitor for ConvDynamicQuantFusion {
             _ => return Err(FusionError::NoMatch),
         };
 
-        // Find the `DequantizeLinear` that produces the weights, looking
-        // through a `Cast` to f32 (used when the dequantized weights are f16).
-        let Some((_, mut weight_src)) = graph.get_source_node(weight) else {
-            return Err(FusionError::NoMatch);
-        };
-        if let Some(cast) = weight_src.operator().downcast_ref::<Cast>() {
-            if cast.to != DataType::Float {
-                return Err(FusionError::NoMatch);
-            }
-            let Some(cast_input) = weight_src.input_ids().first().copied().flatten() else {
-                return Err(FusionError::NoMatch);
-            };
-            let Some((_, src)) = graph.get_source_node(cast_input) else {
-                return Err(FusionError::NoMatch);
-            };
-            weight_src = src;
-        }
-        let dq_node = weight_src;
-        let Some(dq) = dq_node.operator().downcast_ref::<DequantizeLinear>() else {
-            return Err(FusionError::NoMatch);
-        };
+        let dq_node = dequantize_linear_source(graph, weight).ok_or(FusionError::NoMatch)?;
+        let dq = dq_node
+            .operator()
+            .downcast_ref::<DequantizeLinear>()
+            .unwrap();
         if conv.groups != 1 {
             return Err(FusionError::CheckFailed("groups != 1"));
         }
@@ -1414,7 +1389,7 @@ impl FusionVisitor for ConvDynamicQuantFusion {
         let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
             return Err(FusionError::CheckFailed("weight is not int8"));
         };
-        if !self.matches_name(weight_const.name()) {
+        if !matches_weight_name(&self.weight_name_patterns, weight_const.name()) {
             return Err(FusionError::CheckFailed("weight name not selected"));
         }
         let out_chans = weight_const.shape().first().copied().unwrap_or(0);
@@ -1489,6 +1464,351 @@ impl FusionVisitor for ConvDynamicQuantFusion {
             unused_input_ids,
         }))
     }
+}
+
+/// Fuse `MatMul(A, DequantizeLinear(W, scale, zero_point))`, where `W` is an
+/// int8 constant matrix, into `MatMulDynamicQuant(A, W, scale)`.
+///
+/// The `DequantizeLinear` may be followed by a `Cast` to f32. If `W` is not
+/// quantized per column, it is requantized to int8 with a scale per column.
+///
+/// The fused operator quantizes each row of `A` dynamically and uses int8
+/// matrix multiplication. This changes numerics, so it is only applied to
+/// weights whose names contain one of `weight_name_patterns`. A pattern of `*`
+/// matches all weights.
+///
+/// This must run before constant propagation, which would replace the
+/// `DequantizeLinear` with dequantized weights.
+pub struct MatMulDynamicQuantFusion {
+    pub weight_name_patterns: Vec<String>,
+}
+
+impl FusionVisitor for MatMulDynamicQuantFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "MatMulDynamicQuantFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        if op_node.operator().downcast_ref::<MatMul>().is_none() {
+            return Err(FusionError::NoMatch);
+        }
+        let &[Some(input), Some(weight)] = op_node.input_ids() else {
+            return Err(FusionError::NoMatch);
+        };
+
+        let dq_node = dequantize_linear_source(graph, weight).ok_or(FusionError::NoMatch)?;
+        let dq = dq_node
+            .operator()
+            .downcast_ref::<DequantizeLinear>()
+            .unwrap();
+        let (weight_q, scale, zero_point) = match dq_node.input_ids() {
+            [Some(w), Some(s)] => (*w, *s, None),
+            [Some(w), Some(s), zp] => (*w, *s, *zp),
+            _ => return Err(FusionError::NoMatch),
+        };
+
+        let Some(Node::Constant(weight_const)) = graph.get_node(weight_q) else {
+            return Err(FusionError::CheckFailed("weight is not a constant"));
+        };
+        let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
+            return Err(FusionError::CheckFailed("weight is not int8"));
+        };
+        if weight_view.ndim() != 2 {
+            return Err(FusionError::CheckFailed("weight is not a matrix"));
+        }
+        if !matches_weight_name(&self.weight_name_patterns, weight_const.name()) {
+            return Err(FusionError::CheckFailed("weight name not selected"));
+        }
+        let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
+            return Err(FusionError::CheckFailed("scale is not a constant"));
+        };
+        let Some(scale_view) = TypedConstant::<f32>::as_typed_view(scale_const) else {
+            return Err(FusionError::CheckFailed("scale is not f32"));
+        };
+        if let Some(zp) = zero_point {
+            let all_zero = match graph.get_node(zp) {
+                Some(Node::Constant(zp_const)) => TypedConstant::<i8>::as_typed_view(zp_const)
+                    .is_some_and(|zp| zp.iter().all(|&z| z == 0)),
+                _ => false,
+            };
+            if !all_zero {
+                return Err(FusionError::CheckFailed("zero point is not zero"));
+            }
+        }
+
+        let n_cols = weight_view.size(1);
+        let per_column = dq.block_size == 0
+            && (dq.axis == 1 || dq.axis == -1)
+            && TypedConstant::<f32>::as_vector(scale_const).is_some_and(|s| s.len() == n_cols);
+
+        // Use the weights as-is if they are quantized per column. Otherwise,
+        // dequantize the weights and requantize them per column.
+        let (weight_input, scale_input, new_constant_inputs) = if per_column {
+            (Some(weight_q), Some(scale), Vec::new())
+        } else {
+            let (weight_requant, scale_requant) =
+                requantize_per_column(weight_view, scale_view, dq)?;
+            (
+                None,
+                None,
+                vec![
+                    (1, Constant::new(None, weight_requant.into_arc())),
+                    (2, vector_constant(scale_requant)),
+                ],
+            )
+        };
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(MatMulDynamicQuant {}),
+            input_ids: vec![Some(input), weight_input, scale_input],
+            new_constant_inputs,
+            output_ids: op_node.output_ids().to_vec(),
+            // The dequantized weights may be shared with other operators, so
+            // only the `MatMul` is replaced. The dequantization operators are
+            // removed after optimization if they become unused.
+            unused_input_ids: vec![Some(weight)],
+        }))
+    }
+}
+
+/// Dequantize a `[K, N]` int8 weight matrix and requantize it to int8 with a
+/// symmetric scale per column.
+fn requantize_per_column(
+    weight: TensorView<i8>,
+    scale: TensorView<f32>,
+    dq: &DequantizeLinear,
+) -> Result<(Tensor<i8>, Vec<f32>), FusionError> {
+    let pool = BufferPool::new();
+    let weight_f32 = dequantize_linear(&pool, weight, scale, None, dq.axis, dq.block_size)
+        .map_err(|_| FusionError::CheckFailed("failed to dequantize weights"))?;
+    let (weight_t, scale) = quantize_per_output_channel(weight_f32.transposed().to_tensor());
+    Ok((weight_t.transposed().to_tensor(), scale))
+}
+
+/// Requantize selected int8 `MatMul` weights per column.
+///
+/// This replaces `DequantizeLinear(W, scale, zero_point)`, where `W` is an
+/// int8 constant matrix which is not quantized per column (eg. because it
+/// uses blocked quantization), with `DequantizeLinear(W', scale')`, where `W'`
+/// is quantized per column. This is done only if the output is used, possibly
+/// via a `Cast` to f32, only as the weights of `MatMul` operators.
+///
+/// This prepares weights for [`MatMulDynamicQuantFusion`]. Requantizing the
+/// weights here, rather than in that fusion, means that weights shared by
+/// multiple `MatMul`s are requantized and stored once.
+pub struct MatMulWeightRequantizeFusion {
+    pub weight_name_patterns: Vec<String>,
+}
+
+impl MatMulWeightRequantizeFusion {
+    /// Return true if `value` is used only as the weights of `MatMul`
+    /// operators, possibly via a `Cast` to f32.
+    fn used_only_as_matmul_weights(graph: &Graph, value: NodeId, allow_cast: bool) -> bool {
+        if graph.output_ids().contains(&value) {
+            return false;
+        }
+        let Some(consumers) = graph.get_consumers(value) else {
+            return false;
+        };
+        consumers.iter().all(|&consumer| {
+            let Some(Node::Operator(op)) = graph.get_node(consumer) else {
+                return false;
+            };
+            if op.operator().downcast_ref::<MatMul>().is_some() {
+                return op.input_ids() == [op.input_ids()[0], Some(value)];
+            }
+            match (op.operator().downcast_ref::<Cast>(), op.output_ids()) {
+                (Some(cast), &[Some(cast_out)]) if allow_cast && cast.to == DataType::Float => {
+                    Self::used_only_as_matmul_weights(graph, cast_out, false)
+                }
+                _ => false,
+            }
+        })
+    }
+}
+
+impl FusionVisitor for MatMulWeightRequantizeFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "MatMulWeightRequantizeFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let Some(dq) = op_node.operator().downcast_ref::<DequantizeLinear>() else {
+            return Err(FusionError::NoMatch);
+        };
+        let (weight_q, scale, zero_point) = match op_node.input_ids() {
+            [Some(w), Some(s)] => (*w, *s, None),
+            [Some(w), Some(s), zp] => (*w, *s, *zp),
+            _ => return Err(FusionError::NoMatch),
+        };
+        let &[Some(output)] = op_node.output_ids() else {
+            return Err(FusionError::NoMatch);
+        };
+
+        let Some(Node::Constant(weight_const)) = graph.get_node(weight_q) else {
+            return Err(FusionError::NoMatch);
+        };
+        let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
+            return Err(FusionError::NoMatch);
+        };
+        if weight_view.ndim() != 2
+            || !matches_weight_name(&self.weight_name_patterns, weight_const.name())
+        {
+            return Err(FusionError::NoMatch);
+        }
+        let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
+            return Err(FusionError::NoMatch);
+        };
+        let Some(scale_view) = TypedConstant::<f32>::as_typed_view(scale_const) else {
+            return Err(FusionError::NoMatch);
+        };
+
+        let n_cols = weight_view.size(1);
+        let per_column = dq.block_size == 0
+            && (dq.axis == 1 || dq.axis == -1)
+            && scale_view.ndim() == 1
+            && scale_view.len() == n_cols;
+        if per_column {
+            return Err(FusionError::NoEffect);
+        }
+        if let Some(zp) = zero_point {
+            let all_zero = match graph.get_node(zp) {
+                Some(Node::Constant(zp_const)) => TypedConstant::<i8>::as_typed_view(zp_const)
+                    .is_some_and(|zp| zp.iter().all(|&z| z == 0)),
+                _ => false,
+            };
+            if !all_zero {
+                return Err(FusionError::CheckFailed("zero point is not zero"));
+            }
+        }
+        if !Self::used_only_as_matmul_weights(graph, output, true) {
+            return Err(FusionError::CheckFailed("not used only as MatMul weights"));
+        }
+
+        let (weight_requant, scale_requant) = requantize_per_column(weight_view, scale_view, dq)?;
+        let name = weight_const.name().map(|name| format!("{name}_requant"));
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(DequantizeLinear {
+                axis: 1,
+                block_size: 0,
+            }),
+            input_ids: vec![None, None],
+            new_constant_inputs: vec![
+                (0, Constant::new(name.as_deref(), weight_requant.into_arc())),
+                (1, vector_constant(scale_requant)),
+            ],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: vec![Some(weight_q), Some(scale), zero_point],
+        }))
+    }
+}
+
+/// Fuse `Add(MatMulDynamicQuant(A, B, B_scale), bias)`, where `bias` is a
+/// constant vector, into `MatMulDynamicQuant(A, B, B_scale, bias)`.
+pub struct MatMulDynamicQuantAddFusion {}
+
+impl FusionVisitor for MatMulDynamicQuantAddFusion {
+    type State = Pattern;
+
+    fn name(&self) -> &str {
+        "MatMulDynamicQuantAddFusion"
+    }
+
+    fn prepare(&self, _: &Graph) -> Pattern {
+        Pattern::operator(
+            "MatMulDynamicQuant",
+            [
+                Pattern::symbol("a"),
+                Pattern::const_symbol("b"),
+                Pattern::const_symbol("b_scale"),
+            ],
+        ) + Pattern::const_symbol("bias")
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &Pattern,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let b = pat_match.node_id("b").unwrap();
+        let bias = pat_match.node_id("bias").unwrap();
+
+        let n_cols = match graph.get_node(b) {
+            Some(Node::Constant(b)) => b.shape().last().copied(),
+            _ => None,
+        };
+        let bias_len = graph.get_vector::<f32>(bias).map(|v| v.len());
+        if n_cols.is_none() || bias_len != n_cols {
+            return Err(FusionError::CheckFailed("bias is not a per-column vector"));
+        }
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(MatMulDynamicQuant {}),
+            input_ids: vec![
+                pat_match.node_id("a"),
+                Some(b),
+                pat_match.node_id("b_scale"),
+                Some(bias),
+            ],
+            new_constant_inputs: Vec::new(),
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
+    }
+}
+
+/// Return true if `name` contains one of `patterns`, or a pattern is `*`.
+fn matches_weight_name(patterns: &[String], name: Option<&str>) -> bool {
+    let name = name.unwrap_or("");
+    patterns
+        .iter()
+        .any(|pattern| pattern == "*" || name.contains(pattern.as_str()))
+}
+
+/// Return the `DequantizeLinear` operator which produces `value`, looking
+/// through a `Cast` to f32 (used when the dequantized values are f16).
+fn dequantize_linear_source(graph: &Graph, value: NodeId) -> Option<&OperatorNode> {
+    let (_, mut src) = graph.get_source_node(value)?;
+    if let Some(cast) = src.operator().downcast_ref::<Cast>() {
+        if cast.to != DataType::Float {
+            return None;
+        }
+        let cast_input = src.input_ids().first().copied().flatten()?;
+        src = graph.get_source_node(cast_input)?.1;
+    }
+    src.operator()
+        .downcast_ref::<DequantizeLinear>()
+        .is_some()
+        .then_some(src)
 }
 
 /// Fuses transpose operations on an operator's inputs.

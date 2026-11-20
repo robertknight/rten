@@ -31,7 +31,8 @@ use fusions::{
     ConvIntegerToFloatFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
     GroupedQueryAttentionMatMulFusion, IdentityFusion, InstanceNormalizationAffineFusion,
     InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
-    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
+    MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion,
+    MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion,
     ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
     ShapeSliceToConstant, SiluFusion, SnakeFusion, SwishFusion, TransposeFusion,
 };
@@ -540,6 +541,13 @@ pub struct OptimizeOptions {
     ///
     /// This changes numerics, so is disabled by default.
     pub conv_dynamic_quant_weights: Vec<String>,
+
+    /// Experimental: Substrings of names of int8 matrix multiplication weights
+    /// for which to use int8 matrix multiplication with dynamically quantized
+    /// activations. `*` matches all weights.
+    ///
+    /// This changes numerics, so is disabled by default.
+    pub matmul_dynamic_quant_weights: Vec<String>,
 }
 
 /// Applies optimizations to a [`Graph`] to enable faster inference.
@@ -663,9 +671,24 @@ impl GraphOptimizer {
         // will remove the ComputeShape node and downstream nodes.
         early_fusions.push(ComputeShapeFusion {});
 
-        // Use int8 convolutions with dynamically quantized activations for
-        // selected convolutions with int8 weights. This must run before
-        // constant propagation dequantizes the weights.
+        // Use int8 convolutions and matrix multiplications with dynamically
+        // quantized activations for selected operators with int8 weights.
+        // This must run before constant propagation dequantizes the weights.
+        //
+        // Weights for matrix multiplications are first requantized per column
+        // if needed, in a separate pass so that shared weights are requantized
+        // once.
+        if !opts.matmul_dynamic_quant_weights.is_empty() {
+            let mut requantize = FusionList::new();
+            requantize.push(MatMulWeightRequantizeFusion {
+                weight_name_patterns: opts.matmul_dynamic_quant_weights.clone(),
+            });
+            self.apply_fusions(&mut graph_mut, requantize.visitors(), &diag)?;
+
+            early_fusions.push(MatMulDynamicQuantFusion {
+                weight_name_patterns: opts.matmul_dynamic_quant_weights.clone(),
+            });
+        }
         if !opts.conv_dynamic_quant_weights.is_empty() {
             early_fusions.push(ConvDynamicQuantFusion {
                 weight_name_patterns: opts.conv_dynamic_quant_weights.clone(),
@@ -716,6 +739,7 @@ impl GraphOptimizer {
         fusions.push(MatMulAddFusion {}.into_visitor());
         fusions.push(MatMulScaleFusion {});
         fusions.push(MatMulIntegerToFloatFusion {}.into_visitor());
+        fusions.push(MatMulDynamicQuantAddFusion {});
 
         // Convolution fusions
         fusions.push(ConvAddFusion {});

@@ -34,6 +34,7 @@ mod grid_sample;
 mod identity;
 mod layout;
 mod matmul;
+mod matmul_dynamic_quant;
 mod non_max_suppression;
 mod norm;
 mod pad;
@@ -89,6 +90,7 @@ pub(crate) use {
     identity::Identity,
     layout::{DepthToSpace, Expand, Flatten, Reshape, Shape, Size, Squeeze, Transpose, Unsqueeze},
     matmul::{FusedMatMul, Gemm, MatMul, MatMulInteger, MatMulIntegerToFloat},
+    matmul_dynamic_quant::MatMulDynamicQuant,
     non_max_suppression::NonMaxSuppression,
     norm::{
         BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax, LpNormalization,

@@ -169,7 +169,7 @@ enum MatmulStrategy {
     Batch,
 }
 
-fn matmul_prepack_b<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+pub(crate) fn matmul_prepack_b<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     input: ValueView,
     zero_point: Option<ValueView>,
 ) -> Option<PrepackedInput>
