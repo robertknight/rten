@@ -266,8 +266,23 @@ fn pack_b_tiles_contiguous<const NR: usize, const K_TILE: usize, T: Byte>(
                 let panel_sums = &mut col_sums[col_panel];
 
                 for col_block in 0..NR / K_TILE {
-                    // Load a `[K_TILE, K_TILE]` block with one row per `u64`.
                     let col_offset = row_offset + col_panel * NR + col_block * K_TILE;
+
+                    #[cfg(target_arch = "aarch64")]
+                    if K_TILE == 8 {
+                        let cols = col_block * 8..(col_block + 1) * 8;
+                        pack_block_8x8_neon(
+                            &mut out_tile[cols.start * 8..cols.end * 8],
+                            &mut panel_sums[cols],
+                            data,
+                            col_offset,
+                            row_stride,
+                            cast_zero.to_u8(),
+                        );
+                        continue;
+                    }
+
+                    // Load a `[K_TILE, K_TILE]` block with one row per `u64`.
                     let mut block = [0u64; 8];
                     for (r, row) in block.iter_mut().take(K_TILE).enumerate() {
                         let start = col_offset + r * row_stride;
@@ -294,6 +309,68 @@ fn pack_b_tiles_contiguous<const NR: usize, const K_TILE: usize, T: Byte>(
     }
 
     Some(col_sums)
+}
+
+/// Pack an 8x8 block of bytes from `data`, with rows starting at `start` and
+/// separated by `row_stride`, into `out` in column-major order. The column sums
+/// are added to `col_sums`.
+///
+/// Elements are converted by XOR-ing with `cast_mask`.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+fn pack_block_8x8_neon<T: Byte>(
+    out: &mut [MaybeUninit<T>],
+    col_sums: &mut [i32],
+    data: &[i8],
+    start: usize,
+    row_stride: usize,
+    cast_mask: u8,
+) {
+    use core::arch::aarch64::*;
+
+    assert_eq!(out.len(), 64);
+    assert_eq!(col_sums.len(), 8);
+
+    // Safety: Each load reads 8 bytes from a slice of length 8, and each store
+    // writes 8 bytes to `out`, which has length 64. NEON is always available
+    // on aarch64.
+    unsafe {
+        let mask = vdup_n_u8(cast_mask);
+        let row = |r: usize| {
+            let row = &data[start + r * row_stride..][..8];
+            veor_u8(vld1_u8(row.as_ptr() as *const u8), mask)
+        };
+
+        // Transpose the block in three stages, swapping 1, 2 and then
+        // 4-byte elements between pairs of rows.
+        let a = vtrn_u8(row(0), row(1));
+        let b = vtrn_u8(row(2), row(3));
+        let c = vtrn_u8(row(4), row(5));
+        let d = vtrn_u8(row(6), row(7));
+
+        let u16 = vreinterpret_u16_u8;
+        let e0 = vtrn_u16(u16(a.0), u16(b.0));
+        let e1 = vtrn_u16(u16(a.1), u16(b.1));
+        let g0 = vtrn_u16(u16(c.0), u16(d.0));
+        let g1 = vtrn_u16(u16(c.1), u16(d.1));
+
+        let u32 = vreinterpret_u32_u16;
+        let c04 = vtrn_u32(u32(e0.0), u32(g0.0));
+        let c26 = vtrn_u32(u32(e0.1), u32(g0.1));
+        let c15 = vtrn_u32(u32(e1.0), u32(g1.0));
+        let c37 = vtrn_u32(u32(e1.1), u32(g1.1));
+
+        let cols = [c04.0, c15.0, c26.0, c37.0, c04.1, c15.1, c26.1, c37.1];
+        for (i, col) in cols.into_iter().enumerate() {
+            let col = vreinterpret_u8_u32(col);
+            col_sums[i] += if T::SIGNED {
+                i32::from(vaddlv_s8(vreinterpret_s8_u8(col)))
+            } else {
+                i32::from(vaddlv_u8(col))
+            };
+            vst1_u8(out.as_mut_ptr().add(i * 8) as *mut u8, col);
+        }
+    }
 }
 
 fn pack_b_impl<const NR: usize, const K_TILE: usize, T: Byte>(
