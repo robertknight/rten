@@ -15,9 +15,9 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat,
-    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMulIntegerToFloat,
-    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Softmax, Swish,
-    SymbolInfo, Transpose,
+    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, InstanceNormalization, LayerNormalization,
+    MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu,
+    Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -741,6 +741,129 @@ impl PatternFusion for LayerNormalizationFusion {
             axis: -1,
             epsilon: Some(epsilon),
         })
+    }
+}
+
+/// Fuse the normalization step of instance normalization into
+/// `InstanceNormalization(x, ones, zeros)`.
+///
+/// This matches `(x - mean(x)) / sqrt(mean((x - mean(x))^2) + epsilon)`, where
+/// `x` has shape `[N, C, ...spatial]` and the means are taken over all the
+/// spatial axes. Any subsequent scaling and shifting is left as separate
+/// operators. This handles cases where the scale and shift are computed at
+/// runtime, such as adaptive instance normalization (AdaIN), which
+/// `InstanceNormalization` cannot represent as its scale and bias are
+/// per-channel only.
+///
+/// When applied to a rank-3 input, this also matches the normalization step
+/// of layer normalization over the last axis. [`LayerNormalizationFusion`]
+/// should be tried first so that the full layer normalization is fused where
+/// possible.
+pub struct InstanceNormalizationFusion {}
+
+impl InstanceNormalizationFusion {
+    fn pattern() -> Pattern {
+        let x = Pattern::symbol("x");
+        let center_pat =
+            x.clone() - Pattern::unary_op("ReduceMean", x.clone()).with_name("center_mean");
+        let epsilon = Pattern::const_symbol("epsilon");
+        center_pat.clone()
+            / Pattern::unary_op(
+                "Sqrt",
+                epsilon
+                    + Pattern::unary_op(
+                        "ReduceMean",
+                        Pattern::binary_op("Pow", center_pat.clone(), 2.0),
+                    )
+                    .with_name("norm_mean"),
+            )
+    }
+}
+
+/// Return true if `node_id` is a `ReduceMean` which keeps reduced dimensions
+/// and reduces over exactly the spatial axes (`2..rank`) of an input with
+/// rank `rank`.
+fn reduce_mean_over_spatial_axes(graph: &Graph, node_id: NodeId, rank: usize) -> bool {
+    let Some(reduce_op) = graph
+        .get_node(node_id)
+        .and_then(|n| n.as_operator())
+        .and_then(|op| op.operator().downcast_ref::<ReduceMean>())
+    else {
+        return false;
+    };
+    if !reduce_op.keep_dims {
+        return false;
+    }
+    let Some(axes) = reduce_op.axes.as_deref() else {
+        return false;
+    };
+    let mut axes: Vec<_> = axes
+        .iter()
+        .map(|&axis| if axis < 0 { axis + rank as i32 } else { axis })
+        .collect();
+    axes.sort();
+    axes.into_iter().eq(2..rank as i32)
+}
+
+impl FusionVisitor for InstanceNormalizationFusion {
+    type State = Pattern;
+
+    fn name(&self) -> &str {
+        "InstanceNormalizationFusion"
+    }
+
+    fn prepare(&self, _: &Graph) -> Pattern {
+        Self::pattern()
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &Pattern,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let x = pat_match.node_id("x").unwrap();
+
+        // The channel count must be known to create the scale and bias.
+        let shape = graph
+            .get_node(x)
+            .and_then(|n| n.shape())
+            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
+        if shape.len() < 3 {
+            return Err(FusionError::CheckFailed("input has no spatial dims"));
+        }
+        let Dimension::Fixed(channels) = shape[1] else {
+            return Err(FusionError::CheckFailed("unknown channel count"));
+        };
+
+        for mean in ["center_mean", "norm_mean"] {
+            let mean_id = pat_match.node_id(mean).unwrap();
+            if !reduce_mean_over_spatial_axes(graph, mean_id, shape.len()) {
+                return Err(FusionError::CheckFailed("not applied to spatial axes"));
+            }
+        }
+
+        let epsilon = graph
+            .get_scalar(pat_match.node_id("epsilon").unwrap())
+            .ok_or(FusionError::CheckFailed("epsilon not a scalar"))?;
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(InstanceNormalization {
+                epsilon: Some(epsilon),
+            }),
+            input_ids: vec![Some(x), None, None],
+            new_constant_inputs: vec![
+                (1, vector_constant(vec![1.; channels])),
+                (2, vector_constant(vec![0.; channels])),
+            ],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
     }
 }
 

@@ -29,10 +29,10 @@ use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
     ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvIntegerToFloatFusion, Fusion,
     FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
-    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
-    PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
-    RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SwishFusion,
-    TransposeFusion,
+    InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
+    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
+    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
+    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -689,6 +689,7 @@ impl GraphOptimizer {
 
         // Normalization fusions
         fusions.push(LayerNormalizationFusion {}.into_visitor());
+        fusions.push(InstanceNormalizationFusion {});
         fusions.push(RMSNormalizationFusion {}.into_visitor());
         fusions.push(BatchNormalizationFusion {});
 

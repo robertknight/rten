@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use rten_base::byte_cast::cast_slice;
 use rten_shape_inference::{SymExpr, Symbol};
+use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_testing::TestCases;
 
@@ -16,10 +17,10 @@ use crate::graph::{
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf,
-    Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, IsNaN,
-    LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean,
-    RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose,
-    Unsqueeze, Where,
+    Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If,
+    InstanceNormalization, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow,
+    RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split,
+    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -834,6 +835,149 @@ fn test_fuse_layer_norm() {
         assert_eq!(layer_norm.epsilon, Some(1e-6));
         let bias_input = op.input_ids().get(2).copied().flatten();
         assert_eq!(bias_input.is_some(), with_bias);
+    })
+}
+
+#[test]
+fn test_fuse_instance_norm() {
+    #[derive(Debug)]
+    struct Case {
+        shape: Vec<Dimension>,
+        axes: Vec<i32>,
+        keep_dims: bool,
+        // Multiply the normalized result by a runtime-computed scale, as in
+        // adaptive instance normalization.
+        dynamic_scale: bool,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        // NCT input normalized over time, followed by a dynamic scale
+        Case {
+            shape: dims!(1, 3, "time").into(),
+            axes: [2].into(),
+            keep_dims: true,
+            dynamic_scale: true,
+            expect_fused: true,
+        },
+        // NCHW input normalized over the spatial axes
+        Case {
+            shape: dims!(2, 3, 4, 5).into(),
+            axes: [-2, -1].into(),
+            keep_dims: true,
+            dynamic_scale: false,
+            expect_fused: true,
+        },
+        // Normalization over the channel axis
+        Case {
+            shape: dims!(1, 3, 4).into(),
+            axes: [1].into(),
+            keep_dims: true,
+            dynamic_scale: false,
+            expect_fused: false,
+        },
+        // Normalization over only some spatial axes
+        Case {
+            shape: dims!(1, 3, 4, 5).into(),
+            axes: [-1].into(),
+            keep_dims: true,
+            dynamic_scale: false,
+            expect_fused: false,
+        },
+        // Unknown channel count
+        Case {
+            shape: dims!(1, "chans", 4).into(),
+            axes: [2].into(),
+            keep_dims: true,
+            dynamic_scale: false,
+            expect_fused: false,
+        },
+        // Reduced dimensions not kept
+        Case {
+            shape: dims!(1, 3, 4).into(),
+            axes: [2].into(),
+            keep_dims: false,
+            dynamic_scale: false,
+            expect_fused: false,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let epsilon = 1e-5;
+        let make_graph = || {
+            let x = Expr::value_with_info("x", ValueType::Tensor(DataType::Float), &case.shape);
+            let mean = |x: Expr| {
+                x.unary(ReduceMean {
+                    axes: Some(case.axes.clone()),
+                    keep_dims: case.keep_dims,
+                    noop_with_empty_axes: false,
+                })
+            };
+            let x_sub_mean = x.clone() - mean(x.clone());
+            let normalized = x_sub_mean.clone() / (mean(x_sub_mean.square()) + epsilon).sqrt();
+            if case.dynamic_scale {
+                let scale = Expr::value("scale");
+                (normalized * scale).build_graph(["x", "scale"])
+            } else {
+                normalized.build_graph(["x"])
+            }
+        };
+
+        let graph = optimize_graph_infer_shapes(make_graph()).unwrap();
+        let mut norm_output = graph.output_ids()[0];
+        if case.dynamic_scale {
+            let (_, mul_op) = graph.get_source_node(norm_output).unwrap();
+            assert_eq!(mul_op.operator().name(), "Mul");
+            norm_output = mul_op.input_ids()[0].unwrap();
+        }
+        let (_, op) = graph.get_source_node(norm_output).unwrap();
+
+        if !case.expect_fused {
+            assert_ne!(op.operator().name(), "InstanceNormalization");
+            return;
+        }
+        let instance_norm = op
+            .operator()
+            .downcast_ref::<InstanceNormalization>()
+            .unwrap();
+        assert_eq!(instance_norm.epsilon, Some(epsilon));
+
+        // Compare the fused and unfused graphs on concrete input. Use a
+        // channel with a constant value to check that epsilon is applied
+        // inside the square root.
+        let shape: Vec<usize> = case
+            .shape
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Fixed(size) => *size,
+                Dimension::Symbolic(_) => 6,
+            })
+            .collect();
+        let x = Tensor::<f32>::from_fn(shape.as_slice(), |idx| {
+            if idx[1] == 0 {
+                2.
+            } else {
+                (idx.iter().sum::<usize>() % 7) as f32
+            }
+        });
+        let scale = Tensor::from(3.0f32);
+        let run = |graph: &Graph| -> Tensor<f32> {
+            let mut inputs = vec![(graph.input_ids()[0], x.view().into())];
+            if case.dynamic_scale {
+                inputs.push((graph.input_ids()[1], scale.view().into()));
+            }
+            let [output] = graph
+                .run(inputs, graph.output_ids(), None, None)
+                .unwrap()
+                .try_into()
+                .unwrap();
+            output.try_into().unwrap()
+        };
+        let expected = run(&make_graph());
+        let actual = run(&graph);
+        for (x, y) in actual.iter().zip(expected.iter()) {
+            assert!((x - y).abs() < 1e-5, "{x} != {y}");
+        }
     })
 }
 
