@@ -136,6 +136,71 @@ fn col2im(
         });
 }
 
+/// Perform a depthwise transposed convolution, where each group has one input
+/// and one output channel.
+///
+/// `kernel` has shape `[C, 1, kH, kW]`. Each output channel is computed
+/// directly by accumulating the input, scaled by each kernel element, into
+/// the output. This avoids the overhead of a separate GEMM and col2im for
+/// each channel.
+#[allow(clippy::too_many_arguments)]
+fn conv_transpose_depthwise(
+    pool: &BufferPool,
+    input: NdTensorView<f32, 4>,
+    kernel: NdTensorView<f32, 4>,
+    bias: Option<NdTensorView<f32, 1>>,
+    out_size: [usize; 2],
+    padding: [usize; 2],
+    strides: [usize; 2],
+    dilations: [usize; 2],
+) -> NdTensor<f32, 4> {
+    let [batch, chans, in_h, in_w] = input.shape();
+    let [_, _, k_h, k_w] = kernel.shape();
+    let [out_h, out_w] = out_size;
+    let [pad_top, pad_left] = padding;
+    let [stride_h, stride_w] = strides;
+    let [dilation_h, dilation_w] = dilations;
+
+    let input = input.to_contiguous_in(pool).auto_return(pool);
+    let mut output = NdTensor::uninit_in(pool, [batch, chans, out_h, out_w]);
+
+    output
+        .data_mut()
+        .unwrap()
+        .par_chunks_mut(out_h * out_w)
+        .zip(input.data().par_chunks(in_h * in_w))
+        .enumerate()
+        .for_each(|(batch_chan, (out_img, in_img))| {
+            let chan = batch_chan % chans;
+            out_img.fill(MaybeUninit::new(bias.map(|b| b[chan]).unwrap_or(0.)));
+
+            // Safety: We just initialized all elements of `out_img`.
+            let out_img = unsafe { out_img.assume_init_mut() };
+
+            for k_y in 0..k_h {
+                let y_range = col2im_input_range(in_h, out_h, pad_top, k_y * dilation_h, stride_h);
+                for k_x in 0..k_w {
+                    let x_range =
+                        col2im_input_range(in_w, out_w, pad_left, k_x * dilation_w, stride_w);
+                    let weight = kernel[[chan, 0, k_y, k_x]];
+
+                    for y in y_range.clone() {
+                        let out_y = y * stride_h + k_y * dilation_h - pad_top;
+                        let in_row = &in_img[y * in_w..(y + 1) * in_w];
+                        let out_row = &mut out_img[out_y * out_w..(out_y + 1) * out_w];
+                        for x in x_range.clone() {
+                            let out_x = x * stride_w + k_x * dilation_w - pad_left;
+                            out_row[out_x] += in_row[x] * weight;
+                        }
+                    }
+                }
+            }
+        });
+
+    // Safety: Every output channel was initialized.
+    unsafe { output.assume_init() }
+}
+
 /// Calculate ConvTranspose output spatial shape and padding.
 ///
 /// See formulae in https://onnx.ai/onnx/operators/onnx__ConvTranspose.html.
@@ -342,6 +407,21 @@ pub fn conv_transpose(
     let [out_h, out_w] = out_shape;
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
     let out_c = out_chans_per_group * groups;
+
+    // Use a direct implementation for depthwise transposed convolutions.
+    if k_in_c == groups && out_chans_per_group == 1 {
+        let output = conv_transpose_depthwise(
+            pool,
+            input,
+            kernel,
+            bias,
+            [out_h, out_w],
+            [pad_top, pad_left],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
+        );
+        return Ok(output.into_dyn());
+    }
 
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
@@ -1042,6 +1122,55 @@ mod tests {
                 ..Default::default()
             },
         ]);
+    }
+
+    #[test]
+    fn test_conv_transpose_depthwise() {
+        test_conv_transpose_cases(&[
+            // Batch of images
+            ConvTransposeCase {
+                input_shape: [2, 4, 5, 5],
+                kernel_shape: [4, 1, 3, 3],
+                groups: 4,
+                ..Default::default()
+            },
+            // Upsampling with padding, as used by learned upsampling layers
+            ConvTransposeCase {
+                input_shape: [1, 4, 1, 9],
+                kernel_shape: [4, 1, 1, 3],
+                pads: [0, 1, 0, 1].into(),
+                groups: 4,
+                strides: [1, 2],
+                output_padding: [0, 1],
+                ..Default::default()
+            },
+            // Strides and dilations
+            ConvTransposeCase {
+                input_shape: [1, 3, 4, 5],
+                kernel_shape: [3, 1, 3, 2],
+                groups: 3,
+                strides: [2, 3],
+                dilations: [2, 1],
+                ..Default::default()
+            },
+        ]);
+
+        // Depthwise with bias
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::rand(&[1, 4, 5, 5], &mut rng);
+        let kernel = Tensor::rand(&[4, 1, 3, 3], &mut rng);
+        let bias = NdTensor::rand([4], &mut rng);
+        check_conv_transpose(
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
+            [1, 1, 1, 1].into(),
+            4, /* groups */
+            [2, 2],
+            [1, 1],
+            [1, 1],
+        )
+        .unwrap();
     }
 
     #[test]
