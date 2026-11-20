@@ -5,7 +5,7 @@ use rten_base::bit_set::BitSet;
 use rten_parallel::par_init_chunks;
 use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
-use rten_tensor::{CowTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{CowTensor, NdTensor, NdTensorView, Tensor, TensorView};
 use rten_vecmath as vecmath;
 
 use crate::buffer_pool::BufferPool;
@@ -164,7 +164,7 @@ fn normalize_slice<'src, 'dst>(
 fn normalize_each_channel<'a>(
     pool: &BufferPool,
     input: &mut Tensor,
-    chan_opts: impl Fn(usize) -> NormalizeOptions<'a> + Send + Sync,
+    chan_opts: impl Fn(usize, usize) -> NormalizeOptions<'a> + Send + Sync,
 ) {
     let batch = input.size(0);
 
@@ -183,9 +183,10 @@ fn normalize_each_channel<'a>(
         .into_par_iter()
         .enumerate()
         .for_each(|(batch_chan, mut chan)| {
+            let batch_idx = batch_chan / chans;
             let chan_idx = batch_chan % chans;
             let chan_data = chan.as_slice_mut().unwrap();
-            normalize_slice(chan_data.into(), chan_opts(chan_idx));
+            normalize_slice(chan_data.into(), chan_opts(batch_idx, chan_idx));
         });
 }
 
@@ -212,7 +213,7 @@ pub fn batch_norm(
     check_eq!(var.size(0), channels)?;
 
     let mut output = input.into_owned_in(pool);
-    normalize_each_channel(pool, &mut output, |chan| NormalizeOptions {
+    normalize_each_channel(pool, &mut output, |_batch, chan| NormalizeOptions {
         mean_normalize: MeanNormalize::Static {
             mean: mean[chan],
             variance: var[chan],
@@ -319,37 +320,62 @@ impl Operator for BatchNormalization {
     }
 }
 
+/// Return the per-channel parameters `param` for an instance normalization
+/// input of shape `[N, C, ...]` as an `[N or 1, C]` matrix.
+///
+/// `param` may have shape `[C]`, as in the ONNX spec, or have the same rank as
+/// the input and shape `[N or 1, C, 1, ...]`. The latter is used by fusions
+/// where the parameters are computed at runtime for each batch item.
+fn instance_norm_param(
+    param: TensorView<f32>,
+    input_shape: &[usize],
+    name: &str,
+) -> Result<NdTensor<f32, 2>, OpError> {
+    let &[batch, chans, ..] = input_shape else {
+        return Err(OpError::invalid_value("expected input with >= 2 dims"));
+    };
+    let shape = param.shape();
+    let param_batch = match shape {
+        [len] if *len == chans => 1,
+        [n, c, rest @ ..]
+            if shape.len() == input_shape.len()
+                && (*n == 1 || *n == batch)
+                && *c == chans
+                && rest.iter().all(|&d| d == 1) =>
+        {
+            *n
+        }
+        _ => {
+            return Err(OpError::invalid_value(match name {
+                "scale" => "scale length should match channel count",
+                _ => "bias length should match channel count",
+            }));
+        }
+    };
+    Ok(NdTensor::from_data([param_batch, chans], param.to_vec()))
+}
+
+/// Perform instance normalization of an `[N, C, ...]` tensor.
+///
+/// See [`instance_norm_param`] for the supported shapes of `scale` and `bias`.
 pub fn instance_normalization(
     pool: &BufferPool,
     input: CowTensor<f32>,
-    scale: NdTensorView<f32, 1>,
-    bias: NdTensorView<f32, 1>,
+    scale: TensorView<f32>,
+    bias: TensorView<f32>,
     epsilon: Option<f32>,
 ) -> Result<Tensor, OpError> {
-    let &[_batch, chans, ..] = input.shape() else {
-        return Err(OpError::invalid_value("expected input with >= 2 dims"));
-    };
-
     // If epsilon is None, use default from ONNX spec.
     let epsilon = epsilon.unwrap_or(1e-5);
 
-    if scale.size(0) != chans {
-        return Err(OpError::invalid_value(
-            "scale length should match channel count",
-        ));
-    }
-
-    if bias.size(0) != chans {
-        return Err(OpError::invalid_value(
-            "bias length should match channel count",
-        ));
-    }
+    let scale = instance_norm_param(scale, input.shape(), "scale")?;
+    let bias = instance_norm_param(bias, input.shape(), "bias")?;
 
     let mut output = input.into_owned_in(pool);
-    normalize_each_channel(pool, &mut output, |chan| NormalizeOptions {
+    normalize_each_channel(pool, &mut output, |batch, chan| NormalizeOptions {
         epsilon,
-        scale: scale[chan],
-        bias: bias[chan],
+        scale: scale[[batch.min(scale.size(0) - 1), chan]],
+        bias: bias[[batch.min(bias.size(0) - 1), chan]],
         ..Default::default()
     });
 
@@ -1052,12 +1078,72 @@ mod tests {
 
         let pool = BufferPool::new();
         let result =
-            instance_normalization(&pool, input.as_cow(), scale.nd_view(), bias.nd_view(), None)
-                .unwrap();
+            instance_normalization(&pool, input.as_cow(), scale.view(), bias.view(), None).unwrap();
 
         expect_eq_1e4(&result, &expected)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_instance_normalization_param_shapes() {
+        let pool = BufferPool::new();
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::<f32>::rand(&[2, 3, 4], &mut rng);
+        let scale = Tensor::<f32>::rand(&[2, 3, 1], &mut rng);
+        let bias = Tensor::<f32>::rand(&[2, 3, 1], &mut rng);
+
+        // Per-channel parameters with a shape that broadcasts to the input
+        // match the ONNX `[C]` form.
+        let item_0 = |t: &Tensor<f32>| t.slice((0..1, .., ..)).to_tensor();
+        let expected = instance_normalization(
+            &pool,
+            input.as_cow(),
+            item_0(&scale).reshaped([3]).as_dyn(),
+            item_0(&bias).reshaped([3]).as_dyn(),
+            None,
+        )
+        .unwrap();
+        let result = instance_normalization(
+            &pool,
+            input.as_cow(),
+            item_0(&scale).view(),
+            item_0(&bias).view(),
+            None,
+        )
+        .unwrap();
+        expect_equal(&result, &expected).unwrap();
+
+        // Separate parameters for each item in the batch.
+        let result =
+            instance_normalization(&pool, input.as_cow(), scale.view(), bias.view(), None).unwrap();
+        for n in 0..2 {
+            let item = |t: &Tensor<f32>| t.slice((n..n + 1, .., ..)).to_tensor();
+            let expected = instance_normalization(
+                &pool,
+                item(&input).into_cow(),
+                item(&scale).view(),
+                item(&bias).view(),
+                None,
+            )
+            .unwrap();
+            expect_equal(&result.slice((n..n + 1, .., ..)).to_tensor(), &expected).unwrap();
+        }
+
+        // Parameters which are not per-channel.
+        let result = instance_normalization(
+            &pool,
+            input.as_cow(),
+            Tensor::<f32>::zeros(&[1, 3, 4]).view(),
+            bias.view(),
+            None,
+        );
+        assert_eq!(
+            result.err(),
+            Some(OpError::invalid_value(
+                "scale length should match channel count"
+            ))
+        );
     }
 
     #[test]
