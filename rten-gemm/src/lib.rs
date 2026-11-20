@@ -718,7 +718,17 @@ impl Default for GemmExecutor<u8, i8, i32> {
 /// cache, and can be reused in the loop over row tiles within each row block.
 /// On AVX2 with f32 GEMM for example, NR=16 so `256 * 16 * 4 = 16KB`.
 fn depth_block_size<RhsT>(a_cols: usize, min_size: Option<usize>) -> usize {
-    let max = 1024 / size_of::<RhsT>();
+    // Apple Silicon performance cores have a 128KB L1 data cache, so use
+    // larger blocks for f32. With NR=16, a panel of B is then
+    // `1024 * 16 * 4 = 64KB`. Larger blocks reduce the number of passes over
+    // the output and the synchronization between passes.
+    let is_apple_arm = cfg!(all(target_arch = "aarch64", target_vendor = "apple"));
+    let max_bytes = if is_apple_arm && size_of::<RhsT>() == 4 {
+        4096
+    } else {
+        1024
+    };
+    let max = max_bytes / size_of::<RhsT>();
     max.min(a_cols).max(min_size.unwrap_or(0))
 }
 
