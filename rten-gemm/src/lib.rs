@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
-use rten_base::byte_cast::FromByteArray;
+use rten_base::byte_cast::{FromByteArray, cast_uninit_mut_slice};
 use rten_base::iter::range_chunks;
 use rten_base::num::Identities;
 use rten_parallel::par_iter::MaybeParIter;
@@ -107,6 +107,34 @@ pub enum GemmInputB<'a, T> {
     /// This is used for weight-only quantization where the de-quantized element
     /// type is T.
     BlockQuantized(BlockQuantizedMatrix<'a, T>),
+
+    /// A matrix whose elements are produced on demand by a [`BMatrixSource`].
+    ///
+    /// Blocks of the matrix are requested as they are packed, so the whole
+    /// matrix never needs to be materialized in memory.
+    Source(&'a dyn BMatrixSource<T>),
+}
+
+/// A "B" matrix whose elements are computed on demand.
+///
+/// This allows a GEMM to compute elements of the matrix as blocks of it are
+/// packed, instead of first materializing the whole matrix. Since the
+/// requested blocks are small, this saves memory bandwidth for matrices which
+/// are expensive to read but cheap to compute, such as the result of an
+/// im2col transform.
+pub trait BMatrixSource<T>: Sync {
+    /// Return the number of rows in the matrix.
+    fn rows(&self) -> usize;
+
+    /// Return the number of columns in the matrix.
+    fn cols(&self) -> usize;
+
+    /// Write the elements of the block `[rows, cols]` of the matrix into
+    /// `out` in row-major order.
+    ///
+    /// `out` has length `rows.len() * cols.len()`. All elements must be
+    /// initialized.
+    fn write_block(&self, out: &mut [MaybeUninit<T>], rows: Range<usize>, cols: Range<usize>);
 }
 
 impl<T: Copy + Default> GemmInputB<'_, T> {
@@ -116,6 +144,7 @@ impl<T: Copy + Default> GemmInputB<'_, T> {
             Self::Packed(pm) => pm.rows(),
             Self::Im2Col(im) => im.rows(),
             Self::BlockQuantized(m) => m.rows(),
+            Self::Source(src) => src.rows(),
         }
     }
 
@@ -125,6 +154,7 @@ impl<T: Copy + Default> GemmInputB<'_, T> {
             Self::Packed(pm) => pm.cols(),
             Self::Im2Col(im) => im.cols(),
             Self::BlockQuantized(m) => m.cols(),
+            Self::Source(src) => src.cols(),
         }
     }
 }
@@ -1024,7 +1054,8 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                 let rhs_block = match b {
                     GemmInputB::Unpacked(_)
                     | GemmInputB::Im2Col(_)
-                    | GemmInputB::BlockQuantized(_) => PACKED_B.with(|cell| {
+                    | GemmInputB::BlockQuantized(_)
+                    | GemmInputB::Source(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
 
                         let layout =
@@ -1053,6 +1084,14 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
                                 .as_deref()
                                 .expect("should have packer")
                                 .pack(packed_uninit, depth_range.clone(), col_start..col_end),
+                            GemmInputB::Source(src) => pack_b_from_source(
+                                kernel,
+                                packed_uninit,
+                                src,
+                                depth_range.clone(),
+                                col_start..col_end,
+                                b_quant,
+                            ),
                             GemmInputB::Packed(_) => unreachable!(),
                         }
 
@@ -1154,6 +1193,36 @@ fn gemm_impl<'a, LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
     let output = unsafe { output_mat.assume_init() };
 
     Ok(output.into_slice_mut().unwrap())
+}
+
+/// Pack the block `[rows, cols]` of a B matrix produced by `src` into `out`,
+/// which has the layout returned by [`Kernel::packed_b_layout`].
+fn pack_b_from_source<LhsT, RhsT: GemmInT, OutT>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    out: &mut [MaybeUninit<u8>],
+    src: &dyn BMatrixSource<RhsT>,
+    rows: Range<usize>,
+    cols: Range<usize>,
+    quant: Option<QuantParams<RhsT>>,
+) {
+    thread_local!(static BLOCK: RefCell<PackingBuffer> = const { RefCell::new(PackingBuffer::new()) });
+
+    BLOCK.with(|cell| {
+        let mut buf = cell.take();
+        let n_elems = rows.len() * cols.len();
+        let block = buf.alloc(n_elems * size_of::<RhsT>(), align_of::<RhsT>());
+        let block: &mut [MaybeUninit<RhsT>] = cast_uninit_mut_slice(block).unwrap();
+        src.write_block(&mut block[..n_elems], rows.clone(), cols.clone());
+
+        // Safety: `write_block` initialized all elements.
+        let block = unsafe { block[..n_elems].assume_init() };
+        let block = Matrix::from_data([rows.len(), cols.len()], block);
+        let quant = quant.map(|q| QuantParams {
+            zero_point: &q.zero_point[cols.clone()],
+        });
+        kernel.pack_b_block(out, block, 0..rows.len(), 0..cols.len(), quant);
+        cell.replace(buf);
+    })
 }
 
 /// LHS / A input for a call to [`gemm_block`].
