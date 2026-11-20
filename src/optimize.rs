@@ -557,6 +557,11 @@ impl GraphOptimizer {
     ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
+        // Record constants which are unused before optimization, so that the
+        // dead node pass can preserve them. These may be weights that the
+        // caller looks up by name.
+        let initially_unused_constants = self.unused_constants(&graph_mut);
+
         let mut diag = Diagnostics::new();
         let level = match std::env::var("RTEN_OPTIMIZER_DEBUG").as_deref() {
             Ok("info") => Some(DiagnosticLevel::Info),
@@ -717,7 +722,77 @@ impl GraphOptimizer {
             }
         }
 
+        // Remove nodes made unreachable by constant propagation and fusion.
+        // This frees the memory used by eg. quantized weights that were
+        // replaced by dequantized constants.
+        self.remove_dead_nodes(&mut graph_mut, &initially_unused_constants);
+
         Ok(graph_mut.finalize_graph())
+    }
+
+    /// Return the IDs of constants which are not used as graph outputs,
+    /// operator inputs or subgraph captures.
+    fn unused_constants(&self, graph: &GraphMutator) -> FxHashSet<NodeId> {
+        let captured_values = graph.graph().subgraph_capture_value_ids();
+        graph
+            .graph()
+            .iter()
+            .filter(|(id, node)| {
+                matches!(node, Node::Constant(_))
+                    && !graph.output_ids().contains(id)
+                    && !captured_values.contains(id)
+                    && graph
+                        .graph()
+                        .get_consumers(*id)
+                        .is_none_or(|consumers| consumers.is_empty())
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// Remove operators which do not contribute to graph outputs or subgraph
+    /// captures, together with their output values and any constants that are
+    /// no longer used.
+    ///
+    /// Constants in `keep_constants` are preserved even if unused.
+    fn remove_dead_nodes(&self, graph: &mut GraphMutator, keep_constants: &FxHashSet<NodeId>) {
+        // Find live nodes by traversing backwards from graph outputs and
+        // values captured by subgraphs.
+        let mut live = FxHashSet::default();
+        let mut pending: Vec<NodeId> = graph.output_ids().to_vec();
+        pending.extend(graph.graph().subgraph_capture_value_ids());
+
+        while let Some(value_id) = pending.pop() {
+            if !live.insert(value_id) {
+                continue;
+            }
+            let Some((op_id, op)) = graph.graph().get_source_node(value_id) else {
+                continue;
+            };
+            if live.insert(op_id) {
+                pending.extend(op.input_ids().iter().flatten().copied());
+            }
+        }
+
+        let dead: Vec<NodeId> = graph
+            .graph()
+            .iter()
+            .filter(|(id, node)| {
+                if live.contains(id) {
+                    return false;
+                }
+                match node {
+                    Node::Operator(_) => true,
+                    Node::Constant(_) => !keep_constants.contains(id),
+                    // Remove values produced by operators, but not graph
+                    // inputs or captures.
+                    Node::Value(_) => graph.graph().get_source_node(*id).is_some(),
+                }
+            })
+            .map(|(id, _)| id)
+            .collect();
+
+        graph.graph.remove_nodes(&dead);
     }
 
     /// Mark operator outputs whose values are not used anywhere in the graph

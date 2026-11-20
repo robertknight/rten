@@ -283,6 +283,51 @@ fn test_constant_propagation() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn test_remove_dead_nodes_after_constant_propagation() {
+    let mut graph = Graph::new();
+
+    // Add an operator with constant inputs, which will be replaced by a
+    // constant.
+    let const_a = graph
+        .add_constant(Some("const_a"), Tensor::from([1, 2, 3]).into_arc())
+        .unwrap();
+    let const_b = graph
+        .add_constant(Some("const_b"), Tensor::from([4, 5, 6]).into_arc())
+        .unwrap();
+    let (add_op_1, add_out) = graph
+        .add_simple_op("add_1", Add {}, &[const_a, const_b])
+        .unwrap();
+
+    // Add an operator with a dynamic input.
+    let input = graph.add_value(Some("input"), None, None).unwrap();
+    let (add_op_2, add_2_out) = graph
+        .add_simple_op("add_2", Add {}, &[add_out, input])
+        .unwrap();
+
+    // Add a constant which is unused in the original graph.
+    let unused_const = graph
+        .add_constant(Some("unused"), Tensor::from([7, 8, 9]).into_arc())
+        .unwrap();
+
+    graph.set_input_ids(&[input]);
+    graph.set_output_ids(&[add_2_out]);
+
+    let optimized_graph = optimize_graph(graph).unwrap();
+
+    // The constant-folded operator, its output value and its constant inputs
+    // should be removed.
+    for id in [const_a, const_b, add_op_1, add_out] {
+        assert!(optimized_graph.get_node(id).is_none());
+    }
+
+    // Live operators, graph inputs and constants that were unused in the
+    // original graph should be preserved.
+    for id in [add_op_2, add_2_out, input, unused_const] {
+        assert!(optimized_graph.get_node(id).is_some());
+    }
+}
+
+#[test]
 fn test_fuse_op_with_duplicate_inputs() {
     // We use MatMul + Add fusion for this test, but any fused op that
     // takes multiple non-constant inputs would work.
