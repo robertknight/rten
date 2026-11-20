@@ -736,7 +736,12 @@ fn depth_block_size<RhsT>(a_cols: usize, min_size: Option<usize>) -> usize {
 fn col_block_size(b_cols: usize, nr: usize) -> usize {
     let parallelism = rayon::current_num_threads();
     let lower_bound = 128.min(b_cols);
-    let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
+    let upper_bound = 1024;
+
+    // Choose the number of blocks to be a multiple of the thread count, so
+    // that the work divides evenly between threads.
+    let n_blocks = parallelism * b_cols.div_ceil(parallelism * upper_bound);
+    let unrounded = b_cols.div_ceil(n_blocks).max(lower_bound);
     unrounded.next_multiple_of(nr)
 }
 
