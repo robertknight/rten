@@ -347,7 +347,12 @@ impl Graph {
         // Finally remove nodes from the graph.
         for node_id in node_ids {
             self.consumer_ids.remove(&node_id);
-            if let Some(name) = self.nodes.get(&node_id).and_then(|n| n.name()) {
+            // Only remove the name mapping if it refers to this node. Another
+            // node may have been added later with the same name, eg. a
+            // constant replacing a value during constant propagation.
+            if let Some(name) = self.nodes.get(&node_id).and_then(|n| n.name())
+                && self.node_id_from_name.get(name) == Some(&node_id)
+            {
                 self.node_id_from_name.remove(name);
             }
             self.nodes.remove(&node_id);
