@@ -341,6 +341,11 @@ fn load_value_info(
             onnx::DataType::INT8 => Some(DataType::Int8),
             onnx::DataType::UINT8 => Some(DataType::UInt8),
 
+            // RTen doesn't internally support 4-bit integers but converts them
+            // to 8-bit integers instead.
+            onnx::DataType::INT4 => Some(DataType::Int8),
+            onnx::DataType::UINT4 => Some(DataType::UInt8),
+
             // RTen doesn't internally support i64 or bool tensors but converts
             // them to i32 tensors instead. Adjust the value type here to match.
             //
@@ -532,6 +537,26 @@ pub(crate) fn load_constant(
             raw_data.as_deref(),
             external_data,
             &initializer.int32_data,
+        )?,
+
+        // RTen does not natively support 4-bit integer tensors. Instead unpack
+        // to 8-bit integers at load time.
+        Some(onnx::DataType::INT4) => convert_4bit_constant(
+            name,
+            &shape,
+            raw_data.as_deref(),
+            external_data,
+            &initializer.int32_data,
+            // Sign-extend the low 4 bits.
+            |x| ((x << 4) as i8) >> 4,
+        )?,
+        Some(onnx::DataType::UINT4) => convert_4bit_constant(
+            name,
+            &shape,
+            raw_data.as_deref(),
+            external_data,
+            &initializer.int32_data,
+            |x| x,
         )?,
 
         Some(dtype) => {
@@ -738,6 +763,56 @@ fn convert_float16_constant<T: Float16>(
     let mut data: Vec<f32> = Vec::with_capacity(n);
     data.extend_init(|spare_capacity| T::to_f32_slice(&halfs, &mut spare_capacity[..n]));
 
+    let tensor = tensor_from_elements(shape, data, name)?;
+    Ok(Constant::new(name, tensor))
+}
+
+/// Load an int4 or uint4 constant, unpacking each element into a byte.
+///
+/// Elements are packed two per byte, with the first element in the low
+/// nibble. For the `int32_data` field, each entry holds one packed byte.
+/// `convert` maps a 4-bit value in the low bits of a byte to the output type.
+fn convert_4bit_constant<T>(
+    name: Option<&str>,
+    shape: &[usize],
+    raw_data: Option<&[u8]>,
+    external_data: Option<DataSlice>,
+    int32_data: &[i32],
+    convert: impl Fn(u8) -> T,
+) -> Result<Constant, LoadError>
+where
+    Constant: From<ConstantNode<T>>,
+{
+    let ext_bytes = external_data.as_ref().map(|data| data.data());
+    let packed: Cow<[u8]> = if let Some(bytes) = raw_data.or(ext_bytes) {
+        Cow::Borrowed(bytes)
+    } else {
+        int32_data.iter().map(|&x| x as u8).collect()
+    };
+
+    let len: usize = shape.iter().product();
+    if packed.len() != len.div_ceil(2) {
+        return Err(load_error!(
+            GraphError,
+            name,
+            "packed 4-bit data length {} does not match shape {:?}",
+            packed.len(),
+            shape
+        ));
+    }
+
+    let mut data: Vec<T> = Vec::with_capacity(len);
+    let out = &mut data.spare_capacity_mut()[..len];
+    let (pairs, tail) = out.as_chunks_mut::<2>();
+    for (pair, &byte) in pairs.iter_mut().zip(packed.iter()) {
+        pair[0].write(convert(byte & 0x0F));
+        pair[1].write(convert(byte >> 4));
+    }
+    if let [last] = tail {
+        last.write(convert(packed[len / 2] & 0x0F));
+    }
+    // Safety: The loops above initialized all `len` elements.
+    unsafe { data.set_len(len) };
     let tensor = tensor_from_elements(shape, data, name)?;
     Ok(Constant::new(name, tensor))
 }
@@ -1420,6 +1495,63 @@ mod tests {
         assert_eq!(
             bf16_vec,
             TensorView::from(&[round_bf16(0.1), round_bf16(0.2), round_bf16(0.3)])
+        );
+    }
+
+    #[test]
+    fn test_load_4bit_initializer() {
+        // Packed bytes for the elements `[1, -1, 7, -8, 2]` (odd length, so
+        // the high nibble of the last byte is padding).
+        let packed = [0xF1u8, 0x87, 0x02];
+
+        let int4_raw = create_tensor(
+            "int4_raw",
+            &[5],
+            onnx::DataType::INT4,
+            TensorData::Raw(packed.into()),
+        );
+        let int4_vec = create_tensor(
+            "int4_vec",
+            &[5],
+            onnx::DataType::INT4,
+            TensorData::Int(packed.map(|x| x as i32).into()),
+        );
+        let uint4_raw = create_tensor(
+            "uint4_raw",
+            &[5],
+            onnx::DataType::UINT4,
+            TensorData::Raw(packed.into()),
+        );
+        let int4_bad_len = create_tensor(
+            "int4_bad_len",
+            &[7],
+            onnx::DataType::INT4,
+            TensorData::Raw(packed.into()),
+        );
+
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(int4_raw)
+            .with_initializer(int4_vec)
+            .with_initializer(uint4_raw)
+            .into_model();
+        let model = load_model(model_proto, None).unwrap();
+
+        let expected_int4 = TensorView::from(&[1i8, -1, 7, -8, 2]);
+        let int4_raw = model.get_tensor_by_name::<i8>("int4_raw").unwrap();
+        assert_eq!(int4_raw, expected_int4);
+        let int4_vec = model.get_tensor_by_name::<i8>("int4_vec").unwrap();
+        assert_eq!(int4_vec, expected_int4);
+
+        let uint4_raw = model.get_tensor_by_name::<u8>("uint4_raw").unwrap();
+        assert_eq!(uint4_raw, TensorView::from(&[1u8, 15, 7, 8, 2]));
+
+        let model_proto = onnx::GraphProto::default()
+            .with_initializer(int4_bad_len)
+            .into_model();
+        let err = load_model(model_proto, None).err().unwrap();
+        assert_eq!(
+            err.to_string(),
+            "in node \"int4_bad_len\": graph error: packed 4-bit data length 3 does not match shape [7]"
         );
     }
 
