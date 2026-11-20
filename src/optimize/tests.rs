@@ -19,8 +19,8 @@ use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf,
     Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If,
     InstanceNormalization, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow,
-    RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Slice, Softmax, Split,
-    Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Sin, Slice, Softmax,
+    Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -73,6 +73,7 @@ trait OpExprs {
     fn sigmoid(&self) -> Expr;
     fn slice(&self, starts: Expr, ends: Expr) -> Expr;
     fn square(&self) -> Expr;
+    fn sin(&self) -> Expr;
     fn sqrt(&self) -> Expr;
     fn softmax(&self, axis: isize) -> Expr;
     fn tanh(&self) -> Expr;
@@ -147,6 +148,10 @@ impl OpExprs for Expr {
 
     fn square(&self) -> Expr {
         self.binary(Pow {}, Expr::constant(2.0))
+    }
+
+    fn sin(&self) -> Expr {
+        self.unary(Sin {})
     }
 
     fn sqrt(&self) -> Expr {
@@ -404,6 +409,77 @@ fn test_fuse_silu() {
 
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     assert_eq!(op.operator().name(), "Silu");
+}
+
+#[test]
+fn test_fuse_snake() {
+    #[derive(Debug)]
+    struct Case {
+        // Shape of the `alpha` and `beta` constants.
+        param_shape: Vec<usize>,
+        // Shape of the input, if known.
+        input_shape: Option<Vec<Dimension>>,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        // Per-channel parameters
+        Case {
+            param_shape: [1, 3, 1].into(),
+            input_shape: None,
+            expect_fused: true,
+        },
+        // Single parameter, broadcast to a known channel count
+        Case {
+            param_shape: [1, 1, 1].into(),
+            input_shape: Some(dims!(1, 3, "time").into()),
+            expect_fused: true,
+        },
+        // Single parameter with unknown channel count
+        Case {
+            param_shape: [1, 1, 1].into(),
+            input_shape: None,
+            expect_fused: false,
+        },
+        // Parameters which vary along the time axis
+        Case {
+            param_shape: [1, 1, 5].into(),
+            input_shape: None,
+            expect_fused: false,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let n_params: usize = case.param_shape.iter().product();
+        let alpha = Tensor::from_data(
+            &case.param_shape,
+            (0..n_params).map(|i| 0.5 + i as f32).collect::<Vec<_>>(),
+        );
+        let beta = alpha.map(|a| 1. / a);
+
+        let graph = {
+            let x = match &case.input_shape {
+                Some(shape) => {
+                    Expr::value_with_info("x", ValueType::Tensor(DataType::Float), shape)
+                }
+                // The input rank is still needed to match per-channel
+                // parameters.
+                None => Expr::value_with_info(
+                    "x",
+                    ValueType::Tensor(DataType::Float),
+                    &dims!("batch", "chans", "time"),
+                ),
+            };
+            let expr =
+                x.clone() + Expr::constant(beta) * (Expr::constant(alpha) * x).sin().square();
+            expr.build_graph(["x"])
+        };
+
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        let expected_op = if case.expect_fused { "Snake" } else { "Add" };
+        assert_eq!(op.operator().name(), expected_op);
+    })
 }
 
 #[test]

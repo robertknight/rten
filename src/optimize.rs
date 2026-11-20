@@ -32,7 +32,7 @@ use fusions::{
     InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
     MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
     ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    ShapeSliceToConstant, SiluFusion, SnakeFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -683,6 +683,7 @@ impl GraphOptimizer {
 
         // Activation fusions
         fusions.push(SiluFusion {}.into_visitor());
+        fusions.push(SnakeFusion {});
         fusions.push(SwishFusion {}.into_visitor());
         fusions.push(GeluFusion {}.into_visitor());
         fusions.push(ApproxGeluFusion {}.into_visitor());

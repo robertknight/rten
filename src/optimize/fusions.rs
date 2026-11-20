@@ -17,7 +17,7 @@ use crate::ops::{
     AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat,
     FusedMatMul, Gelu, GroupedQueryAttentionMatMul, InstanceNormalization, LayerNormalization,
     MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu,
-    Softmax, Swish, SymbolInfo, Transpose,
+    Snake, Softmax, Swish, SymbolInfo, Transpose,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::ValueType;
@@ -1852,6 +1852,79 @@ fn channel_vector(graph: &Graph, const_id: NodeId, rank: usize) -> Result<Vec<f3
         return Err(FusionError::CheckFailed("constant is not an f32 constant"));
     };
     Ok(view.to_vec())
+}
+
+/// Fuse `x + beta * sin(alpha * x)^2` into `Snake(x, alpha, beta)`.
+///
+/// `x` must have shape `[N, C, ...]` and `alpha` and `beta` must be constants
+/// with one value per channel, broadcast to `x` (ie. shape `[1, C, 1, ...]`).
+/// This is the Snake activation used in neural vocoders such as BigVGAN and
+/// iSTFTNet. See <https://arxiv.org/abs/2006.08195>.
+pub struct SnakeFusion {}
+
+impl SnakeFusion {
+    fn pattern() -> Pattern {
+        let x = Pattern::symbol("x");
+        let alpha = Pattern::const_symbol("alpha");
+        let beta = Pattern::const_symbol("beta");
+        x.clone()
+            + beta * Pattern::binary_op("Pow", Pattern::unary_op("Sin", alpha * x.clone()), 2.0)
+    }
+}
+
+impl FusionVisitor for SnakeFusion {
+    type State = Pattern;
+
+    fn name(&self) -> &str {
+        "SnakeFusion"
+    }
+
+    fn prepare(&self, _: &Graph) -> Pattern {
+        Self::pattern()
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &Pattern,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let x = pat_match.node_id("x").unwrap();
+        let rank = graph
+            .get_rank(x)
+            .ok_or(FusionError::CheckFailed("unknown input rank"))?;
+
+        let alpha = channel_vector(graph, pat_match.node_id("alpha").unwrap(), rank)?;
+        let beta = channel_vector(graph, pat_match.node_id("beta").unwrap(), rank)?;
+        if alpha.len() != beta.len() {
+            return Err(FusionError::CheckFailed("alpha and beta lengths differ"));
+        }
+
+        // A single value broadcasts to all channels, so must be expanded to
+        // the channel count.
+        let (alpha, beta) = if alpha.len() == 1 {
+            let channels = match graph.get_node(x).and_then(|n| n.shape()).as_deref() {
+                Some([_, Dimension::Fixed(channels), ..]) => *channels,
+                _ => return Err(FusionError::CheckFailed("unknown channel count")),
+            };
+            (vec![alpha[0]; channels], vec![beta[0]; channels])
+        } else {
+            (alpha, beta)
+        };
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(Snake {}),
+            input_ids: vec![Some(x), None, None],
+            new_constant_inputs: vec![(1, vector_constant(alpha)), (2, vector_constant(beta))],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
+    }
 }
 
 /// Fuse `Add(Mul(X, scale), bias)` into `BatchNormalization(X, scale, bias, mean, var)`.

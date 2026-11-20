@@ -52,6 +52,7 @@ mod rnn;
 mod scatter;
 mod sequence;
 mod slice;
+mod snake;
 mod split;
 mod trilu;
 mod unary_elementwise;
@@ -108,6 +109,7 @@ pub(crate) use {
         SequenceInsert, SequenceLength, SplitToSequence,
     },
     slice::Slice,
+    snake::Snake,
     split::Split,
     trilu::Trilu,
     unary_elementwise::{
