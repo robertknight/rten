@@ -562,6 +562,157 @@ fn test_fuse_conv_add() {
 }
 
 #[test]
+fn test_fuse_matmul_dynamic_quant() {
+    #[derive(Debug)]
+    struct Case {
+        weight_patterns: Vec<String>,
+        zero_point: i8,
+        // Also use the dequantized weights in a non-`MatMul` operator.
+        extra_consumer: bool,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        Case {
+            weight_patterns: ["layer.".to_string()].into(),
+            zero_point: 0,
+            extra_consumer: false,
+            expect_fused: true,
+        },
+        // Weights which are not only used by `MatMul`s
+        Case {
+            weight_patterns: ["layer.".to_string()].into(),
+            zero_point: 0,
+            extra_consumer: true,
+            expect_fused: true,
+        },
+        // Weight name not selected
+        Case {
+            weight_patterns: ["other.".to_string()].into(),
+            zero_point: 0,
+            extra_consumer: false,
+            expect_fused: false,
+        },
+        // Non-zero weight zero point
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            zero_point: 1,
+            extra_consumer: false,
+            expect_fused: false,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let n = 3;
+
+        // Create a graph where blocked int8 weights are dequantized, cast to
+        // f32 and shared by two `MatMul`s, one of which is followed by a bias.
+        let make_graph = || {
+            let mut graph = Graph::new();
+            let x = graph.add_value(Some("x"), None, None);
+            let y = graph.add_value(Some("y"), None, None);
+            let weight_q = graph.add_constant(
+                Some("layer.weight_q"),
+                Tensor::<i8>::from([[1, -2, 3], [4, 5, -6], [-7, 8, 9], [10, -11, 12]]).into_arc(),
+            );
+            let scale = graph.add_constant(
+                Some("scale"),
+                Tensor::from([[0.5f32, 0.25, 1.], [2., 0.5, 0.25]]).into_arc(),
+            );
+            let zero_point = graph.add_constant(
+                Some("zero_point"),
+                Tensor::<i8>::full(&[2, n], case.zero_point).into_arc(),
+            );
+            let (_, dequantized) = graph.add_simple_op(
+                "dequantize",
+                DequantizeLinear {
+                    axis: 0,
+                    block_size: 2,
+                },
+                &[weight_q, scale, zero_point],
+            );
+            let (_, weight) = graph.add_simple_op(
+                "cast",
+                Cast {
+                    to: DataType::Float,
+                },
+                &[dequantized],
+            );
+            let (_, x_out) = graph.add_simple_op("matmul_x", MatMul {}, &[x, weight]);
+            let bias = graph.add_constant(Some("bias"), Tensor::from([1f32, 2., 3.]).into_arc());
+            let (_, x_out) = graph.add_simple_op("add_bias", Add {}, &[x_out, bias]);
+            let (_, y_out) = graph.add_simple_op("matmul_y", MatMul {}, &[y, weight]);
+            graph.set_input_ids(&[x, y]);
+            if case.extra_consumer {
+                let (_, extra_out) = graph.add_simple_op("extra", Add {}, &[weight, weight]);
+                graph.set_output_ids(&[x_out, y_out, extra_out]);
+            } else {
+                graph.set_output_ids(&[x_out, y_out]);
+            }
+            graph
+        };
+
+        let graph = GraphOptimizer::new()
+            .optimize(
+                make_graph(),
+                None,
+                OptimizeOptions {
+                    matmul_dynamic_quant_weights: case.weight_patterns.clone(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let op_names: Vec<_> = graph.output_ids()[..2]
+            .iter()
+            .map(|&id| graph.get_source_node(id).unwrap().1.operator().name())
+            .collect();
+        if !case.expect_fused {
+            assert_ne!(op_names[0], "MatMulDynamicQuant");
+            assert_ne!(op_names[1], "MatMulDynamicQuant");
+            return;
+        }
+        assert_eq!(op_names, ["MatMulDynamicQuant", "MatMulDynamicQuant"]);
+
+        // The bias should be fused into the first `MatMul`.
+        let (_, x_op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        assert_eq!(x_op.input_ids().len(), 4);
+
+        // The requantized weights should be shared, unless the original
+        // weights are also used elsewhere.
+        let (_, y_op) = graph.get_source_node(graph.output_ids()[1]).unwrap();
+        assert_eq!(
+            x_op.input_ids()[1..3] == y_op.input_ids()[1..3],
+            !case.extra_consumer
+        );
+
+        // Compare the fused and unfused graphs on concrete input.
+        let x = Tensor::from([[0.5f32, -1., 2., 0.25], [3., 1., -0.5, 0.]]);
+        let y = Tensor::from([[1f32, 2., 3., 4.]]);
+        let run = |graph: &Graph| -> Vec<Tensor<f32>> {
+            let inputs = vec![
+                (graph.input_ids()[0], x.view().into()),
+                (graph.input_ids()[1], y.view().into()),
+            ];
+            graph
+                .run(inputs, graph.output_ids(), None, None)
+                .unwrap()
+                .into_iter()
+                .map(|out| out.try_into().unwrap())
+                .collect()
+        };
+        let expected = run(&make_graph());
+        let actual = run(&graph);
+        for (actual, expected) in actual.iter().zip(&expected) {
+            assert_eq!(actual.shape(), expected.shape());
+            for (a, e) in actual.iter().zip(expected.iter()) {
+                assert!((a - e).abs() < 0.05 * e.abs().max(1.), "{a} != {e}");
+            }
+        }
+    })
+}
+
+#[test]
 fn test_fuse_conv_dynamic_quant() {
     #[derive(Debug)]
     struct Case {
