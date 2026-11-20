@@ -32,6 +32,9 @@ pub enum PrepackedInput {
 
     /// Prepacked LHS / A input for matrix multiplication with f32 weights.
     FloatAMatrix(PackedAMatrix<f32>),
+
+    /// Prepacked LHS / A input for matrix multiplication with u8 weights.
+    UInt8AMatrix(PackedAMatrix<u8>),
 }
 
 impl PrepackedInput {
@@ -40,6 +43,7 @@ impl PrepackedInput {
             Self::FloatBMatrix(_) => DataType::Float,
             Self::Int8BMatrix(_) => DataType::Int8,
             Self::FloatAMatrix(_) => DataType::Float,
+            Self::UInt8AMatrix(_) => DataType::UInt8,
         }
     }
 }

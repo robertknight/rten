@@ -4,7 +4,7 @@ use std::sync::Arc;
 use rten_base::byte_cast::cast_slice;
 use rten_shape_inference::{SymExpr, Symbol};
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, Tensor};
+use rten_tensor::{NdTensor, Tensor, TensorView};
 use rten_testing::TestCases;
 
 use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
@@ -16,11 +16,11 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DynamicQuantizeLinear, Erf,
-    Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If,
-    InstanceNormalization, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow,
-    RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Sin, Slice, Softmax,
-    Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DequantizeLinear,
+    DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul,
+    Identity, If, InstanceNormalization, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
+    Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Sin,
+    Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -39,6 +39,7 @@ fn optimize_graph_infer_shapes(graph: Graph) -> Result<Graph, OptimizeError> {
                 strict: false,
                 ..Default::default()
             }),
+            ..Default::default()
         },
     )
 }
@@ -558,6 +559,204 @@ fn test_fuse_conv_add() {
             .expect("bias should be a constant");
         assert_eq!(bias.shape(), [out_channels]);
     });
+}
+
+#[test]
+fn test_fuse_conv_dynamic_quant() {
+    #[derive(Debug)]
+    struct Case {
+        weight_patterns: Vec<String>,
+        // Use a scalar weight scale instead of a per-channel one.
+        scalar_scale: bool,
+        zero_point: i8,
+        groups: usize,
+        // Use blocked quantization, which requires requantizing the weights.
+        blocked: bool,
+        // Insert a `Cast` between the `DequantizeLinear` and `Conv`.
+        cast: bool,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        Case {
+            weight_patterns: ["block.".to_string()].into(),
+            scalar_scale: false,
+            zero_point: 0,
+            groups: 1,
+            blocked: false,
+            cast: false,
+            expect_fused: true,
+        },
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            scalar_scale: true,
+            zero_point: 0,
+            groups: 1,
+            blocked: false,
+            cast: false,
+            expect_fused: true,
+        },
+        // Weight name not selected
+        Case {
+            weight_patterns: ["other.".to_string()].into(),
+            scalar_scale: false,
+            zero_point: 0,
+            groups: 1,
+            blocked: false,
+            cast: false,
+            expect_fused: false,
+        },
+        // Non-zero weight zero point
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            scalar_scale: false,
+            zero_point: 1,
+            groups: 1,
+            blocked: false,
+            cast: false,
+            expect_fused: false,
+        },
+        // Grouped convolution
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            scalar_scale: false,
+            zero_point: 0,
+            groups: 2,
+            blocked: false,
+            cast: false,
+            expect_fused: false,
+        },
+        // Blocked quantization with a cast, as used by int4 models
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            scalar_scale: false,
+            zero_point: 0,
+            groups: 1,
+            blocked: true,
+            cast: true,
+            expect_fused: true,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let out_chans = 4;
+        let in_chans = 4 / case.groups;
+        let mut graph = Graph::new();
+        let x = graph.add_value(Some("x"), None, None);
+        let weight_q = graph.add_constant(
+            Some("block.weight_q"),
+            Tensor::<i8>::full(&[out_chans, in_chans, 3], 2).into_arc(),
+        );
+        let scale = if case.blocked {
+            // Scale for blocks of 2 input channels.
+            graph.add_constant(
+                Some("scale"),
+                Tensor::<f32>::full(&[out_chans, in_chans / 2, 3], 0.5).into_arc(),
+            )
+        } else if case.scalar_scale {
+            graph.add_constant(Some("scale"), Tensor::from(0.5f32).into_arc())
+        } else {
+            graph.add_constant(
+                Some("scale"),
+                Tensor::from([0.5f32, 0.25, 1., 2.]).into_arc(),
+            )
+        };
+        let zero_point = graph.add_constant(
+            Some("zero_point"),
+            Tensor::<i8>::full(&[out_chans], case.zero_point).into_arc(),
+        );
+        let dequantized = graph.add_value(Some("dequantized"), None, None);
+        graph.add_op(
+            Some("dequantize"),
+            Arc::new(if case.blocked {
+                DequantizeLinear {
+                    axis: 1,
+                    block_size: 2,
+                }
+            } else {
+                DequantizeLinear {
+                    axis: 0,
+                    block_size: 0,
+                }
+            }),
+            &[Some(weight_q), Some(scale), Some(zero_point)],
+            &[Some(dequantized)],
+        );
+        let weight = if case.cast {
+            let (_, cast_out) = graph.add_simple_op(
+                "cast",
+                Cast {
+                    to: DataType::Float,
+                },
+                &[dequantized],
+            );
+            cast_out
+        } else {
+            dequantized
+        };
+        let bias = graph.add_constant(Some("bias"), Tensor::<f32>::zeros(&[out_chans]).into_arc());
+        let (_, output) = graph.add_simple_op(
+            "conv",
+            Conv {
+                groups: case.groups,
+                dilations: vec![1],
+                padding: Padding::Same,
+                strides: vec![1],
+            },
+            &[x, weight, bias],
+        );
+        graph.set_input_ids(&[x]);
+        graph.set_output_ids(&[output]);
+
+        let graph = GraphOptimizer::new()
+            .optimize(
+                graph,
+                None,
+                OptimizeOptions {
+                    conv_dynamic_quant_weights: case.weight_patterns.clone(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        if !case.expect_fused {
+            assert_eq!(op.operator().name(), "Conv");
+            return;
+        }
+        assert_eq!(op.operator().name(), "ConvDynamicQuant");
+
+        // Inputs should be the input, int8 weights, per-channel scale and bias.
+        let input_ids: Vec<_> = op.input_ids().iter().map(|id| id.unwrap()).collect();
+        assert_eq!(input_ids[0], x);
+        if case.blocked {
+            // Weights are requantized per output channel.
+            let weight = graph
+                .get_node(input_ids[1])
+                .and_then(|n| n.as_constant())
+                .unwrap();
+            assert_eq!(weight.shape(), [out_chans, in_chans, 3]);
+
+            // All dequantized weights are `2 * 0.5 = 1.0`, so each channel's
+            // values map to the maximum quantized value.
+            let weight: TensorView<i8> = TypedConstant::as_typed_view(weight).unwrap();
+            assert!(weight.iter().all(|&w| w == 127));
+            let scale = graph
+                .get_node(input_ids[2])
+                .and_then(|n| n.as_constant())
+                .unwrap();
+            let scale: TensorView<f32> = TypedConstant::as_typed_view(scale).unwrap();
+            assert!(scale.iter().all(|&s| s == 1. / 127.));
+        } else {
+            assert_eq!(input_ids[1], weight_q);
+        }
+        let scale = graph
+            .get_node(input_ids[2])
+            .and_then(|n| n.as_constant())
+            .unwrap();
+        assert_eq!(scale.shape(), [out_chans]);
+        assert_eq!(input_ids[3], bias);
+    })
 }
 
 #[test]
@@ -2068,6 +2267,7 @@ fn test_infer_shapes() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -2105,6 +2305,7 @@ fn test_shape_inference_replaces_values_with_constants() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -2136,6 +2337,7 @@ fn test_shape_inference_constants_preserve_value_type() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -2183,6 +2385,7 @@ fn test_shape_inference_constants_shared_by_values_with_different_types() {
             None,
             OptimizeOptions {
                 infer_shapes: Some(InferShapeOptions::default()),
+                ..Default::default()
             },
         )
         .unwrap();
