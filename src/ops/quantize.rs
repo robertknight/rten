@@ -39,13 +39,23 @@ impl_dequantize_f32!(i32);
 impl_dequantize_f32!(i8);
 impl_dequantize_f32!(u8);
 
-pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + 'static>(
+/// Dequantize `input`.
+///
+/// If `block_size` is non-zero, this uses blocked quantization, where `scale`
+/// and `zero_point` have the same rank as `input` and each element along
+/// `axis` applies to a block of `block_size` input elements.
+pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + Sync + 'static>(
     pool: &BufferPool,
     input: TensorView<T>,
     scale: TensorView<f32>,
     zero_point: Option<TensorView<T>>,
     axis: isize,
+    block_size: usize,
 ) -> Result<Tensor<f32>, OpError> {
+    if block_size > 0 {
+        return dequantize_linear_blocked(pool, input, scale, zero_point, axis, block_size);
+    }
+
     // Treat both a scalar and single-element vector as selecting per-tensor
     // quantization. This deviates from the ONNX spec but is necessary for
     // compatibility with ONNX Runtime and its quantization tools.
@@ -99,9 +109,104 @@ pub fn dequantize_linear<T: Copy + Default + Dequantize<f32> + Scalar + 'static>
     }
 }
 
+fn dequantize_linear_blocked<T: Copy + Default + Dequantize<f32> + Scalar + Sync + 'static>(
+    pool: &BufferPool,
+    input: TensorView<T>,
+    scale: TensorView<f32>,
+    zero_point: Option<TensorView<T>>,
+    axis: isize,
+    block_size: usize,
+) -> Result<Tensor<f32>, OpError> {
+    let axis = resolve_axis(input.ndim(), axis)?;
+
+    let mut expected_scale_shape = input.shape().to_vec();
+    expected_scale_shape[axis] = input.size(axis).div_ceil(block_size);
+    if scale.shape() != expected_scale_shape {
+        return Err(OpError::invalid_value(
+            "scale shape does not match input shape and block size",
+        ));
+    }
+    if let Some(zp) = &zero_point
+        && zp.shape() != scale.shape()
+    {
+        return Err(OpError::invalid_value(
+            "scale and zero_point must have same shape",
+        ));
+    }
+
+    // View the input and output as `[outer, axis_len, inner]` and the scale
+    // and zero point as `[outer, n_blocks, inner]`.
+    let shape = input.shape().to_vec();
+    let inner: usize = shape[axis + 1..].iter().product();
+    let axis_len = shape[axis];
+    let n_blocks = scale.size(axis);
+
+    let input = input.to_contiguous_in(pool);
+    let input = input.data();
+    let scale = scale.to_contiguous_in(pool);
+    let scale = scale.data();
+    let zero_point = zero_point.map(|zp| zp.to_contiguous_in(pool));
+    let zero_point = zero_point.as_ref().map(|zp| zp.data());
+
+    let chunk_len = (axis_len * inner).max(1);
+    let output = par_init_chunks(
+        pool.alloc(input.len()),
+        input.len(),
+        chunk_len,
+        |outer_idx, out_chunk| {
+            let in_chunk = &input[outer_idx * chunk_len..][..out_chunk.len()];
+
+            // Process each block of `block_size` positions along the axis,
+            // which share a row of scales and zero points.
+            let block_len = block_size * inner;
+            for (block, (out_block, in_block)) in out_chunk
+                .chunks_mut(block_len)
+                .zip(in_chunk.chunks(block_len))
+                .enumerate()
+            {
+                let block_offset = (outer_idx * n_blocks + block) * inner;
+                let scale_row = &scale[block_offset..][..inner];
+                let zp_row = zero_point.map(|zp| &zp[block_offset..][..inner]);
+
+                // Handle the common case of blocks along the last axis
+                // separately, so the inner loop is over the whole block.
+                if inner == 1 {
+                    let scale = scale_row[0];
+                    let zp = zp_row.map(|zp| zp[0]).unwrap_or_default();
+                    for (y, &x) in out_block.iter_mut().zip(in_block) {
+                        y.write(x.dequantize(scale, zp));
+                    }
+                    continue;
+                }
+
+                for (out_row, in_row) in out_block.chunks_mut(inner).zip(in_block.chunks(inner)) {
+                    let elements = out_row.iter_mut().zip(in_row).zip(scale_row);
+                    if let Some(zp_row) = zp_row {
+                        for (((y, &x), &scale), &zp) in elements.zip(zp_row) {
+                            y.write(x.dequantize(scale, zp));
+                        }
+                    } else {
+                        for ((y, &x), &scale) in elements {
+                            y.write(x.dequantize(scale, T::default()));
+                        }
+                    }
+                }
+            }
+            // Safety: All elements of `out_chunk` were initialized above.
+            unsafe { out_chunk.assume_init() }
+        },
+    );
+
+    Ok(Tensor::from_data(&shape, output))
+}
+
 #[derive(Debug)]
 pub struct DequantizeLinear {
     pub axis: isize,
+
+    /// Size of quantization blocks along `axis`, or zero if blocked
+    /// quantization is not used.
+    pub block_size: usize,
 }
 
 impl Operator for DequantizeLinear {
@@ -120,7 +225,8 @@ impl Operator for DequantizeLinear {
 
         map_value_view!(input, x, [Int8Tensor, UInt8Tensor, Int32Tensor], {
             let zero_point = inputs.get_as(2)?;
-            dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis).into_op_result()
+            dequantize_linear(ctx.pool(), x, scale, zero_point, self.axis, self.block_size)
+                .into_op_result()
         })
     }
 
@@ -649,6 +755,7 @@ mod tests {
                         scale.view(),
                         zero_point.as_ref().map(|zp| zp.view()),
                         *axis,
+                        0, /* block_size */
                     );
                     assert_eq!(result, *expected);
 
@@ -675,6 +782,7 @@ mod tests {
                         scale.view(),
                         zero_point.as_ref().map(|zp| zp.view()),
                         *axis,
+                        0, /* block_size */
                     );
                     assert_eq!(result, *expected);
 
@@ -694,6 +802,94 @@ mod tests {
                 }
                 _ => panic!("unsupported quantized type"),
             };
+        })
+    }
+
+    #[test]
+    fn test_dequantize_linear_blocked() {
+        #[derive(Debug)]
+        struct Case {
+            axis: isize,
+            block_size: usize,
+            input: Tensor<i8>,
+            scale: Tensor<f32>,
+            zero_point: Option<Tensor<i8>>,
+            expected: Result<Tensor<f32>, OpError>,
+        }
+
+        let cases = [
+            // Blocks along the last axis, where the axis size is not a
+            // multiple of the block size.
+            Case {
+                axis: 1,
+                block_size: 2,
+                input: Tensor::from([[1i8, 2, 3], [4, 5, 6]]),
+                scale: Tensor::from([[1., 10.], [2., 20.]]),
+                zero_point: None,
+                expected: Ok(Tensor::from([[1., 2., 30.], [8., 10., 120.]])),
+            },
+            // Blocks along the last axis, with a zero point.
+            Case {
+                axis: 1,
+                block_size: 2,
+                input: Tensor::from([[1i8, 2, 3]]),
+                scale: Tensor::from([[1., 10.]]),
+                zero_point: Some(Tensor::from([[1i8, 2]])),
+                expected: Ok(Tensor::from([[0., 1., 10.]])),
+            },
+            // Blocks along the first axis, with a zero point.
+            Case {
+                axis: 0,
+                block_size: 2,
+                input: Tensor::from([[1i8, 2], [3, 4], [5, 6]]),
+                scale: Tensor::from([[1., 2.], [10., 20.]]),
+                zero_point: Some(Tensor::from([[1i8, 0], [5, 6]])),
+                expected: Ok(Tensor::from([[0., 4.], [2., 8.], [0., 0.]])),
+            },
+            // Blocks along the middle axis, with a negative axis.
+            Case {
+                axis: -2,
+                block_size: 2,
+                input: Tensor::from([[[1i8, 2], [3, 4]]]),
+                scale: Tensor::from([[[2., 3.]]]),
+                zero_point: None,
+                expected: Ok(Tensor::from([[[2., 6.], [6., 12.]]])),
+            },
+            // Scale with wrong number of blocks
+            Case {
+                axis: 1,
+                block_size: 2,
+                input: Tensor::from([[1i8, 2, 3]]),
+                scale: Tensor::from([[1.]]),
+                zero_point: None,
+                expected: Err(OpError::invalid_value(
+                    "scale shape does not match input shape and block size",
+                )),
+            },
+            // Zero point with a different shape than scale
+            Case {
+                axis: 1,
+                block_size: 2,
+                input: Tensor::from([[1i8, 2, 3]]),
+                scale: Tensor::from([[1., 2.]]),
+                zero_point: Some(Tensor::from([[1i8]])),
+                expected: Err(OpError::invalid_value(
+                    "scale and zero_point must have same shape",
+                )),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let pool = BufferPool::new();
+            let result = dequantize_linear(
+                &pool,
+                case.input.view(),
+                case.scale.view(),
+                case.zero_point.as_ref().map(|zp| zp.view()),
+                case.axis,
+                case.block_size,
+            );
+            assert_eq!(result, case.expected);
         })
     }
 

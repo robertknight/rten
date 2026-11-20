@@ -1107,14 +1107,16 @@ impl_read_op!(DFT, |attrs: &Attrs| {
 impl_read_op!(DequantizeLinear, |attrs: &Attrs| {
     let axis = attrs.get_as_int("axis")?.unwrap_or(1);
 
-    // A non-zero "block_size" selects blocked quantization, which is
-    // unsupported.
-    attrs.check_eq("block_size", 0)?;
+    // A non-zero "block_size" selects blocked quantization.
+    let block_size = attrs.get_as_int("block_size")?.unwrap_or(0);
+    let block_size: usize = block_size
+        .try_into()
+        .map_err(|_| ReadOpError::attr_error("block_size", "must be non-negative"))?;
 
     // A zero "output_dtype" means the type is taken from the `scale` input.
     attrs.check_eq("output_dtype", 0)?;
 
-    Ok(ops::DequantizeLinear { axis })
+    Ok(ops::DequantizeLinear { axis, block_size })
 });
 
 impl_read_op!(DepthToSpace, |attrs: &Attrs| {
