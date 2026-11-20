@@ -117,9 +117,184 @@ pub fn pack_b_cast_i8_u8<const NR: usize, const K_TILE: usize>(
 }
 
 /// A type with size and align of 1.
-trait Byte: Copy + Default {}
-impl Byte for u8 {}
-impl Byte for i8 {}
+trait Byte: Copy + Default {
+    /// True if this is a signed type.
+    const SIGNED: bool;
+
+    fn from_u8(x: u8) -> Self;
+    fn to_u8(self) -> u8;
+}
+
+impl Byte for u8 {
+    const SIGNED: bool = false;
+
+    fn from_u8(x: u8) -> Self {
+        x
+    }
+
+    fn to_u8(self) -> u8 {
+        self
+    }
+}
+
+impl Byte for i8 {
+    const SIGNED: bool = true;
+
+    fn from_u8(x: u8) -> Self {
+        x as i8
+    }
+
+    fn to_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Return the sum of the bytes in `x`, interpreted as values of type `T`.
+#[inline(always)]
+fn sum_bytes<T: Byte>(x: u64) -> i32 {
+    const M8: u64 = 0x00FF_00FF_00FF_00FF;
+    const M16: u64 = 0x0000_FFFF_0000_FFFF;
+    let s = (x & M8) + ((x >> 8) & M8);
+    let s = (s & M16) + ((s >> 16) & M16);
+    let sum = ((s & 0xFFFF_FFFF) + (s >> 32)) as i32;
+    if T::SIGNED {
+        // Subtract 256 for each byte which is negative when signed.
+        let n_neg = ((x >> 7) & 0x0101_0101_0101_0101).wrapping_mul(0x0101_0101_0101_0101) >> 56;
+        sum - 256 * n_neg as i32
+    } else {
+        sum
+    }
+}
+
+/// Swap the bytes selected by `mask << shift` in `rows[i]` with the bytes
+/// selected by `mask` in `rows[j]`.
+#[inline(always)]
+fn swap_bits(rows: &mut [u64; 8], i: usize, j: usize, shift: u32, mask: u64) {
+    let t = ((rows[i] >> shift) ^ rows[j]) & mask;
+    rows[j] ^= t;
+    rows[i] ^= t << shift;
+}
+
+/// Transpose a 4x4 matrix of bytes stored in the low 32 bits of `rows[..4]`,
+/// in little-endian order.
+fn transpose_4x4(rows: &mut [u64; 8]) {
+    const M8: u64 = 0x00FF_00FF;
+    const M16: u64 = 0x0000_FFFF;
+    swap_bits(rows, 0, 1, 8, M8);
+    swap_bits(rows, 2, 3, 8, M8);
+    swap_bits(rows, 0, 2, 16, M16);
+    swap_bits(rows, 1, 3, 16, M16);
+}
+
+/// Transpose an 8x8 matrix of bytes stored in `rows`, in little-endian
+/// order.
+fn transpose_8x8(rows: &mut [u64; 8]) {
+    const M8: u64 = 0x00FF_00FF_00FF_00FF;
+    const M16: u64 = 0x0000_FFFF_0000_FFFF;
+    const M32: u64 = 0x0000_0000_FFFF_FFFF;
+    for i in (0..8).step_by(2) {
+        swap_bits(rows, i, i + 1, 8, M8);
+    }
+    for i in [0, 1, 4, 5] {
+        swap_bits(rows, i, i + 2, 16, M16);
+    }
+    for i in 0..4 {
+        swap_bits(rows, i, i + 4, 32, M32);
+    }
+}
+
+/// Load `N` (4 or 8) bytes from `data` into the low bytes of a `u64`, in
+/// little-endian order.
+#[inline(always)]
+fn load_bytes<const N: usize>(data: &[i8]) -> u64 {
+    match N {
+        4 => u64::from(u32::from_le_bytes(std::array::from_fn(|i| data[i] as u8))),
+        _ => u64::from_le_bytes(std::array::from_fn(|i| data[i] as u8)),
+    }
+}
+
+/// Return a function which transposes a `[K_TILE, K_TILE]` block of bytes,
+/// if supported for this tile size.
+fn transpose_fn<const K_TILE: usize>() -> Option<fn(&mut [u64; 8])> {
+    match K_TILE {
+        4 => Some(transpose_4x4),
+        8 => Some(transpose_8x8),
+        _ => None,
+    }
+}
+
+/// Pack the first `n_tiles` `[K_TILE, NR]` tiles of the first `n_panels`
+/// column panels of a B matrix whose rows are contiguous.
+///
+/// `data` is the matrix data, with rows starting at multiples of
+/// `row_stride`. Elements are converted by XOR-ing with `cast_zero`, the
+/// result of casting zero to `T`. Returns the column sums of the packed
+/// elements in each panel, or `None` if the tile size is not supported.
+fn pack_b_tiles_contiguous<const NR: usize, const K_TILE: usize, T: Byte>(
+    out: &mut [MaybeUninit<T>],
+    data: &[i8],
+    row_stride: usize,
+    n_panels: usize,
+    n_tiles: usize,
+    panel_stride: usize,
+    cast_zero: T,
+) -> Option<Vec<[i32; NR]>> {
+    let transpose = transpose_fn::<K_TILE>()?;
+    if !NR.is_multiple_of(K_TILE) {
+        return None;
+    }
+
+    // `cast` is either the identity or a flip of the sign bit. Apply it only to
+    // the `K_TILE` bytes in use, so the unused bytes stay zero.
+    let used_bytes = u64::MAX >> (64 - 8 * K_TILE);
+    let cast_mask = (u64::from(cast_zero.to_u8()) * 0x0101_0101_0101_0101) & used_bytes;
+
+    let mut col_sums = vec![[0i32; NR]; n_panels];
+
+    // Process groups of panels which together span a few cache lines of each
+    // input row, so that each line loaded is fully used.
+    const GROUP_COLS: usize = 256;
+    let group_panels = (GROUP_COLS / NR).max(1);
+
+    for group_start in (0..n_panels).step_by(group_panels) {
+        let group = group_start..(group_start + group_panels).min(n_panels);
+        for row_tile in 0..n_tiles {
+            let row_offset = row_tile * K_TILE * row_stride;
+            for col_panel in group.clone() {
+                let tile_offset = col_panel * panel_stride + row_tile * NR * K_TILE;
+                let out_tile = &mut out[tile_offset..tile_offset + NR * K_TILE];
+                let panel_sums = &mut col_sums[col_panel];
+
+                for col_block in 0..NR / K_TILE {
+                    // Load a `[K_TILE, K_TILE]` block with one row per `u64`.
+                    let col_offset = row_offset + col_panel * NR + col_block * K_TILE;
+                    let mut block = [0u64; 8];
+                    for (r, row) in block.iter_mut().take(K_TILE).enumerate() {
+                        let start = col_offset + r * row_stride;
+                        *row = load_bytes::<K_TILE>(&data[start..start + K_TILE]) ^ cast_mask;
+                    }
+
+                    // Transpose so each `u64` contains one column.
+                    transpose(&mut block);
+
+                    for (c, &col) in block.iter().take(K_TILE).enumerate() {
+                        let col_idx = col_block * K_TILE + c;
+                        panel_sums[col_idx] += sum_bytes::<T>(col);
+                        let bytes = col.to_le_bytes();
+                        for (dst, &src) in out_tile[col_idx * K_TILE..(col_idx + 1) * K_TILE]
+                            .iter_mut()
+                            .zip(&bytes)
+                        {
+                            dst.write(T::from_u8(src));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some(col_sums)
+}
 
 fn pack_b_impl<const NR: usize, const K_TILE: usize, T: Byte>(
     out: &mut [MaybeUninit<T>],
@@ -136,8 +311,6 @@ fn pack_b_impl<const NR: usize, const K_TILE: usize, T: Byte>(
         packed_b_layout::<NR, K_TILE>(b_rows, b_cols).size()
     );
 
-    let mut out = SliceWriter::new(out);
-
     // Loop over column panels
     let full_panels = b_cols / NR;
     let tail_cols = b_cols % NR;
@@ -145,18 +318,46 @@ fn pack_b_impl<const NR: usize, const K_TILE: usize, T: Byte>(
     let full_tiles = b_rows / K_TILE;
     let tail_rows = b_rows % K_TILE;
 
+    // If rows are contiguous, pack the full tiles of full panels using a fast
+    // path. This produces the column sums for these tiles.
+    let fast_col_sums = if b.stride(1) == 1 && full_panels > 0 {
+        // Safety: `b` is an immutable view, so no mutable references to its
+        // elements exist.
+        let data = unsafe { b.storage().as_slice() };
+        let panel_stride = packed_b_layout::<NR, K_TILE>(b_rows, b_cols).panel_stride();
+        pack_b_tiles_contiguous::<NR, K_TILE, T>(
+            out,
+            data,
+            b.stride(0),
+            full_panels,
+            full_tiles,
+            panel_stride,
+            cast(0),
+        )
+    } else {
+        None
+    };
+
+    let mut out = SliceWriter::new(out);
+
     for col_panel in 0..full_panels {
         let mut col_sums = [0i32; NR];
 
         // Write panel elements
-        for row_tile in 0..full_tiles {
-            for c in 0..NR {
-                for r in 0..K_TILE {
-                    let y = row_tile * K_TILE + r;
-                    let x = col_panel * NR + c;
-                    let val = cast(unsafe { *b.get_unchecked([y, x]) });
-                    col_sums[c] += i32::from(val);
-                    unsafe { out.write_unchecked(val) };
+        if let Some(fast_col_sums) = &fast_col_sums {
+            col_sums = fast_col_sums[col_panel];
+            // Safety: The tiles were initialized by `pack_b_tiles_contiguous`.
+            unsafe { out.skip_unchecked(full_tiles * NR * K_TILE) };
+        } else {
+            for row_tile in 0..full_tiles {
+                for c in 0..NR {
+                    for r in 0..K_TILE {
+                        let y = row_tile * K_TILE + r;
+                        let x = col_panel * NR + c;
+                        let val = cast(unsafe { *b.get_unchecked([y, x]) });
+                        col_sums[c] += i32::from(val);
+                        unsafe { out.write_unchecked(val) };
+                    }
                 }
             }
         }
@@ -757,6 +958,41 @@ mod tests {
         }
         test_pack_b::<K_TILE_I8DOT>();
         test_pack_b::<K_TILE_I8MM>();
+    }
+
+    #[test]
+    fn test_pack_b_contiguous_rows() {
+        // Packing uses a separate path for inputs with contiguous rows. Check
+        // that it matches the path for other inputs.
+        fn test_pack_b<const NR: usize, const K_TILE: usize>() {
+            let mut rng = XorShiftRng::new(1234);
+            for n in 1..NR * 3 {
+                for k in 1..K_TILE * 3 {
+                    let mat = NdTensor::<i8, 2>::rand([k, n], &mut rng);
+                    let col_major = mat.transposed().to_tensor();
+                    let strided = col_major.transposed();
+                    let zero_points: Vec<i8> = (1..=n as i8).collect();
+
+                    assert_eq!(
+                        pack_b_matrix::<NR, K_TILE>(mat.view(), Some(&zero_points)),
+                        pack_b_matrix::<NR, K_TILE>(strided, Some(&zero_points)),
+                        "pack_b mismatch for n={} k={}",
+                        n,
+                        k
+                    );
+                    assert_eq!(
+                        pack_b_matrix_cast_u8::<NR, K_TILE>(mat.view()),
+                        pack_b_matrix_cast_u8::<NR, K_TILE>(strided),
+                        "pack_b_cast_i8_u8 mismatch for n={} k={}",
+                        n,
+                        k
+                    );
+                }
+            }
+        }
+        test_pack_b::<8, K_TILE_I8DOT>();
+        test_pack_b::<8, K_TILE_I8MM>();
+        test_pack_b::<16, K_TILE_I8DOT>();
     }
 
     #[test]

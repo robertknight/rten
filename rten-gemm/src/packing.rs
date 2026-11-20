@@ -62,6 +62,14 @@ impl<'a, T> SliceWriter<'a, T> {
         self.offset += vals.len();
     }
 
+    /// Advance the write position by `len` elements, without writing them.
+    ///
+    /// Safety: The skipped elements must have already been initialized.
+    unsafe fn skip_unchecked(&mut self, len: usize) {
+        debug_assert!(self.offset + len <= self.slice.len());
+        self.offset += len;
+    }
+
     /// Write `len` copies of `val` to the slice.
     ///
     /// Safety: The number of elements already written must be less than or
