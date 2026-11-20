@@ -871,6 +871,115 @@ impl FusionVisitor for InstanceNormalizationFusion {
     }
 }
 
+/// Fuse `InstanceNormalization(x, 1, 0) * gamma + beta` into
+/// `InstanceNormalization(x, gamma, beta)`.
+///
+/// `gamma` and `beta` are per-channel values with shape `[N or 1, C, 1, ...]`
+/// which may be computed at runtime. This pattern occurs in adaptive instance
+/// normalization (AdaIN), where they are computed from a style vector.
+pub struct InstanceNormalizationAffineFusion {}
+
+impl InstanceNormalizationAffineFusion {
+    fn pattern() -> Pattern {
+        let norm = Pattern::operator(
+            "InstanceNormalization",
+            [
+                Pattern::symbol("x"),
+                Pattern::const_symbol("scale"),
+                Pattern::const_symbol("bias"),
+            ],
+        )
+        .with_name("norm");
+        norm * Pattern::symbol("gamma") + Pattern::symbol("beta")
+    }
+}
+
+/// Return true if `shape` is a per-channel parameter shape (`[N or 1, C, 1,
+/// ...]`) for an input of shape `input_shape` (`[N, C, ...]`).
+fn is_per_channel_param_shape(shape: &[Dimension], input_shape: &[Dimension]) -> bool {
+    let [batch, chans, ..] = shape else {
+        return false;
+    };
+    shape.len() == input_shape.len()
+        && (*batch == Dimension::Fixed(1) || *batch == input_shape[0])
+        && *chans == input_shape[1]
+        && shape[2..].iter().all(|d| *d == Dimension::Fixed(1))
+}
+
+impl FusionVisitor for InstanceNormalizationAffineFusion {
+    type State = Pattern;
+
+    fn name(&self) -> &str {
+        "InstanceNormalizationAffineFusion"
+    }
+
+    fn prepare(&self, _: &Graph) -> Pattern {
+        Self::pattern()
+    }
+
+    fn maybe_fuse(
+        &self,
+        pattern: &Pattern,
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let pat_match = pattern
+            .test(op_node_id, graph)
+            .ok_or(FusionError::NoMatch)?;
+        let x = pat_match.node_id("x").unwrap();
+        let gamma = pat_match.node_id("gamma").unwrap();
+        let beta = pat_match.node_id("beta").unwrap();
+
+        let norm_id = pat_match.node_id("norm").unwrap();
+        let norm_op = graph
+            .get_operator::<InstanceNormalization>(norm_id)
+            .ok_or(FusionError::NoMatch)?;
+        let norm_output = graph
+            .get_node(norm_id)
+            .and_then(|n| n.as_operator())
+            .and_then(|op| op.output_ids().first().copied().flatten())
+            .ok_or(FusionError::NoMatch)?;
+
+        let is_filled = |id, value: f32| {
+            graph
+                .get_vector::<f32>(pat_match.node_id(id).unwrap())
+                .is_some_and(|v| v.iter().all(|&x| x == value))
+        };
+        if !is_filled("scale", 1.) || !is_filled("bias", 0.) {
+            return Err(FusionError::CheckFailed("scale or bias is not identity"));
+        }
+
+        let shape_of = |id| graph.get_node(id).and_then(|n| n.shape());
+        let input_shape = shape_of(x).ok_or(FusionError::CheckFailed("unknown input shape"))?;
+        for param in [gamma, beta] {
+            let is_per_channel = shape_of(param)
+                .is_some_and(|shape| is_per_channel_param_shape(&shape, &input_shape));
+            if !is_per_channel {
+                return Err(FusionError::CheckFailed("gamma or beta is not per-channel"));
+            }
+        }
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(InstanceNormalization {
+                epsilon: norm_op.epsilon,
+            }),
+            input_ids: vec![Some(x), Some(gamma), Some(beta)],
+            new_constant_inputs: Vec::new(),
+            output_ids: op_node.output_ids().to_vec(),
+            // Exclude the normalization from the fused subgraph, so that the
+            // fusion can be applied when the normalized output has other
+            // users. This happens when several AdaIN layers with different
+            // styles share an input. The fused operator recomputes the
+            // normalization, which costs about the same as the multiplication
+            // and addition it replaces. The original normalization is removed
+            // if it is no longer used.
+            unused_input_ids: vec![Some(norm_output)],
+        }))
+    }
+}
+
 /// Fuse `RMSNormalization(x)`.
 ///
 /// See https://pytorch.org/docs/stable/generated/torch.nn.modules.normalization.RMSNorm.html.

@@ -1275,6 +1275,194 @@ fn test_fuse_instance_norm() {
 }
 
 #[test]
+fn test_fuse_instance_norm_affine() {
+    #[derive(Debug)]
+    struct Case {
+        x_shape: Vec<Dimension>,
+        // Shape of the scale and bias, or `None` if unknown.
+        param_shape: Option<Vec<Dimension>>,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        // Scale and bias shared by all items in the batch
+        Case {
+            x_shape: dims!(1, 3, "time").into(),
+            param_shape: Some(dims!(1, 3, 1).into()),
+            expect_fused: true,
+        },
+        // Scale and bias for each item in the batch
+        Case {
+            x_shape: dims!(2, 3, "time").into(),
+            param_shape: Some(dims!(2, 3, 1).into()),
+            expect_fused: true,
+        },
+        // Scale and bias which vary over time
+        Case {
+            x_shape: dims!(1, 3, 4).into(),
+            param_shape: Some(dims!(1, 3, 4).into()),
+            expect_fused: false,
+        },
+        // Unknown scale and bias shape
+        Case {
+            x_shape: dims!(1, 3, 4).into(),
+            param_shape: None,
+            expect_fused: false,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let make_graph = || {
+            let float = ValueType::Tensor(DataType::Float);
+            let x = Expr::value_with_info("x", float, &case.x_shape);
+            let param = |name| match &case.param_shape {
+                Some(shape) => Expr::value_with_info(name, float, shape),
+                None => Expr::value(name),
+            };
+            let mean = |x: Expr| {
+                x.unary(ReduceMean {
+                    axes: Some([2].into()),
+                    keep_dims: true,
+                    noop_with_empty_axes: false,
+                })
+            };
+            let x_sub_mean = x.clone() - mean(x.clone());
+            let normalized = x_sub_mean.clone() / (mean(x_sub_mean.square()) + 1e-5).sqrt();
+            (normalized * param("gamma") + param("beta")).build_graph(["x", "gamma", "beta"])
+        };
+
+        let graph = optimize_graph_infer_shapes(make_graph()).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        if !case.expect_fused {
+            assert_eq!(op.operator().name(), "Add");
+            return;
+        }
+        assert_eq!(op.operator().name(), "InstanceNormalization");
+        assert_eq!(
+            op.input_ids(),
+            [
+                Some(graph.input_ids()[0]),
+                Some(graph.input_ids()[1]),
+                Some(graph.input_ids()[2])
+            ]
+        );
+
+        // Compare the fused and unfused graphs on concrete input.
+        let concrete = |shape: &[Dimension]| -> Vec<usize> {
+            shape
+                .iter()
+                .map(|dim| match dim {
+                    Dimension::Fixed(size) => *size,
+                    Dimension::Symbolic(_) => 5,
+                })
+                .collect()
+        };
+        let x_shape = concrete(&case.x_shape);
+        let param_shape = concrete(case.param_shape.as_ref().unwrap());
+        let x = Tensor::<f32>::from_fn(x_shape.as_slice(), |idx| {
+            (idx.iter().sum::<usize>() % 7) as f32
+        });
+        let gamma = Tensor::<f32>::from_fn(param_shape.as_slice(), |idx| {
+            1. + idx[0] as f32 + idx[1] as f32
+        });
+        let beta =
+            Tensor::<f32>::from_fn(param_shape.as_slice(), |idx| idx[1] as f32 - idx[0] as f32);
+        let run = |graph: &Graph| -> Tensor<f32> {
+            let inputs = vec![
+                (graph.input_ids()[0], x.view().into()),
+                (graph.input_ids()[1], gamma.view().into()),
+                (graph.input_ids()[2], beta.view().into()),
+            ];
+            let [output] = graph
+                .run(inputs, graph.output_ids(), None, None)
+                .unwrap()
+                .try_into()
+                .unwrap();
+            output.try_into().unwrap()
+        };
+        let expected = run(&make_graph());
+        let actual = run(&graph);
+        assert_eq!(actual.shape(), expected.shape());
+        for (x, y) in actual.iter().zip(expected.iter()) {
+            assert!((x - y).abs() < 1e-5, "{x} != {y}");
+        }
+    })
+}
+
+#[test]
+fn test_fuse_instance_norm_affine_shared_input() {
+    // Two AdaIN layers with different styles, which share a normalized input.
+    let make_graph = || {
+        let float = ValueType::Tensor(DataType::Float);
+        let x = Expr::value_with_info("x", float, &dims!(1, 3, "time"));
+        let param = |name| Expr::value_with_info(name, float, &dims!(1, 3, 1));
+        let mean = |x: Expr| {
+            x.unary(ReduceMean {
+                axes: Some([2].into()),
+                keep_dims: true,
+                noop_with_empty_axes: false,
+            })
+        };
+        let x_sub_mean = x.clone() - mean(x.clone());
+        let normalized = x_sub_mean.clone() / (mean(x_sub_mean.square()) + 1e-5).sqrt();
+        let style_a = normalized.clone() * param("gamma_a") + param("beta_a");
+        let style_b = normalized * param("gamma_b") + param("beta_b");
+        (style_a + style_b).build_graph(["x", "gamma_a", "beta_a", "gamma_b", "beta_b"])
+    };
+
+    let graph = optimize_graph_infer_shapes(make_graph()).unwrap();
+
+    // Each AdaIN layer should be fused into a normalization of `x`, and the
+    // shared normalization should be removed.
+    let (_, add_op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+    assert_eq!(add_op.operator().name(), "Add");
+    let input_ids = graph.input_ids();
+    for (add_input, params) in add_op.input_ids().iter().zip([[1, 2], [3, 4]]) {
+        let (_, op) = graph.get_source_node(add_input.unwrap()).unwrap();
+        assert_eq!(op.operator().name(), "InstanceNormalization");
+        assert_eq!(
+            op.input_ids(),
+            [
+                Some(input_ids[0]),
+                Some(input_ids[params[0]]),
+                Some(input_ids[params[1]])
+            ]
+        );
+    }
+    let n_norms = graph
+        .iter()
+        .filter(|(_, node)| {
+            node.as_operator()
+                .is_some_and(|op| op.operator().name() == "InstanceNormalization")
+        })
+        .count();
+    assert_eq!(n_norms, 2);
+
+    // Compare the fused and unfused graphs on concrete input.
+    let x = Tensor::<f32>::from_fn(&[1, 3, 5], |idx| (idx.iter().sum::<usize>() % 7) as f32);
+    let param = |offset: f32| Tensor::<f32>::from_fn(&[1, 3, 1], |idx| offset + idx[1] as f32);
+    let params = [param(1.), param(-1.), param(2.), param(0.5)];
+    let run = |graph: &Graph| -> Tensor<f32> {
+        let mut inputs = vec![(graph.input_ids()[0], x.view().into())];
+        for (id, param) in graph.input_ids()[1..].iter().zip(&params) {
+            inputs.push((*id, param.view().into()));
+        }
+        let [output] = graph
+            .run(inputs, graph.output_ids(), None, None)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        output.try_into().unwrap()
+    };
+    let expected = run(&make_graph());
+    let actual = run(&graph);
+    assert_eq!(actual.shape(), expected.shape());
+    for (x, y) in actual.iter().zip(expected.iter()) {
+        assert!((x - y).abs() < 1e-5, "{x} != {y}");
+    }
+}
+
+#[test]
 fn test_fuse_rms_norm() {
     // See https://arxiv.org/pdf/1910.07467
     let graph = {
