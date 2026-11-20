@@ -89,6 +89,7 @@ The examples have been chosen to cover common tasks and popular models.
 
 - **byt5_g2p** - Convert text to phonemes using [ByT5](https://huggingface.co/fdemelo/g2p-mbyt5-12l-ipa-childes-espeak).
   The phonemes can be used as inputs for the **piper** example.
+- **kitten_tts** - Text-to-speech using [Kitten TTS 2](https://huggingface.co/KittenML/kitten-tts-2-mini)
 - **kokoro** - Text-to-speech using [Kokoro](https://github.com/hexgrad/kokoro).
 - **piper** - Text-to-speech using [Piper](https://github.com/rhasspy/piper) models
 - **silero** - Speech detection using [Silero VAD](https://github.com/snakers4/silero-vad)

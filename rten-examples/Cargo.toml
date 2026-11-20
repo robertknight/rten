@@ -23,6 +23,7 @@ rten-generate = { path = "../rten-generate", features=["text-decoder"] }
 rten-imageio = { path = "../rten-imageio" }
 rten-imageproc = { path = "../rten-imageproc" }
 rten-sequence = { path = "../rten-sequence" }
+rten-serialize = { path = "../rten-serialize", features = ["npz"] }
 rten-tensor = { path = "../rten-tensor", features=["serde"] }
 rten-text = { path = "../rten-text" }
 smallvec = { workspace = true }
@@ -131,6 +132,11 @@ test = false
 [[bin]]
 name = "byt5_g2p"
 path = "src/byt5_g2p.rs"
+test = false
+
+[[bin]]
+name = "kitten_tts"
+path = "src/kitten_tts.rs"
 test = false
 
 [[bin]]

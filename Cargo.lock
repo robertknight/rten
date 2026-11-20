@@ -581,6 +581,7 @@ dependencies = [
  "rten-imageio",
  "rten-imageproc",
  "rten-sequence",
+ "rten-serialize",
  "rten-tensor",
  "rten-text",
  "serde",
