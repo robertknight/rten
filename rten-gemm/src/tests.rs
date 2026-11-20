@@ -10,9 +10,9 @@ use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Rando
 use rten_testing::TestCases;
 
 use super::{
-    BiasVector, BlockQuantizedMatrix, ColOffsets, F32KernelType, GemmError, GemmExecutor, GemmInT,
-    GemmInputA, GemmInputB, GemmOptions, GemmOutT, Im2Col, QuantParams, ReducedRangeRng,
-    RowOffsets, WithKernel,
+    BMatrixSource, BiasVector, BlockQuantizedMatrix, ColOffsets, F32KernelType, GemmError,
+    GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOptions, GemmOutT, Im2Col, QuantParams,
+    ReducedRangeRng, RowOffsets, WithKernel,
 };
 
 /// Scale a possibly non-float value by a float.
@@ -426,6 +426,113 @@ fn test_gemm_u8i8_i32() -> Result<(), Box<dyn Error>> {
         test_gemm_various_input_sizes(Some(&gemm), None, Some(&mut || rng.next()))?;
     }
     Ok(())
+}
+
+/// A [`BMatrixSource`] which reads blocks from a matrix.
+struct MatrixSource<T>(NdTensor<T, 2>);
+
+impl<T: Copy + Sync> BMatrixSource<T> for MatrixSource<T> {
+    fn rows(&self) -> usize {
+        self.0.rows()
+    }
+
+    fn cols(&self) -> usize {
+        self.0.cols()
+    }
+
+    fn write_block(
+        &self,
+        out: &mut [std::mem::MaybeUninit<T>],
+        rows: std::ops::Range<usize>,
+        cols: std::ops::Range<usize>,
+    ) {
+        let block = self.0.slice((rows, cols));
+        for (out, x) in out.iter_mut().zip(block.iter()) {
+            out.write(*x);
+        }
+    }
+}
+
+#[test]
+fn test_gemm_b_source() {
+    #[derive(Copy, Clone, Debug)]
+    struct Case {
+        m: usize,
+        n: usize,
+        k: usize,
+    }
+
+    let cases = [
+        Case { m: 5, n: 7, k: 10 },
+        // Multiple column panels, with a partial final panel.
+        Case {
+            m: 20,
+            n: 75,
+            k: 33,
+        },
+        // Multiple depth blocks.
+        Case {
+            m: 9,
+            n: 40,
+            k: 1100,
+        },
+    ];
+
+    cases.test_each(|&Case { m, n, k }| {
+        let mut rng = XorShiftRng::new(1234);
+
+        // f32
+        let a = NdTensor::<f32, 2>::rand([m, k], &mut rng);
+        let b = NdTensor::<f32, 2>::rand([k, n], &mut rng);
+        let source = MatrixSource(b.clone());
+        for gemm in all_gemms::<f32, f32, f32>() {
+            let mut expected = NdTensor::<f32, 2>::zeros([m, n]);
+            let mut actual = NdTensor::<f32, 2>::zeros([m, n]);
+            for (out, b) in [
+                (&mut expected, GemmInputB::Unpacked(b.view())),
+                (&mut actual, GemmInputB::Source(&source)),
+            ] {
+                gemm.gemm(
+                    out.data_mut().unwrap(),
+                    GemmInputA::Unpacked(a.view()),
+                    b,
+                    GemmOptions::default(),
+                )
+                .unwrap();
+            }
+            assert_eq!(actual, expected);
+        }
+
+        // u8 x i8 with per-column zero points.
+        for gemm in all_gemms::<u8, i8, i32>() {
+            let mut rhs_rng = ReducedRangeRng::new(gemm.may_saturate(), 5678);
+            let a = NdTensor::<u8, 2>::rand([m, k], &mut rng);
+            let b = NdTensor::<i8, 2>::rand([k, n], &mut rhs_rng);
+            let source = MatrixSource(b.clone());
+            let b_zero_point: Vec<i8> = (0..n).map(|x| (x % 7) as i8).collect();
+            let opts = GemmOptions {
+                b_quant: Some(QuantParams {
+                    zero_point: &b_zero_point,
+                }),
+                ..Default::default()
+            };
+            let mut expected = NdTensor::<i32, 2>::zeros([m, n]);
+            let mut actual = NdTensor::<i32, 2>::zeros([m, n]);
+            for (out, b) in [
+                (&mut expected, GemmInputB::Unpacked(b.view())),
+                (&mut actual, GemmInputB::Source(&source)),
+            ] {
+                gemm.gemm(
+                    out.data_mut().unwrap(),
+                    GemmInputA::Unpacked(a.view()),
+                    b,
+                    opts.clone(),
+                )
+                .unwrap();
+            }
+            assert_eq!(actual, expected, "kernel {}", gemm.kernel_name());
+        }
+    })
 }
 
 #[test]
