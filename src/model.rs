@@ -909,6 +909,17 @@ impl ModelOptions {
                         ..Default::default()
                     }),
                 },
+                // Experimental: Comma-separated substrings of int8 conv weight
+                // names to use dynamically quantized convolutions for.
+                conv_dynamic_quant_weights: env::var("RTEN_CONV_DYNAMIC_QUANT")
+                    .map(|patterns| {
+                        patterns
+                            .split(',')
+                            .filter(|p| !p.is_empty())
+                            .map(|p| p.to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })
         } else {
             OptimizeMode::Off

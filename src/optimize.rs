@@ -27,12 +27,13 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
-    ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvIntegerToFloatFusion, Fusion,
-    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
-    InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
-    MatMulIntegerToFloatFusion, MatMulScaleFusion, PatternFusion, RMSNormalizationFusion,
-    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SnakeFusion, SwishFusion, TransposeFusion,
+    ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantFusion,
+    ConvIntegerToFloatFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
+    GroupedQueryAttentionMatMulFusion, IdentityFusion, InstanceNormalizationFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
+    PatternFusion, RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion,
+    RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SnakeFusion,
+    SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -532,6 +533,13 @@ fn find_operator_output_used_outside_subgraph(
 pub struct OptimizeOptions {
     /// If set, run shape and type inference prior to optimization passes.
     pub infer_shapes: Option<InferShapeOptions>,
+
+    /// Experimental: Substrings of names of int8 convolution weights for which
+    /// to use int8 convolutions with dynamically quantized activations.
+    /// `*` matches all weights.
+    ///
+    /// This changes numerics, so is disabled by default.
+    pub conv_dynamic_quant_weights: Vec<String>,
 }
 
 /// Applies optimizations to a [`Graph`] to enable faster inference.
@@ -654,6 +662,15 @@ impl GraphOptimizer {
         // other fusions. If all dimensions have static sizes, constant prop
         // will remove the ComputeShape node and downstream nodes.
         early_fusions.push(ComputeShapeFusion {});
+
+        // Use int8 convolutions with dynamically quantized activations for
+        // selected convolutions with int8 weights. This must run before
+        // constant propagation dequantizes the weights.
+        if !opts.conv_dynamic_quant_weights.is_empty() {
+            early_fusions.push(ConvDynamicQuantFusion {
+                weight_name_patterns: opts.conv_dynamic_quant_weights.clone(),
+            });
+        }
 
         self.apply_fusions(&mut graph_mut, early_fusions.visitors(), &diag)?;
 

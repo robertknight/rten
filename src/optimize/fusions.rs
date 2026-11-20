@@ -4,9 +4,12 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rten_shape_inference::{SymExpr, Symbol};
-use rten_tensor::{ArcTensor, AsView, NdTensorView, SliceRange};
+use rayon::prelude::*;
 
+use rten_shape_inference::{SymExpr, Symbol};
+use rten_tensor::{ArcTensor, AsView, Layout, NdTensorView, SliceRange, Tensor};
+
+use crate::buffer_pool::BufferPool;
 use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
     TypedConstant,
@@ -14,13 +17,14 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvIntegerToFloat,
-    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, InstanceNormalization, LayerNormalization,
-    MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu,
-    Snake, Softmax, Swish, SymbolInfo, Transpose,
+    AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
+    ConvIntegerToFloat, DequantizeLinear, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
+    InstanceNormalization, LayerNormalization, MatMulIntegerToFloat, RMSNormalization, Reciprocal,
+    ReduceMean, RepeatInterleave, Shape, Silu, Snake, Softmax, Swish, SymbolInfo, Transpose,
+    dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
-use crate::value::ValueType;
+use crate::value::{DataType, ValueType};
 
 #[derive(Debug)]
 pub struct FusedOp {
@@ -1178,6 +1182,203 @@ impl PatternFusion for ConvIntegerToFloatFusion {
             .ok_or(FusionError::CheckFailed("expected ConvInteger operator"))?;
 
         Ok(ConvIntegerToFloat::new(conv.clone()))
+    }
+}
+
+/// Quantize `weight`, with shape `[O, ...]`, to int8 with a symmetric scale
+/// per output channel.
+///
+/// Returns the quantized weights and scales.
+fn quantize_per_output_channel(weight: Tensor<f32>) -> (Tensor<i8>, Vec<f32>) {
+    let weight = weight.to_contiguous();
+    let out_chans = weight.size(0);
+    let row_len = (weight.len() / out_chans.max(1)).max(1);
+    let mut quantized = Tensor::<i8>::uninit(weight.shape());
+
+    // Quantize output channels in parallel, as weights can be large.
+    let scales = quantized
+        .data_mut()
+        .unwrap()
+        .par_chunks_mut(row_len)
+        .zip(weight.data().par_chunks(row_len))
+        .map(|(q_row, row)| {
+            let max_abs = row.iter().fold(0f32, |m, x| m.max(x.abs()));
+            let scale = if max_abs > 0. { max_abs / 127. } else { 1. };
+            for (q, &x) in q_row.iter_mut().zip(row) {
+                q.write((x / scale).round_ties_even() as i8);
+            }
+            scale
+        })
+        .collect();
+
+    // Safety: Each row of `quantized` was initialized.
+    (unsafe { quantized.assume_init() }, scales)
+}
+
+/// Fuse `Conv(X, DequantizeLinear(W, scale, zero_point), B)`, where `W` is an
+/// int8 constant, into `ConvDynamicQuant(X, W, scale, B)`.
+///
+/// The `DequantizeLinear` may be followed by a `Cast` to f32. If `W` is not
+/// quantized per output channel (eg. it uses blocked quantization, as is
+/// common for int4 weights), it is requantized to int8 with a scale per output
+/// channel.
+///
+/// The fused operator quantizes activations dynamically and uses int8 matrix
+/// multiplication. This changes numerics, so it is only applied to weights
+/// whose names contain one of `weight_name_patterns`. A pattern of `*`
+/// matches all weights.
+///
+/// This must run before constant propagation, which would replace the
+/// `DequantizeLinear` with dequantized weights.
+pub struct ConvDynamicQuantFusion {
+    pub weight_name_patterns: Vec<String>,
+}
+
+impl ConvDynamicQuantFusion {
+    fn matches_name(&self, name: Option<&str>) -> bool {
+        let name = name.unwrap_or("");
+        self.weight_name_patterns
+            .iter()
+            .any(|pattern| pattern == "*" || name.contains(pattern.as_str()))
+    }
+}
+
+impl FusionVisitor for ConvDynamicQuantFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "ConvDynamicQuantFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let Some(conv) = op_node.operator().downcast_ref::<Conv>() else {
+            return Err(FusionError::NoMatch);
+        };
+        let (input, weight, bias) = match op_node.input_ids() {
+            [Some(x), Some(w)] => (*x, *w, None),
+            [Some(x), Some(w), b] => (*x, *w, *b),
+            _ => return Err(FusionError::NoMatch),
+        };
+
+        // Find the `DequantizeLinear` that produces the weights, looking
+        // through a `Cast` to f32 (used when the dequantized weights are f16).
+        let Some((_, mut weight_src)) = graph.get_source_node(weight) else {
+            return Err(FusionError::NoMatch);
+        };
+        if let Some(cast) = weight_src.operator().downcast_ref::<Cast>() {
+            if cast.to != DataType::Float {
+                return Err(FusionError::NoMatch);
+            }
+            let Some(cast_input) = weight_src.input_ids().first().copied().flatten() else {
+                return Err(FusionError::NoMatch);
+            };
+            let Some((_, src)) = graph.get_source_node(cast_input) else {
+                return Err(FusionError::NoMatch);
+            };
+            weight_src = src;
+        }
+        let dq_node = weight_src;
+        let Some(dq) = dq_node.operator().downcast_ref::<DequantizeLinear>() else {
+            return Err(FusionError::NoMatch);
+        };
+        if conv.groups != 1 {
+            return Err(FusionError::CheckFailed("groups != 1"));
+        }
+
+        let (weight_q, scale, zero_point) = match dq_node.input_ids() {
+            [Some(w), Some(s)] => (*w, *s, None),
+            [Some(w), Some(s), zp] => (*w, *s, *zp),
+            _ => return Err(FusionError::NoMatch),
+        };
+
+        let Some(Node::Constant(weight_const)) = graph.get_node(weight_q) else {
+            return Err(FusionError::CheckFailed("weight is not a constant"));
+        };
+        let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
+            return Err(FusionError::CheckFailed("weight is not int8"));
+        };
+        if !self.matches_name(weight_const.name()) {
+            return Err(FusionError::CheckFailed("weight name not selected"));
+        }
+        let out_chans = weight_const.shape().first().copied().unwrap_or(0);
+        let weight_rank = weight_const.shape().len() as isize;
+
+        let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
+            return Err(FusionError::CheckFailed("scale is not a constant"));
+        };
+        let Some(scale_view) = TypedConstant::<f32>::as_typed_view(scale_const) else {
+            return Err(FusionError::CheckFailed("scale is not f32"));
+        };
+
+        // Zero point must be zero.
+        if let Some(zp) = zero_point {
+            let Some(Node::Constant(zp_const)) = graph.get_node(zp) else {
+                return Err(FusionError::CheckFailed("zero point is not a constant"));
+            };
+            let all_zero = TypedConstant::<i8>::as_typed_view(zp_const)
+                .is_some_and(|zp| zp.iter().all(|&z| z == 0));
+            if !all_zero {
+                return Err(FusionError::CheckFailed("zero point is not zero"));
+            }
+        }
+
+        let per_channel_axis = dq.axis == 0 || dq.axis == -weight_rank;
+        let per_channel_scale =
+            TypedConstant::<f32>::as_vector(scale_const).is_some_and(|s| s.len() == out_chans);
+        let per_tensor_scale = TypedConstant::<f32>::as_scalar(scale_const);
+
+        // Use the weights as-is if they are quantized per tensor or per
+        // output channel. Otherwise (eg. for blocked quantization), dequantize
+        // the weights and requantize them per output channel.
+        let (weight_input, scale_input, new_constant_inputs, unused_input_ids) =
+            if dq.block_size == 0 && per_channel_axis && per_channel_scale {
+                (Some(weight_q), Some(scale), Vec::new(), vec![zero_point])
+            } else if dq.block_size == 0
+                && let Some(scale_val) = per_tensor_scale
+            {
+                (
+                    Some(weight_q),
+                    None,
+                    vec![(2, vector_constant(vec![scale_val; out_chans]))],
+                    vec![zero_point, Some(scale)],
+                )
+            } else {
+                let pool = BufferPool::new();
+                let weight_f32 =
+                    dequantize_linear(&pool, weight_view, scale_view, None, dq.axis, dq.block_size)
+                        .map_err(|_| FusionError::CheckFailed("failed to dequantize weights"))?;
+                let (weight_requant, scale_requant) = quantize_per_output_channel(weight_f32);
+                (
+                    None,
+                    None,
+                    vec![
+                        (1, Constant::new(None, weight_requant.into_arc())),
+                        (2, vector_constant(scale_requant)),
+                    ],
+                    vec![Some(weight_q), Some(scale), zero_point],
+                )
+            };
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(ConvDynamicQuant {
+                padding: conv.padding.clone(),
+                strides: conv.strides.clone(),
+                dilations: conv.dilations.clone(),
+            }),
+            input_ids: vec![Some(input), weight_input, scale_input, bias],
+            new_constant_inputs,
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids,
+        }))
     }
 }
 

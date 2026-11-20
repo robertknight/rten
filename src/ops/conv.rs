@@ -21,9 +21,11 @@ use crate::shift_cast::ShiftCast;
 use crate::value::{DataType, ValueType, ValueView};
 
 mod depthwise;
+mod dynamic_quant;
 mod im2col;
 
 use depthwise::DepthwiseConvExecutor;
+pub use dynamic_quant::ConvDynamicQuant;
 use im2col::build_im2col;
 
 /// Specialization of conv_2d for pointwise convolutions over one image. This

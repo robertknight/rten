@@ -78,7 +78,7 @@ pub(crate) use {
     compute_shape::{ComputeShape, SymbolInfo},
     concat::{Concat, Tile},
     control_flow::{If, Loop, Scan, ScanDirection},
-    conv::{Conv, ConvInteger, ConvIntegerToFloat},
+    conv::{Conv, ConvDynamicQuant, ConvInteger, ConvIntegerToFloat},
     conv_transpose::ConvTranspose,
     convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
