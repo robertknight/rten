@@ -48,13 +48,48 @@ impl<T> GetItem for NdTensorView<'_, T, 1> {
     }
 }
 
+/// Copy the slice of length `slice_len` at each of `indices` in `input` to
+/// consecutive slices of `out`.
+///
+/// Negative indices count back from the end of `input`. Indices must be valid.
+fn gather_slices<T: Copy>(
+    out: &mut [MaybeUninit<T>],
+    input: &[T],
+    indices: &[i32],
+    slice_len: usize,
+) {
+    let n_slices = input.len() / slice_len;
+    let resolve = |index: i32| {
+        if index < 0 {
+            (index as isize + n_slices as isize) as usize
+        } else {
+            index as usize
+        }
+    };
+
+    if slice_len == 1 {
+        for (out, &index) in out.iter_mut().zip(indices) {
+            out.write(input[resolve(index)]);
+        }
+    } else {
+        // Copy elements individually, as this is faster than `memcpy` for
+        // the short slices which are common.
+        for (out, &index) in out.chunks_mut(slice_len).zip(indices) {
+            let src = &input[resolve(index) * slice_len..][..slice_len];
+            for (out, &x) in out.iter_mut().zip(src) {
+                out.write(x);
+            }
+        }
+    }
+}
+
 /// Gather elements from `input` specified by `indices`.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Gather.html>. Per the ONNX spec this
 /// is very similar to `numpy.take`. See
 /// <https://numpy.org/doc/stable/reference/generated/numpy.take.html> for
 /// additional explanation.
-pub fn gather<T: Copy + Default>(
+pub fn gather<T: Copy + Default + Send + Sync>(
     pool: &BufferPool,
     input: TensorView<T>,
     axis: isize,
@@ -111,12 +146,45 @@ pub fn gather<T: Copy + Default>(
     // Fast path for gathering from a contiguous input. Each gathered slice is
     // a contiguous chunk of the input, so the gather reduces to copying chunks.
     if let Some(in_data) = input.data() {
-        for in_outer in in_data.chunks(chunk_len) {
-            for index in indices.iter() {
-                let index = try_resolve_index(axis_size, *index)?;
-                out_data.extend_from_slice(&in_outer[index * in_slice_len..][..in_slice_len]);
+        let indices = indices.to_contiguous_in(pool).auto_return(pool);
+        let indices = indices.data();
+
+        // Check all indices are valid. Computing the range first is faster
+        // than checking each index individually.
+        let (min, max) = indices.iter().fold((0, 0), |(min, max), &index| {
+            (index.min(min), index.max(max))
+        });
+        if (min as i64) < -(axis_size as i64) || (max as i64) >= axis_size as i64 {
+            for &index in indices {
+                try_resolve_index(axis_size, index)?;
             }
         }
+        let out_len = out_shape.iter().product();
+        if out_len == 0 {
+            return Ok(Tensor::from_data(&out_shape, out_data));
+        }
+
+        // Gather slices for chunks of indices in parallel if the output for
+        // each outer chunk is large.
+        const PAR_MIN_LEN: usize = 1 << 16;
+        let par_chunk_indices = (PAR_MIN_LEN / 4 / in_slice_len).max(1);
+
+        let out_uninit = &mut out_data.spare_capacity_mut()[..out_len];
+        let out_chunks = out_uninit.chunks_mut(indices.len() * in_slice_len);
+        for (out_outer, in_outer) in out_chunks.zip(in_data.chunks(chunk_len)) {
+            if out_outer.len() >= PAR_MIN_LEN {
+                out_outer
+                    .par_chunks_mut(par_chunk_indices * in_slice_len)
+                    .zip(indices.par_chunks(par_chunk_indices))
+                    .for_each(|(out, indices)| gather_slices(out, in_outer, indices, in_slice_len));
+            } else {
+                gather_slices(out_outer, in_outer, indices, in_slice_len);
+            }
+        }
+
+        // Safety: Each chunk of `out_uninit` has one slice of length
+        // `in_slice_len` per index, all of which were initialized.
+        unsafe { out_data.set_len(out_len) };
         return Ok(Tensor::from_data(&out_shape, out_data));
     }
 
@@ -680,6 +748,24 @@ mod tests {
         let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
         assert_eq!(&result, &expected);
 
+        // Negative index values when gathering along the last axis.
+        let input = Tensor::from([[1, 2, 3], [4, 5, 6]]);
+        let indices = Tensor::from([-1, 0]);
+        let expected = Tensor::from([[3, 1], [6, 4]]);
+        let result = gather(&pool, input.view(), 1, indices.view()).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Output large enough to gather in parallel.
+        let input = Tensor::from_fn(&[2, 50, 3], |index| index.iter().sum::<usize>() as i32);
+        let indices = Tensor::from_fn(&[100_000], |index| (index[0] % 100) as i32 - 50);
+        let expected = Tensor::from_fn(&[2, 100_000, 3], |index| {
+            let [i, j, k] = [index[0], index[1], index[2]];
+            // Index `j % 100 - 50` resolves to `j % 50`.
+            input[[i, j % 50, k]]
+        });
+        let result = gather(&pool, input.view(), 1, indices.view()).unwrap();
+        assert_eq!(&result, &expected);
+
         // Empty indices
         let input = Tensor::from([1, 2, 3]);
         let indices = Tensor::from([0i32; 0]);
@@ -728,6 +814,11 @@ mod tests {
                 input: Tensor::zeros(&[128, 10]),
                 indices: Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]),
                 expected: invalid_index_err(130, 128),
+            },
+            Case {
+                input: Tensor::zeros(&[128, 10]),
+                indices: Tensor::from_data(&[2, 2], vec![2, 5, -129, 8]),
+                expected: invalid_index_err(-129, 128),
             },
             // Non-scalar indices into an empty (size zero) axis
             Case {
