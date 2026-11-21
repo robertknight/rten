@@ -24,6 +24,7 @@ use crate::ops::{
     RepeatInterleave, Shape, Silu, Snake, Softmax, Swish, SymbolInfo, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
+use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
 use crate::value::{DataType, ValueType};
 
 #[derive(Debug)]
@@ -1333,14 +1334,13 @@ fn quantize_per_output_channel(weight: Tensor<f32>) -> (Tensor<i8>, Vec<f32>) {
 /// channel.
 ///
 /// The fused operator quantizes activations dynamically and uses int8 matrix
-/// multiplication. This changes numerics, so it is only applied to weights
-/// whose names contain one of `weight_name_patterns`. A pattern of `*`
-/// matches all weights.
+/// multiplication. This changes numerics, so it is only applied to
+/// operators for which `rules` enable it.
 ///
 /// This must run before constant propagation, which would replace the
 /// `DequantizeLinear` with dequantized weights.
 pub struct ConvDynamicQuantFusion {
-    pub weight_name_patterns: Vec<String>,
+    pub rules: DynamicQuantOptions,
 }
 
 impl FusionVisitor for ConvDynamicQuantFusion {
@@ -1389,8 +1389,11 @@ impl FusionVisitor for ConvDynamicQuantFusion {
         let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
             return Err(FusionError::CheckFailed("weight is not int8"));
         };
-        if !matches_weight_name(&self.weight_name_patterns, weight_const.name()) {
-            return Err(FusionError::CheckFailed("weight name not selected"));
+        if !self
+            .rules
+            .enables(DynamicQuantOp::Conv, op_node.name(), weight_const.name())
+        {
+            return Err(FusionError::CheckFailed("operator not selected"));
         }
         let out_chans = weight_const.shape().first().copied().unwrap_or(0);
         let weight_rank = weight_const.shape().len() as isize;
@@ -1476,14 +1479,13 @@ impl FusionVisitor for ConvDynamicQuantFusion {
 /// requires.
 ///
 /// The fused operator quantizes activations dynamically and uses int8 matrix
-/// multiplication. This changes numerics, so it is only applied to weights
-/// whose names contain one of `weight_name_patterns`. A pattern of `*`
-/// matches all weights.
+/// multiplication. This changes numerics, so it is only applied to
+/// operators for which `rules` enable it.
 ///
 /// This must run before constant propagation, which would replace the
 /// `DequantizeLinear` with dequantized weights.
 pub struct ConvTransposeDynamicQuantFusion {
-    pub weight_name_patterns: Vec<String>,
+    pub rules: DynamicQuantOptions,
 }
 
 impl FusionVisitor for ConvTransposeDynamicQuantFusion {
@@ -1531,8 +1533,12 @@ impl FusionVisitor for ConvTransposeDynamicQuantFusion {
         let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
             return Err(FusionError::CheckFailed("weight is not int8"));
         };
-        if !matches_weight_name(&self.weight_name_patterns, weight_const.name()) {
-            return Err(FusionError::CheckFailed("weight name not selected"));
+        if !self.rules.enables(
+            DynamicQuantOp::ConvTranspose,
+            op_node.name(),
+            weight_const.name(),
+        ) {
+            return Err(FusionError::CheckFailed("operator not selected"));
         }
         let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
             return Err(FusionError::CheckFailed("scale is not a constant"));
@@ -1597,13 +1603,12 @@ impl FusionVisitor for ConvTransposeDynamicQuantFusion {
 ///
 /// The fused operator quantizes each row of `A` dynamically and uses int8
 /// matrix multiplication. This changes numerics, so it is only applied to
-/// weights whose names contain one of `weight_name_patterns`. A pattern of `*`
-/// matches all weights.
+/// operators for which `rules` enable it.
 ///
 /// This must run before constant propagation, which would replace the
 /// `DequantizeLinear` with dequantized weights.
 pub struct MatMulDynamicQuantFusion {
-    pub weight_name_patterns: Vec<String>,
+    pub rules: DynamicQuantOptions,
 }
 
 impl FusionVisitor for MatMulDynamicQuantFusion {
@@ -1649,8 +1654,11 @@ impl FusionVisitor for MatMulDynamicQuantFusion {
         if weight_view.ndim() != 2 {
             return Err(FusionError::CheckFailed("weight is not a matrix"));
         }
-        if !matches_weight_name(&self.weight_name_patterns, weight_const.name()) {
-            return Err(FusionError::CheckFailed("weight name not selected"));
+        if !self
+            .rules
+            .enables(DynamicQuantOp::MatMul, op_node.name(), weight_const.name())
+        {
+            return Err(FusionError::CheckFailed("operator not selected"));
         }
         let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
             return Err(FusionError::CheckFailed("scale is not a constant"));
@@ -1720,25 +1728,36 @@ fn requantize_per_column(
     Ok((weight_t.transposed().to_tensor(), scale))
 }
 
-/// Requantize selected int8 `MatMul` weights per column.
+/// Requantize int8 weights of dynamically quantized `MatMul`s per column.
 ///
 /// This replaces `DequantizeLinear(W, scale, zero_point)`, where `W` is an
 /// int8 constant matrix which is not quantized per column (eg. because it
 /// uses blocked quantization), with `DequantizeLinear(W', scale')`, where `W'`
 /// is quantized per column. This is done only if the output is used, possibly
-/// via a `Cast` to f32, only as the weights of `MatMul` operators.
+/// via a `Cast` to f32, only as the weights of `MatMul` operators for which
+/// `rules` enable dynamic quantization.
 ///
 /// This prepares weights for [`MatMulDynamicQuantFusion`]. Requantizing the
 /// weights here, rather than in that fusion, means that weights shared by
 /// multiple `MatMul`s are requantized and stored once.
 pub struct MatMulWeightRequantizeFusion {
-    pub weight_name_patterns: Vec<String>,
+    pub rules: DynamicQuantOptions,
 }
 
 impl MatMulWeightRequantizeFusion {
     /// Return true if `value` is used only as the weights of `MatMul`
-    /// operators, possibly via a `Cast` to f32.
-    fn used_only_as_matmul_weights(graph: &Graph, value: NodeId, allow_cast: bool) -> bool {
+    /// operators which will be dynamically quantized, possibly via a `Cast`
+    /// to f32.
+    ///
+    /// `weight_name` is the name of the quantized weights that `value` is
+    /// computed from.
+    fn used_only_as_quantized_matmul_weights(
+        &self,
+        graph: &Graph,
+        value: NodeId,
+        weight_name: Option<&str>,
+        allow_cast: bool,
+    ) -> bool {
         if graph.output_ids().contains(&value) {
             return false;
         }
@@ -1750,11 +1769,14 @@ impl MatMulWeightRequantizeFusion {
                 return false;
             };
             if op.operator().downcast_ref::<MatMul>().is_some() {
-                return op.input_ids() == [op.input_ids()[0], Some(value)];
+                return op.input_ids() == [op.input_ids()[0], Some(value)]
+                    && self
+                        .rules
+                        .enables(DynamicQuantOp::MatMul, op.name(), weight_name);
             }
             match (op.operator().downcast_ref::<Cast>(), op.output_ids()) {
                 (Some(cast), &[Some(cast_out)]) if allow_cast && cast.to == DataType::Float => {
-                    Self::used_only_as_matmul_weights(graph, cast_out, false)
+                    self.used_only_as_quantized_matmul_weights(graph, cast_out, weight_name, false)
                 }
                 _ => false,
             }
@@ -1796,9 +1818,7 @@ impl FusionVisitor for MatMulWeightRequantizeFusion {
         let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
             return Err(FusionError::NoMatch);
         };
-        if weight_view.ndim() != 2
-            || !matches_weight_name(&self.weight_name_patterns, weight_const.name())
-        {
+        if weight_view.ndim() != 2 {
             return Err(FusionError::NoMatch);
         }
         let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
@@ -1826,8 +1846,10 @@ impl FusionVisitor for MatMulWeightRequantizeFusion {
                 return Err(FusionError::CheckFailed("zero point is not zero"));
             }
         }
-        if !Self::used_only_as_matmul_weights(graph, output, true) {
-            return Err(FusionError::CheckFailed("not used only as MatMul weights"));
+        if !self.used_only_as_quantized_matmul_weights(graph, output, weight_const.name(), true) {
+            return Err(FusionError::CheckFailed(
+                "not used only as weights of dynamically quantized MatMuls",
+            ));
         }
 
         let (weight_requant, scale_requant) = requantize_per_column(weight_view, scale_view, dq)?;
@@ -1973,14 +1995,6 @@ impl FusionVisitor for ConvDynamicQuantAddFusion {
             unused_input_ids: Vec::new(),
         }))
     }
-}
-
-/// Return true if `name` contains one of `patterns`, or a pattern is `*`.
-fn matches_weight_name(patterns: &[String], name: Option<&str>) -> bool {
-    let name = name.unwrap_or("");
-    patterns
-        .iter()
-        .any(|pattern| pattern == "*" || name.contains(pattern.as_str()))
 }
 
 /// Return the `DequantizeLinear` operator which produces `value`, looking

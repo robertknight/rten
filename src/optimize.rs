@@ -489,25 +489,210 @@ fn find_operator_output_used_outside_subgraph(
     None
 }
 
+/// Pattern which matches operators by their name or the name of their weights.
+///
+/// Patterns may contain `*` wildcards, which match any sequence of characters.
+/// The pattern must match the whole name, so `decoder.*` matches names
+/// starting with "decoder." and `*decoder.*` matches names containing it.
+/// Operators or weights without a name are treated as having an empty name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamePattern {
+    target: NameTarget,
+    pattern: String,
+}
+
+/// The name that a [`NamePattern`] is matched against.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum NameTarget {
+    Op,
+    Weight,
+}
+
+impl NamePattern {
+    /// Create a pattern which matches the name of an operator.
+    pub fn op(pattern: impl Into<String>) -> Self {
+        NamePattern {
+            target: NameTarget::Op,
+            pattern: pattern.into(),
+        }
+    }
+
+    /// Create a pattern which matches the name of an operator's weights.
+    ///
+    /// This is the name of the quantized initializer in the model. A pattern
+    /// selects all of the operators which use the weights.
+    pub fn weight(pattern: impl Into<String>) -> Self {
+        NamePattern {
+            target: NameTarget::Weight,
+            pattern: pattern.into(),
+        }
+    }
+
+    /// Return true if this pattern matches an operator called `op_name` whose
+    /// weights are called `weight_name`.
+    fn matches(&self, op_name: Option<&str>, weight_name: Option<&str>) -> bool {
+        let name = match self.target {
+            NameTarget::Op => op_name,
+            NameTarget::Weight => weight_name,
+        };
+        glob_match(&self.pattern, name.unwrap_or(""))
+    }
+}
+
+/// Return true if `name` matches `pattern`, in which `*` matches any sequence
+/// of characters.
+fn glob_match(pattern: &str, name: &str) -> bool {
+    let Some((prefix, rest)) = pattern.split_once('*') else {
+        return pattern == name;
+    };
+    let Some(mut name) = name.strip_prefix(prefix) else {
+        return false;
+    };
+    let (middle, suffix) = rest.rsplit_once('*').unwrap_or(("", rest));
+
+    // Match the parts between wildcards at the earliest possible position,
+    // which leaves the most characters for the remaining parts.
+    for part in middle.split('*') {
+        let Some(pos) = name.find(part) else {
+            return false;
+        };
+        name = &name[pos + part.len()..];
+    }
+    name.ends_with(suffix)
+}
+
+/// Types of operator which support dynamically quantized activations.
+///
+/// See [`DynamicQuantOptions`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum DynamicQuantOp {
+    Conv,
+    ConvTranspose,
+    MatMul,
+}
+
+/// Specifies how the activations of an operator are quantized.
+///
+/// See [`DynamicQuantOptions`].
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum DynamicQuantConfig {
+    /// Dequantize the weights and use f32 arithmetic. This is the default
+    /// for operators which do not match any rule.
+    Off,
+
+    /// Quantize activations to int8 when the operator runs, with a separate
+    /// scale for each output position, and use int8 arithmetic.
+    Int8,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct DynamicQuantRule {
+    op: DynamicQuantOp,
+    pattern: NamePattern,
+    config: DynamicQuantConfig,
+}
+
+/// Rules which select operators that use int8 arithmetic with dynamically
+/// quantized activations.
+///
+/// This applies to operators whose weights are stored in the model as int8
+/// (or int4) tensors followed by a `DequantizeLinear` operator. By default the
+/// weights are dequantized when the model is loaded and operators use f32
+/// arithmetic. Operators can instead quantize their activations when they run
+/// and use int8 arithmetic. This is faster but less accurate, so the effect on
+/// the quality of the model's output needs to be evaluated for each model.
+///
+/// Each rule applies a [`DynamicQuantConfig`] to operators of a given type
+/// which match a [`NamePattern`]. The first rule which matches an operator is
+/// used, so exceptions are added before the rules they override:
+///
+/// ```
+/// use rten::{DynamicQuantConfig, DynamicQuantOp, DynamicQuantOptions, NamePattern};
+///
+/// let opts = DynamicQuantOptions::default()
+///     .with_rule(
+///         DynamicQuantOp::Conv,
+///         NamePattern::weight("predictor.*"),
+///         DynamicQuantConfig::Off,
+///     )
+///     .with_rule(
+///         DynamicQuantOp::Conv,
+///         NamePattern::op("*"),
+///         DynamicQuantConfig::Int8,
+///     );
+/// ```
+///
+/// This feature is experimental.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DynamicQuantOptions {
+    rules: Vec<DynamicQuantRule>,
+}
+
+impl DynamicQuantOptions {
+    /// Add a rule which applies `config` to operators of type `op` which
+    /// match `pattern`.
+    ///
+    /// The rule has lower priority than those added before it.
+    pub fn with_rule(
+        mut self,
+        op: DynamicQuantOp,
+        pattern: NamePattern,
+        config: DynamicQuantConfig,
+    ) -> Self {
+        self.rules.push(DynamicQuantRule {
+            op,
+            pattern,
+            config,
+        });
+        self
+    }
+
+    /// Return the configuration for an operator of type `op` called `op_name`
+    /// whose weights are called `weight_name`.
+    pub(crate) fn config(
+        &self,
+        op: DynamicQuantOp,
+        op_name: Option<&str>,
+        weight_name: Option<&str>,
+    ) -> &DynamicQuantConfig {
+        self.rules
+            .iter()
+            .find(|rule| rule.op == op && rule.pattern.matches(op_name, weight_name))
+            .map(|rule| &rule.config)
+            .unwrap_or(&DynamicQuantConfig::Off)
+    }
+
+    /// Return true if dynamic quantization is enabled for an operator of type
+    /// `op` called `op_name` whose weights are called `weight_name`.
+    pub(crate) fn enables(
+        &self,
+        op: DynamicQuantOp,
+        op_name: Option<&str>,
+        weight_name: Option<&str>,
+    ) -> bool {
+        self.config(op, op_name, weight_name) != &DynamicQuantConfig::Off
+    }
+
+    /// Return true if any rule may enable dynamic quantization for operators
+    /// of type `op`.
+    fn may_quantize(&self, op: DynamicQuantOp) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.op == op && rule.config != DynamicQuantConfig::Off)
+    }
+}
+
 /// Configuration for [`GraphOptimizer::optimize`].
 #[derive(Clone, Default)]
 pub struct OptimizeOptions {
     /// If set, run shape and type inference prior to optimization passes.
     pub infer_shapes: Option<InferShapeOptions>,
 
-    /// Experimental: Substrings of names of int8 convolution weights for which
-    /// to use int8 convolutions with dynamically quantized activations.
-    /// `*` matches all weights.
-    ///
-    /// This changes numerics, so is disabled by default.
-    pub conv_dynamic_quant_weights: Vec<String>,
-
-    /// Experimental: Substrings of names of int8 matrix multiplication weights
-    /// for which to use int8 matrix multiplication with dynamically quantized
-    /// activations. `*` matches all weights.
-    ///
-    /// This changes numerics, so is disabled by default.
-    pub matmul_dynamic_quant_weights: Vec<String>,
+    /// Experimental: Rules which select operators that use int8 arithmetic
+    /// with dynamically quantized activations.
+    pub dynamic_quant: DynamicQuantOptions,
 }
 
 /// Applies optimizations to a [`Graph`] to enable faster inference.
@@ -638,23 +823,26 @@ impl GraphOptimizer {
         // Weights for matrix multiplications are first requantized per column
         // if needed, in a separate pass so that shared weights are requantized
         // once.
-        if !opts.matmul_dynamic_quant_weights.is_empty() {
+        let dynamic_quant = &opts.dynamic_quant;
+        if dynamic_quant.may_quantize(DynamicQuantOp::MatMul) {
             let mut requantize = FusionList::new();
             requantize.push(MatMulWeightRequantizeFusion {
-                weight_name_patterns: opts.matmul_dynamic_quant_weights.clone(),
+                rules: dynamic_quant.clone(),
             });
             self.apply_fusions(&mut graph_mut, requantize.visitors(), &diag)?;
 
             early_fusions.push(MatMulDynamicQuantFusion {
-                weight_name_patterns: opts.matmul_dynamic_quant_weights.clone(),
+                rules: dynamic_quant.clone(),
             });
         }
-        if !opts.conv_dynamic_quant_weights.is_empty() {
+        if dynamic_quant.may_quantize(DynamicQuantOp::Conv) {
             early_fusions.push(ConvDynamicQuantFusion {
-                weight_name_patterns: opts.conv_dynamic_quant_weights.clone(),
+                rules: dynamic_quant.clone(),
             });
+        }
+        if dynamic_quant.may_quantize(DynamicQuantOp::ConvTranspose) {
             early_fusions.push(ConvTransposeDynamicQuantFusion {
-                weight_name_patterns: opts.conv_dynamic_quant_weights.clone(),
+                rules: dynamic_quant.clone(),
             });
         }
 
