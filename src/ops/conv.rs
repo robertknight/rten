@@ -26,6 +26,7 @@ mod im2col;
 
 use depthwise::DepthwiseConvExecutor;
 pub use dynamic_quant::ConvDynamicQuant;
+pub(crate) use dynamic_quant::{conv_1x1_dynamic_quant, pack_weights};
 use im2col::build_im2col;
 
 /// Specialization of conv_2d for pointwise convolutions over one image. This

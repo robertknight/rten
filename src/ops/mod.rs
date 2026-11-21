@@ -80,7 +80,7 @@ pub(crate) use {
     concat::{Concat, Tile},
     control_flow::{If, Loop, Scan, ScanDirection},
     conv::{Conv, ConvDynamicQuant, ConvInteger, ConvIntegerToFloat},
-    conv_transpose::ConvTranspose,
+    conv_transpose::{ConvTranspose, ConvTransposeDynamicQuant},
     convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
     embedding::RotaryEmbedding,

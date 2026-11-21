@@ -16,11 +16,12 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, DequantizeLinear,
-    DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu, GroupedQueryAttentionMatMul,
-    Identity, If, InstanceNormalization, IsNaN, LayerNormalization, MatMul, MatMulInteger, Neg,
-    Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, Shape, Sigmoid, Sin,
-    Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze, Where,
+    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose,
+    DequantizeLinear, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
+    GroupedQueryAttentionMatMul, Identity, If, InstanceNormalization, IsNaN, LayerNormalization,
+    MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave,
+    Reshape, Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze,
+    Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -907,6 +908,164 @@ fn test_fuse_conv_dynamic_quant() {
             .unwrap();
         assert_eq!(scale.shape(), [out_chans]);
         assert_eq!(input_ids[3], bias);
+    })
+}
+
+#[test]
+fn test_fuse_conv_transpose_dynamic_quant() {
+    #[derive(Debug)]
+    struct Case {
+        weight_patterns: Vec<String>,
+        groups: usize,
+        // Use blocked quantization along the input channel axis, followed by
+        // a `Cast`, as used by int4 models.
+        blocked: bool,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        Case {
+            weight_patterns: ["ups.".to_string()].into(),
+            groups: 1,
+            blocked: false,
+            expect_fused: true,
+        },
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            groups: 1,
+            blocked: true,
+            expect_fused: true,
+        },
+        // Weight name not selected
+        Case {
+            weight_patterns: ["other.".to_string()].into(),
+            groups: 1,
+            blocked: false,
+            expect_fused: false,
+        },
+        // Grouped transposed convolution
+        Case {
+            weight_patterns: ["*".to_string()].into(),
+            groups: 2,
+            blocked: false,
+            expect_fused: false,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let (in_chans, out_chans_per_group, kernel) = (4, 3, 4);
+        let make_graph = || {
+            let mut graph = Graph::new();
+            let x = graph.add_value(Some("x"), None, None);
+            let weight_q = graph.add_constant(
+                Some("ups.weight_q"),
+                Tensor::<i8>::from_fn(&[in_chans, out_chans_per_group, kernel], |idx| {
+                    (idx[0] * 7 + idx[1] * 3 + idx[2]) as i8 - 10
+                })
+                .into_arc(),
+            );
+            let (scale, dq) = if case.blocked {
+                // Scale for blocks of 2 input channels.
+                let scale = Tensor::<f32>::from_fn(&[2, out_chans_per_group, kernel], |idx| {
+                    0.01 * (1 + idx[0] + idx[1]) as f32
+                });
+                let dq = DequantizeLinear {
+                    axis: 0,
+                    block_size: 2,
+                };
+                (scale, dq)
+            } else {
+                let scale = Tensor::from([0.01f32, 0.02, 0.03]);
+                let dq = DequantizeLinear {
+                    axis: 1,
+                    block_size: 0,
+                };
+                (scale, dq)
+            };
+            let scale = graph.add_constant(Some("scale"), scale.into_arc());
+            let (_, mut weight) = graph.add_simple_op("dequantize", dq, &[weight_q, scale]);
+            if case.blocked {
+                (_, weight) = graph.add_simple_op(
+                    "cast",
+                    Cast {
+                        to: DataType::Float,
+                    },
+                    &[weight],
+                );
+            }
+            let bias = graph.add_constant(
+                Some("bias"),
+                Tensor::from_fn(&[out_chans_per_group * case.groups], |idx| idx[0] as f32)
+                    .into_arc(),
+            );
+            let (_, output) = graph.add_simple_op(
+                "conv_transpose",
+                ConvTranspose {
+                    groups: case.groups,
+                    dilations: vec![1],
+                    padding: Padding::Fixed([1, 1].as_slice().into()),
+                    strides: vec![2],
+                    output_padding: None,
+                },
+                &[x, weight, bias],
+            );
+            graph.set_input_ids(&[x]);
+            graph.set_output_ids(&[output]);
+            graph
+        };
+
+        let graph = GraphOptimizer::new()
+            .optimize(
+                make_graph(),
+                None,
+                OptimizeOptions {
+                    conv_dynamic_quant_weights: case.weight_patterns.clone(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        if !case.expect_fused {
+            assert_eq!(op.operator().name(), "ConvTranspose");
+            return;
+        }
+        assert_eq!(op.operator().name(), "ConvTransposeDynamicQuant");
+
+        // The weights are requantized with a scale for each output channel and
+        // kernel position.
+        let input_ids: Vec<_> = op.input_ids().iter().map(|id| id.unwrap()).collect();
+        assert_eq!(input_ids[0], graph.input_ids()[0]);
+        let weight = graph
+            .get_node(input_ids[1])
+            .and_then(|n| n.as_constant())
+            .unwrap();
+        assert_eq!(weight.shape(), [in_chans, out_chans_per_group, kernel]);
+        let scale = graph
+            .get_node(input_ids[2])
+            .and_then(|n| n.as_constant())
+            .unwrap();
+        assert_eq!(scale.shape(), [out_chans_per_group * kernel]);
+
+        // Compare the fused and unfused graphs on concrete input.
+        let x = Tensor::from_fn(&[1, in_chans, 6], |idx| {
+            ((idx[1] * 5 + idx[2] * 3) % 7) as f32 * 0.5 - 1.
+        });
+        let run = |graph: &Graph| -> Tensor<f32> {
+            let inputs = vec![(graph.input_ids()[0], x.view().into())];
+            graph
+                .run(inputs, graph.output_ids(), None, None)
+                .unwrap()
+                .remove(0)
+                .try_into()
+                .unwrap()
+        };
+        let expected = run(&make_graph());
+        let actual = run(&graph);
+        assert_eq!(actual.shape(), expected.shape());
+        for (a, e) in actual.iter().zip(expected.iter()) {
+            assert!((a - e).abs() < 0.05 * e.abs().max(1.), "{a} != {e}");
+        }
     })
 }
 

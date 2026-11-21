@@ -28,8 +28,8 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
     ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantAddFusion,
-    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, Fusion, FusionError, FusionVisitor,
-    GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, ConvTransposeDynamicQuantFusion, Fusion,
+    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
     InstanceNormalizationAffineFusion, InstanceNormalizationFusion, LayerNormalizationFusion,
     MatMulAddFusion, MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion,
     MatMulIntegerToFloatFusion, MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion,
@@ -651,6 +651,9 @@ impl GraphOptimizer {
         }
         if !opts.conv_dynamic_quant_weights.is_empty() {
             early_fusions.push(ConvDynamicQuantFusion {
+                weight_name_patterns: opts.conv_dynamic_quant_weights.clone(),
+            });
+            early_fusions.push(ConvTransposeDynamicQuantFusion {
                 weight_name_patterns: opts.conv_dynamic_quant_weights.clone(),
             });
         }
