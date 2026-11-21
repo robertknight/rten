@@ -260,6 +260,32 @@ fn pack_b_tiles_contiguous<const NR: usize, const K_TILE: usize, T: Byte>(
         let group = group_start..(group_start + group_panels).min(n_panels);
         for row_tile in 0..n_tiles {
             let row_offset = row_tile * K_TILE * row_stride;
+
+            // Pack pairs of panels together when each panel is one 8x8 block.
+            #[cfg(target_arch = "aarch64")]
+            let group = if K_TILE == 8 && NR == 8 {
+                let mut col_panel = group.start;
+                while col_panel + 2 <= group.end {
+                    let [sums_a, sums_b] = col_sums
+                        .get_disjoint_mut([col_panel, col_panel + 1])
+                        .unwrap();
+                    pack_block_8x16_neon(
+                        out,
+                        col_panel * panel_stride + row_tile * 64,
+                        panel_stride,
+                        [&mut sums_a[..], &mut sums_b[..]],
+                        data,
+                        row_offset + col_panel * 8,
+                        row_stride,
+                        cast_zero.to_u8(),
+                    );
+                    col_panel += 2;
+                }
+                col_panel..group.end
+            } else {
+                group.clone()
+            };
+
             for col_panel in group.clone() {
                 let tile_offset = col_panel * panel_stride + row_tile * NR * K_TILE;
                 let out_tile = &mut out[tile_offset..tile_offset + NR * K_TILE];
@@ -336,17 +362,49 @@ fn pack_block_8x8_neon<T: Byte>(
     // on aarch64.
     unsafe {
         let mask = vdup_n_u8(cast_mask);
-        let row = |r: usize| {
+        let rows: [uint8x8_t; 8] = std::array::from_fn(|r| {
             let row = &data[start + r * row_stride..][..8];
             veor_u8(vld1_u8(row.as_ptr() as *const u8), mask)
+        });
+
+        // Compute the column sums by adding the rows, before transposing.
+        let sums = if T::SIGNED {
+            let s8 = vreinterpret_s8_u8;
+            let s01 = vaddl_s8(s8(rows[0]), s8(rows[1]));
+            let s23 = vaddl_s8(s8(rows[2]), s8(rows[3]));
+            let s45 = vaddl_s8(s8(rows[4]), s8(rows[5]));
+            let s67 = vaddl_s8(s8(rows[6]), s8(rows[7]));
+            vaddq_s16(vaddq_s16(s01, s23), vaddq_s16(s45, s67))
+        } else {
+            let s01 = vaddl_u8(rows[0], rows[1]);
+            let s23 = vaddl_u8(rows[2], rows[3]);
+            let s45 = vaddl_u8(rows[4], rows[5]);
+            let s67 = vaddl_u8(rows[6], rows[7]);
+            vreinterpretq_s16_u16(vaddq_u16(vaddq_u16(s01, s23), vaddq_u16(s45, s67)))
         };
+        let widen = |s: int16x4_t| {
+            if T::SIGNED {
+                vmovl_s16(s)
+            } else {
+                vreinterpretq_s32_u32(vmovl_u16(vreinterpret_u16_s16(s)))
+            }
+        };
+        let sums_ptr = col_sums.as_mut_ptr();
+        vst1q_s32(
+            sums_ptr,
+            vaddq_s32(vld1q_s32(sums_ptr), widen(vget_low_s16(sums))),
+        );
+        vst1q_s32(
+            sums_ptr.add(4),
+            vaddq_s32(vld1q_s32(sums_ptr.add(4)), widen(vget_high_s16(sums))),
+        );
 
         // Transpose the block in three stages, swapping 1, 2 and then
         // 4-byte elements between pairs of rows.
-        let a = vtrn_u8(row(0), row(1));
-        let b = vtrn_u8(row(2), row(3));
-        let c = vtrn_u8(row(4), row(5));
-        let d = vtrn_u8(row(6), row(7));
+        let a = vtrn_u8(rows[0], rows[1]);
+        let b = vtrn_u8(rows[2], rows[3]);
+        let c = vtrn_u8(rows[4], rows[5]);
+        let d = vtrn_u8(rows[6], rows[7]);
 
         let u16 = vreinterpret_u16_u8;
         let e0 = vtrn_u16(u16(a.0), u16(b.0));
@@ -362,13 +420,118 @@ fn pack_block_8x8_neon<T: Byte>(
 
         let cols = [c04.0, c15.0, c26.0, c37.0, c04.1, c15.1, c26.1, c37.1];
         for (i, col) in cols.into_iter().enumerate() {
-            let col = vreinterpret_u8_u32(col);
-            col_sums[i] += if T::SIGNED {
-                i32::from(vaddlv_s8(vreinterpret_s8_u8(col)))
+            vst1_u8(
+                out.as_mut_ptr().add(i * 8) as *mut u8,
+                vreinterpret_u8_u32(col),
+            );
+        }
+    }
+}
+
+/// Pack two horizontally adjacent 8x8 blocks of bytes from `data`, with rows
+/// starting at `start` and separated by `row_stride`, in column-major order.
+///
+/// The blocks are written to `out` at `out_offset` and `out_offset +
+/// out_stride`, and their column sums are added to `col_sums`. Elements are
+/// converted by XOR-ing with `cast_mask`.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn pack_block_8x16_neon<T: Byte>(
+    out: &mut [MaybeUninit<T>],
+    out_offset: usize,
+    out_stride: usize,
+    col_sums: [&mut [i32]; 2],
+    data: &[i8],
+    start: usize,
+    row_stride: usize,
+    cast_mask: u8,
+) {
+    use core::arch::aarch64::*;
+
+    let out_a = &mut out[out_offset..][..64];
+    let out_a = out_a.as_mut_ptr() as *mut u8;
+    let out_b = &mut out[out_offset + out_stride..][..64];
+    let out_b = out_b.as_mut_ptr() as *mut u8;
+    assert!(col_sums.iter().all(|s| s.len() == 8));
+    assert!(data.len() >= start + 7 * row_stride + 16);
+
+    // Safety: Loads read 16 bytes from rows checked to be in bounds above, and
+    // stores write 64 bytes to each of `out_a` and `out_b`, which have length
+    // 64. NEON is always available on aarch64.
+    unsafe {
+        let mask = vdupq_n_u8(cast_mask);
+        let rows: [uint8x16_t; 8] = std::array::from_fn(|r| {
+            let row = data.as_ptr().add(start + r * row_stride) as *const u8;
+            veorq_u8(vld1q_u8(row), mask)
+        });
+
+        // Compute the column sums by adding the rows, before transposing.
+        // The low and high halves of each row belong to different blocks.
+        let sums: [int16x8_t; 2] = if T::SIGNED {
+            let s8 = vreinterpretq_s8_u8;
+            let lo = |i: usize| vaddl_s8(vget_low_s8(s8(rows[i])), vget_low_s8(s8(rows[i + 1])));
+            let hi = |i: usize| vaddl_high_s8(s8(rows[i]), s8(rows[i + 1]));
+            [
+                vaddq_s16(vaddq_s16(lo(0), lo(2)), vaddq_s16(lo(4), lo(6))),
+                vaddq_s16(vaddq_s16(hi(0), hi(2)), vaddq_s16(hi(4), hi(6))),
+            ]
+        } else {
+            let lo = |i: usize| vaddl_u8(vget_low_u8(rows[i]), vget_low_u8(rows[i + 1]));
+            let hi = |i: usize| vaddl_high_u8(rows[i], rows[i + 1]);
+            [
+                vreinterpretq_s16_u16(vaddq_u16(vaddq_u16(lo(0), lo(2)), vaddq_u16(lo(4), lo(6)))),
+                vreinterpretq_s16_u16(vaddq_u16(vaddq_u16(hi(0), hi(2)), vaddq_u16(hi(4), hi(6)))),
+            ]
+        };
+        for (block_sums, sums) in col_sums.into_iter().zip(sums) {
+            let (lo, hi) = if T::SIGNED {
+                (vmovl_s16(vget_low_s16(sums)), vmovl_high_s16(sums))
             } else {
-                i32::from(vaddlv_u8(col))
+                let sums = vreinterpretq_u16_s16(sums);
+                (
+                    vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(sums))),
+                    vreinterpretq_s32_u32(vmovl_high_u16(sums)),
+                )
             };
-            vst1_u8(out.as_mut_ptr().add(i * 8) as *mut u8, col);
+            let ptr = block_sums.as_mut_ptr();
+            vst1q_s32(ptr, vaddq_s32(vld1q_s32(ptr), lo));
+            vst1q_s32(ptr.add(4), vaddq_s32(vld1q_s32(ptr.add(4)), hi));
+        }
+
+        // Transpose both blocks in three stages, swapping 1, 2 and then
+        // 4-byte elements between pairs of rows. The halves of each vector are
+        // transposed independently.
+        let a = vtrnq_u8(rows[0], rows[1]);
+        let b = vtrnq_u8(rows[2], rows[3]);
+        let c = vtrnq_u8(rows[4], rows[5]);
+        let d = vtrnq_u8(rows[6], rows[7]);
+
+        let u16 = vreinterpretq_u16_u8;
+        let e0 = vtrnq_u16(u16(a.0), u16(b.0));
+        let e1 = vtrnq_u16(u16(a.1), u16(b.1));
+        let g0 = vtrnq_u16(u16(c.0), u16(d.0));
+        let g1 = vtrnq_u16(u16(c.1), u16(d.1));
+
+        let u32 = vreinterpretq_u32_u16;
+        let c04 = vtrnq_u32(u32(e0.0), u32(g0.0));
+        let c26 = vtrnq_u32(u32(e0.1), u32(g0.1));
+        let c15 = vtrnq_u32(u32(e1.0), u32(g1.0));
+        let c37 = vtrnq_u32(u32(e1.1), u32(g1.1));
+
+        // Store pairs of columns. The low halves belong to the first block
+        // and the high halves to the second.
+        let u64 = vreinterpretq_u64_u32;
+        let pairs = [
+            (c04.0, c15.0),
+            (c26.0, c37.0),
+            (c04.1, c15.1),
+            (c26.1, c37.1),
+        ];
+        for (i, (x, y)) in pairs.into_iter().enumerate() {
+            let (x, y) = (u64(x), u64(y));
+            vst1q_u8(out_a.add(i * 16), vreinterpretq_u8_u64(vtrn1q_u64(x, y)));
+            vst1q_u8(out_b.add(i * 16), vreinterpretq_u8_u64(vtrn2q_u64(x, y)));
         }
     }
 }
@@ -1013,7 +1176,7 @@ mod tests {
 
         fn test_pack_b<const K_TILE: usize>() {
             let mut rng = XorShiftRng::new(5678);
-            for n in 1..NR * 3 {
+            for n in 1..NR * 4 {
                 // Use distinct per-column zero points so that using the wrong
                 // column's zero point is detected.
                 let zero_points: Vec<i8> = (1..=n as i8).collect();
@@ -1043,7 +1206,7 @@ mod tests {
         // that it matches the path for other inputs.
         fn test_pack_b<const NR: usize, const K_TILE: usize>() {
             let mut rng = XorShiftRng::new(1234);
-            for n in 1..NR * 3 {
+            for n in 1..NR * 4 {
                 for k in 1..K_TILE * 3 {
                     let mat = NdTensor::<i8, 2>::rand([k, n], &mut rng);
                     let col_major = mat.transposed().to_tensor();
