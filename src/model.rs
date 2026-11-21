@@ -15,6 +15,7 @@ use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunErrorImpl, RunOp
 use crate::infer_shapes::InferShapeOptions;
 use crate::op_registry::OpRegistry;
 use crate::optimize::OptimizeOptions;
+pub use crate::optimize::{DynamicQuantConfig, DynamicQuantOp, DynamicQuantOptions, NamePattern};
 use crate::timing::{TimingFilter, TimingSort};
 use crate::value::{Value, ValueOrView, ValueType};
 use crate::weight_cache::WeightCache;
@@ -678,6 +679,7 @@ pub struct ModelOptions {
     prepack_weights: bool,
     external_data: HashMap<String, Arc<ConstantStorage>>,
     infer_shapes: ShapeInferenceMode,
+    dynamic_quant: DynamicQuantOptions,
 }
 
 impl ModelOptions {
@@ -697,6 +699,7 @@ impl ModelOptions {
             prepack_weights: false,
             external_data: HashMap::new(),
             infer_shapes: ShapeInferenceMode::On,
+            dynamic_quant: DynamicQuantOptions::default(),
         }
     }
 
@@ -739,6 +742,39 @@ impl ModelOptions {
     /// for faster inference.
     pub fn prepack_weights(&mut self, prepack: bool) -> &mut Self {
         self.prepack_weights = prepack;
+        self
+    }
+
+    /// Set the rules which select operators that use int8 arithmetic with
+    /// dynamically quantized activations.
+    ///
+    /// This is an experimental feature which trades accuracy for speed. See
+    /// [`DynamicQuantOptions`]. It has no effect if graph optimizations are
+    /// disabled.
+    ///
+    /// ```no_run
+    /// use rten::{
+    ///     DynamicQuantConfig, DynamicQuantOp, DynamicQuantOptions, ModelOptions, NamePattern,
+    /// };
+    ///
+    /// let quant = DynamicQuantOptions::default()
+    ///     .with_rule(
+    ///         DynamicQuantOp::Conv,
+    ///         NamePattern::weight("decoder.*"),
+    ///         DynamicQuantConfig::Int8,
+    ///     )
+    ///     .with_rule(
+    ///         DynamicQuantOp::MatMul,
+    ///         NamePattern::op("*"),
+    ///         DynamicQuantConfig::Int8,
+    ///     );
+    ///
+    /// let model = ModelOptions::with_all_ops()
+    ///     .dynamic_quantization(quant)
+    ///     .load_file("model.onnx");
+    /// ```
+    pub fn dynamic_quantization(&mut self, opts: DynamicQuantOptions) -> &mut Self {
+        self.dynamic_quant = opts;
         self
     }
 
@@ -909,30 +945,12 @@ impl ModelOptions {
                         ..Default::default()
                     }),
                 },
-                // Experimental: Comma-separated substrings of int8 conv weight
-                // names to use dynamically quantized convolutions for.
-                conv_dynamic_quant_weights: weight_name_patterns("RTEN_CONV_DYNAMIC_QUANT"),
-                // Experimental: As above, for matrix multiplications.
-                matmul_dynamic_quant_weights: weight_name_patterns("RTEN_MATMUL_DYNAMIC_QUANT"),
+                dynamic_quant: self.dynamic_quant.clone(),
             })
         } else {
             OptimizeMode::Off
         }
     }
-}
-
-/// Read a comma-separated list of weight name patterns from the environment
-/// variable `var`.
-fn weight_name_patterns(var: &str) -> Vec<String> {
-    env::var(var)
-        .map(|patterns| {
-            patterns
-                .split(',')
-                .filter(|p| !p.is_empty())
-                .map(|p| p.to_string())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 impl std::fmt::Debug for ModelOptions {

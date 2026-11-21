@@ -7,7 +7,10 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor, TensorView};
 use rten_testing::TestCases;
 
-use super::{GraphOptimizer, OptimizeError, OptimizeOptions};
+use super::{
+    DynamicQuantConfig, DynamicQuantOp, DynamicQuantOptions, GraphOptimizer, NamePattern,
+    OptimizeError, OptimizeOptions,
+};
 use crate::Dimension;
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::graph::builder::{Expr, OutputMeta, dims};
@@ -571,44 +574,217 @@ fn test_fuse_conv_add() {
     });
 }
 
+/// Create options which enable dynamic quantization for operators of type
+/// `op` which match `pattern`.
+fn dynamic_quant_rule(op: DynamicQuantOp, pattern: NamePattern) -> DynamicQuantOptions {
+    DynamicQuantOptions::default().with_rule(op, pattern, DynamicQuantConfig::Int8)
+}
+
+#[test]
+fn test_glob_match() {
+    #[derive(Debug)]
+    struct Case {
+        pattern: &'static str,
+        name: &'static str,
+        expected: bool,
+    }
+
+    let case = |pattern, name, expected| Case {
+        pattern,
+        name,
+        expected,
+    };
+
+    let cases = [
+        // No wildcards
+        case("", "", true),
+        case("", "a", false),
+        case("abc", "abc", true),
+        case("abc", "abcd", false),
+        case("abc", "xabc", false),
+        // Wildcard only
+        case("*", "", true),
+        case("*", "abc", true),
+        case("**", "abc", true),
+        // Prefix, suffix and substring
+        case("ab*", "abc", true),
+        case("ab*", "ab", true),
+        case("ab*", "xab", false),
+        case("*bc", "abc", true),
+        case("*bc", "bcd", false),
+        case("*b*", "abc", true),
+        case("*b*", "b", true),
+        case("*b*", "ac", false),
+        // Prefix and suffix may not overlap
+        case("ab*bc", "abc", false),
+        case("ab*bc", "abbc", true),
+        // Multiple wildcards
+        case("a*b*c", "abc", true),
+        case("a*b*c", "axxbxxc", true),
+        case("a*b*c", "acb", false),
+        case("*a*a*", "a", false),
+        case("*a*a*", "aa", true),
+        // Suffix which also occurs earlier in the name
+        case("a*bc", "abcbc", true),
+        case("*.conv*.weight", "m.conv1.conv2.weight", true),
+        // Wildcards match separators
+        case("/decoder/*/Conv", "/decoder/block.0/conv1/Conv", true),
+    ];
+
+    cases.test_each(|case| {
+        assert_eq!(super::glob_match(case.pattern, case.name), case.expected);
+    });
+}
+
+#[test]
+fn test_dynamic_quant_options() {
+    use DynamicQuantConfig::{Int8, Off};
+    use DynamicQuantOp::{Conv, ConvTranspose, MatMul};
+
+    let opts = DynamicQuantOptions::default()
+        .with_rule(Conv, NamePattern::weight("predictor.*"), Off)
+        .with_rule(Conv, NamePattern::op("/conv_post/*"), Off)
+        .with_rule(Conv, NamePattern::op("*"), Int8)
+        .with_rule(MatMul, NamePattern::weight("encoder.*"), Int8)
+        .with_rule(MatMul, NamePattern::op("/proj/*"), Int8);
+
+    #[derive(Debug)]
+    struct Case {
+        op: DynamicQuantOp,
+        op_name: Option<&'static str>,
+        weight_name: Option<&'static str>,
+        expected: DynamicQuantConfig,
+    }
+
+    let cases = [
+        // First matching rule takes priority.
+        Case {
+            op: Conv,
+            op_name: Some("/conv1/Conv"),
+            weight_name: Some("predictor.conv1.weight"),
+            expected: Off,
+        },
+        Case {
+            op: Conv,
+            op_name: Some("/conv_post/Conv"),
+            weight_name: Some("decoder.conv_post.weight"),
+            expected: Off,
+        },
+        Case {
+            op: Conv,
+            op_name: Some("/conv2/Conv"),
+            weight_name: Some("decoder.conv2.weight"),
+            expected: Int8,
+        },
+        // Operator patterns are not matched against weight names, and vice
+        // versa.
+        Case {
+            op: Conv,
+            op_name: Some("predictor.conv"),
+            weight_name: Some("/conv_post/weight"),
+            expected: Int8,
+        },
+        // Missing names are treated as empty.
+        Case {
+            op: Conv,
+            op_name: None,
+            weight_name: None,
+            expected: Int8,
+        },
+        Case {
+            op: MatMul,
+            op_name: None,
+            weight_name: None,
+            expected: Off,
+        },
+        // Rules apply only to their operator type.
+        Case {
+            op: MatMul,
+            op_name: Some("/layer/MatMul"),
+            weight_name: Some("encoder.weight"),
+            expected: Int8,
+        },
+        Case {
+            op: MatMul,
+            op_name: Some("/proj/MatMul"),
+            weight_name: Some("proj.weight"),
+            expected: Int8,
+        },
+        Case {
+            op: MatMul,
+            op_name: Some("/layer/MatMul"),
+            weight_name: Some("decoder.weight"),
+            expected: Off,
+        },
+        Case {
+            op: ConvTranspose,
+            op_name: Some("/conv2/Conv"),
+            weight_name: Some("decoder.conv2.weight"),
+            expected: Off,
+        },
+    ];
+
+    cases.test_each(|case| {
+        assert_eq!(
+            opts.config(case.op, case.op_name, case.weight_name),
+            &case.expected
+        );
+    });
+}
+
 #[test]
 fn test_fuse_matmul_dynamic_quant() {
     #[derive(Debug)]
     struct Case {
-        weight_patterns: Vec<String>,
+        pattern: NamePattern,
         zero_point: i8,
         // Also use the dequantized weights in a non-`MatMul` operator.
         extra_consumer: bool,
-        expect_fused: bool,
+        // Whether each of the two `MatMul`s is expected to be fused.
+        expect_fused: [bool; 2],
     }
 
     let cases = [
         Case {
-            weight_patterns: ["layer.".to_string()].into(),
+            pattern: NamePattern::op("matmul_*"),
             zero_point: 0,
             extra_consumer: false,
-            expect_fused: true,
+            expect_fused: [true, true],
         },
         // Weights which are not only used by `MatMul`s
         Case {
-            weight_patterns: ["layer.".to_string()].into(),
+            pattern: NamePattern::op("matmul_*"),
             zero_point: 0,
             extra_consumer: true,
-            expect_fused: true,
+            expect_fused: [true, true],
         },
-        // Weight name not selected
+        // Selected by weight name
         Case {
-            weight_patterns: ["other.".to_string()].into(),
+            pattern: NamePattern::weight("layer.*"),
             zero_point: 0,
             extra_consumer: false,
-            expect_fused: false,
+            expect_fused: [true, true],
+        },
+        // Only one of the `MatMul`s which share the weights is selected
+        Case {
+            pattern: NamePattern::op("matmul_x"),
+            zero_point: 0,
+            extra_consumer: false,
+            expect_fused: [true, false],
+        },
+        // Operator not selected
+        Case {
+            pattern: NamePattern::op("other*"),
+            zero_point: 0,
+            extra_consumer: false,
+            expect_fused: [false, false],
         },
         // Non-zero weight zero point
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             zero_point: 1,
             extra_consumer: false,
-            expect_fused: false,
+            expect_fused: [false, false],
         },
     ];
 
@@ -688,34 +864,33 @@ fn test_fuse_matmul_dynamic_quant() {
                 make_graph(),
                 None,
                 OptimizeOptions {
-                    matmul_dynamic_quant_weights: case.weight_patterns.clone(),
+                    dynamic_quant: dynamic_quant_rule(DynamicQuantOp::MatMul, case.pattern.clone()),
                     ..Default::default()
                 },
             )
             .unwrap();
 
-        let op_names: Vec<_> = graph.output_ids()[..2]
-            .iter()
-            .map(|&id| graph.get_source_node(id).unwrap().1.operator().name())
-            .collect();
-        if !case.expect_fused {
-            assert_ne!(op_names[0], "MatMulDynamicQuant");
-            assert_ne!(op_names[1], "MatMulDynamicQuant");
-            return;
-        }
-        assert_eq!(op_names, ["MatMulDynamicQuant", "MatMulDynamicQuant"]);
+        let op_names = [0, 1].map(|i| {
+            let (_, op) = graph.get_source_node(graph.output_ids()[i]).unwrap();
+            op.operator().name()
+        });
+        let is_fused = op_names.map(|name| name == "MatMulDynamicQuant");
+        assert_eq!(is_fused, case.expect_fused);
 
-        // The bias should be fused into the first `MatMul`.
         let (_, x_op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-        assert_eq!(x_op.input_ids().len(), 4);
-
-        // The requantized weights should be shared, unless the original
-        // weights are also used elsewhere.
         let (_, y_op) = graph.get_source_node(graph.output_ids()[1]).unwrap();
-        assert_eq!(
-            x_op.input_ids()[1..3] == y_op.input_ids()[1..3],
-            !case.extra_consumer
-        );
+        if is_fused[0] {
+            // The bias should be fused into the first `MatMul`.
+            assert_eq!(x_op.input_ids().len(), 4);
+        }
+        if is_fused == [true, true] {
+            // The requantized weights should be shared, unless the original
+            // weights are also used elsewhere.
+            assert_eq!(
+                x_op.input_ids()[1..3] == y_op.input_ids()[1..3],
+                !case.extra_consumer
+            );
+        }
 
         // Compare the fused and unfused graphs on concrete input.
         let x = Tensor::from([[0.5f32, -1., 2., 0.25], [3., 1., -0.5, 0.]]);
@@ -747,7 +922,7 @@ fn test_fuse_matmul_dynamic_quant() {
 fn test_fuse_conv_dynamic_quant() {
     #[derive(Debug)]
     struct Case {
-        weight_patterns: Vec<String>,
+        pattern: NamePattern,
         // Use a scalar weight scale instead of a per-channel one.
         scalar_scale: bool,
         zero_point: i8,
@@ -761,7 +936,7 @@ fn test_fuse_conv_dynamic_quant() {
 
     let cases = [
         Case {
-            weight_patterns: ["block.".to_string()].into(),
+            pattern: NamePattern::op("conv"),
             scalar_scale: false,
             zero_point: 0,
             groups: 1,
@@ -770,7 +945,7 @@ fn test_fuse_conv_dynamic_quant() {
             expect_fused: true,
         },
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             scalar_scale: true,
             zero_point: 0,
             groups: 1,
@@ -778,9 +953,9 @@ fn test_fuse_conv_dynamic_quant() {
             cast: false,
             expect_fused: true,
         },
-        // Weight name not selected
+        // Operator not selected
         Case {
-            weight_patterns: ["other.".to_string()].into(),
+            pattern: NamePattern::op("other*"),
             scalar_scale: false,
             zero_point: 0,
             groups: 1,
@@ -790,7 +965,7 @@ fn test_fuse_conv_dynamic_quant() {
         },
         // Non-zero weight zero point
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             scalar_scale: false,
             zero_point: 1,
             groups: 1,
@@ -800,7 +975,7 @@ fn test_fuse_conv_dynamic_quant() {
         },
         // Grouped convolution
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             scalar_scale: false,
             zero_point: 0,
             groups: 2,
@@ -810,7 +985,7 @@ fn test_fuse_conv_dynamic_quant() {
         },
         // Blocked quantization with a cast, as used by int4 models
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             scalar_scale: false,
             zero_point: 0,
             groups: 1,
@@ -913,7 +1088,7 @@ fn test_fuse_conv_dynamic_quant() {
                 graph,
                 None,
                 OptimizeOptions {
-                    conv_dynamic_quant_weights: case.weight_patterns.clone(),
+                    dynamic_quant: dynamic_quant_rule(DynamicQuantOp::Conv, case.pattern.clone()),
                     ..Default::default()
                 },
             )
@@ -963,7 +1138,7 @@ fn test_fuse_conv_dynamic_quant() {
 fn test_fuse_conv_transpose_dynamic_quant() {
     #[derive(Debug)]
     struct Case {
-        weight_patterns: Vec<String>,
+        pattern: NamePattern,
         groups: usize,
         // Use blocked quantization along the input channel axis, followed by
         // a `Cast`, as used by int4 models.
@@ -973,27 +1148,27 @@ fn test_fuse_conv_transpose_dynamic_quant() {
 
     let cases = [
         Case {
-            weight_patterns: ["ups.".to_string()].into(),
+            pattern: NamePattern::op("conv_*"),
             groups: 1,
             blocked: false,
             expect_fused: true,
         },
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             groups: 1,
             blocked: true,
             expect_fused: true,
         },
-        // Weight name not selected
+        // Operator not selected
         Case {
-            weight_patterns: ["other.".to_string()].into(),
+            pattern: NamePattern::op("other*"),
             groups: 1,
             blocked: false,
             expect_fused: false,
         },
         // Grouped transposed convolution
         Case {
-            weight_patterns: ["*".to_string()].into(),
+            pattern: NamePattern::op("*"),
             groups: 2,
             blocked: false,
             expect_fused: false,
@@ -1077,7 +1252,10 @@ fn test_fuse_conv_transpose_dynamic_quant() {
                 make_graph(),
                 None,
                 OptimizeOptions {
-                    conv_dynamic_quant_weights: case.weight_patterns.clone(),
+                    dynamic_quant: dynamic_quant_rule(
+                        DynamicQuantOp::ConvTranspose,
+                        case.pattern.clone(),
+                    ),
                     ..Default::default()
                 },
             )
@@ -1230,7 +1408,7 @@ fn test_fuse_conv_dynamic_quant_residual() {
                 make_graph(),
                 None,
                 OptimizeOptions {
-                    conv_dynamic_quant_weights: ["*".to_string()].into(),
+                    dynamic_quant: dynamic_quant_rule(DynamicQuantOp::Conv, NamePattern::op("*")),
                     ..Default::default()
                 },
             )
