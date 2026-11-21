@@ -1906,11 +1906,21 @@ fn test_captures_by_value_if_possible() {
 #[derive(Debug)]
 struct MatMulExpectPacked {
     inner: MatMul,
+
+    /// Number of times `prepack` has been called.
+    prepack_count: Arc<AtomicI32>,
 }
 
 impl MatMulExpectPacked {
     fn new() -> Self {
-        MatMulExpectPacked { inner: MatMul {} }
+        Self::with_prepack_count(Arc::new(AtomicI32::new(0)))
+    }
+
+    fn with_prepack_count(prepack_count: Arc<AtomicI32>) -> Self {
+        MatMulExpectPacked {
+            inner: MatMul {},
+            prepack_count,
+        }
     }
 }
 
@@ -1937,6 +1947,7 @@ impl Operator for MatMulExpectPacked {
         input: ValueView,
         zero_point: Option<ValueView>,
     ) -> Option<PrepackedInput> {
+        self.prepack_count.fetch_add(1, Ordering::SeqCst);
         self.inner.prepack(index, input, zero_point)
     }
 
@@ -2001,6 +2012,40 @@ fn test_prepack_weights() {
         .run(
             [(input, input_value.into())].into(),
             &[subgraph_out],
+            Some(&cache),
+            None,
+        )
+        .unwrap();
+}
+
+#[test]
+fn test_prepack_weights_shared() {
+    // Create a graph with several operators that share the same weights.
+    // The weights should only be packed once.
+    let mut graph = Graph::new();
+    let prepack_count = Arc::new(AtomicI32::new(0));
+
+    let input = graph.add_value(Some("input"), None, None);
+    let weights = graph.add_constant(None, Tensor::<f32>::zeros(&[10, 10]).into_arc());
+    let mut x = input;
+    for _ in 0..8 {
+        let op = MatMulExpectPacked::with_prepack_count(prepack_count.clone());
+        (_, x) = graph.add_simple_op("MatMul", op, &[x, weights]);
+    }
+    graph.set_input_ids(&[input]);
+    graph.set_output_ids(&[x]);
+
+    let mut cache = WeightCache::new();
+    graph.prepack_weights(&mut cache);
+    assert_eq!(cache.len(), 1);
+    assert_eq!(prepack_count.load(Ordering::SeqCst), 1);
+
+    // Run the graph. Each MatMul verifies that it receives prepacked weights.
+    let input_value = Tensor::<f32>::zeros(&[3, 10]);
+    graph
+        .run(
+            [(input, input_value.into())].into(),
+            &[x],
             Some(&cache),
             None,
         )

@@ -509,6 +509,10 @@ impl Graph {
             SubgraphCache((NodeId, Vec<WeightCache>)),
         }
 
+        // Keys of inputs which are being prepacked. This prevents constants
+        // that are used by multiple operators from being packed more than once.
+        let claimed_keys = Mutex::new(FxHashSet::default());
+
         // Traverse operators and prepack in parallel.
         let entries: Vec<Entry> = threading::thread_pool().run(|| {
             self.nodes
@@ -543,6 +547,11 @@ impl Graph {
                             // Zero point is a value computed during inference.
                             Some(None) => continue,
                         };
+
+                        if !claimed_keys.lock().unwrap().insert(key) {
+                            // Input is being prepacked for another operator.
+                            continue;
+                        }
 
                         let Some(packed) =
                             op_node
