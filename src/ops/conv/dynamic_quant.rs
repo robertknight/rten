@@ -542,7 +542,7 @@ fn quantize_rows_neon(
 
 /// Convert int8 weights of shape `[O, K]` to `u8` and pack them for use as the
 /// "A" input of the GEMM.
-fn pack_weights(
+pub(crate) fn pack_weights(
     pool: &BufferPool,
     weight: NdTensorView<i8, 2>,
 ) -> Result<PackedAMatrix<u8>, OpError> {
@@ -672,6 +672,46 @@ fn conv_dynamic_quant_2d(
     // Safety: Every output element was written by the epilogue.
     let output = unsafe { output.assume_init() };
     Ok(output.into_shape([batch, out_c, out_h, out_w]))
+}
+
+/// Multiply int8 weights of shape `[O, C]` with each position of a `[N, C, H,
+/// W]` image, whose values are quantized dynamically with a separate scale for
+/// each position.
+///
+/// This is a 1x1 convolution with dynamically quantized activations. Returns
+/// a `[N, O, H, W]` tensor. `weight_scale` is the scale of each row of
+/// `weight`. `packed_weight` is the result of [`pack_weights`] for `weight`, if
+/// available.
+pub(crate) fn conv_1x1_dynamic_quant(
+    pool: &BufferPool,
+    input: NdTensorView<f32, 4>,
+    weight: NdTensorView<i8, 2>,
+    weight_scale: &[f32],
+    packed_weight: Option<&PackedAMatrix<u8>>,
+) -> Result<NdTensor<f32, 4>, OpError> {
+    let [_, _, in_h, in_w] = input.shape();
+    let [out_c, in_c] = weight.shape();
+    let geom = ConvGeometry {
+        in_size: [in_h, in_w],
+        kernel_size: [1, 1],
+        out_size: [in_h, in_w],
+        padding: [0; 4],
+        strides: [1, 1],
+        dilations: [1, 1],
+    };
+    let weight = weight
+        .reshaped_in(pool, [out_c, in_c, 1, 1])
+        .auto_return(pool);
+    conv_dynamic_quant_2d(
+        pool,
+        input,
+        weight.view(),
+        weight_scale,
+        None,
+        packed_weight,
+        None,
+        geom,
+    )
 }
 
 /// Convolution with int8 weights and dynamically quantized int8 activations.

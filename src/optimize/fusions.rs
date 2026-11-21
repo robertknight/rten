@@ -18,10 +18,10 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
-    ConvIntegerToFloat, DequantizeLinear, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
-    InstanceNormalization, LayerNormalization, MatMul, MatMulDynamicQuant, MatMulIntegerToFloat,
-    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Snake, Softmax, Swish,
-    SymbolInfo, Transpose, dequantize_linear,
+    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, FusedMatMul,
+    Gelu, GroupedQueryAttentionMatMul, InstanceNormalization, LayerNormalization, MatMul,
+    MatMulDynamicQuant, MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean,
+    RepeatInterleave, Shape, Silu, Snake, Softmax, Swish, SymbolInfo, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::value::{DataType, ValueType};
@@ -1462,6 +1462,127 @@ impl FusionVisitor for ConvDynamicQuantFusion {
             new_constant_inputs,
             output_ids: op_node.output_ids().to_vec(),
             unused_input_ids,
+        }))
+    }
+}
+
+/// Fuse `ConvTranspose(X, DequantizeLinear(W, scale, zero_point), B)`, where
+/// `W` is an int8 constant, into `ConvTransposeDynamicQuant(X, W', scale', B)`.
+///
+/// The `DequantizeLinear` may be followed by a `Cast` to f32. The weights are
+/// requantized to int8 with a scale for each output channel and kernel
+/// position, which is what the matrix multiplication in the fused operator
+/// requires.
+///
+/// The fused operator quantizes activations dynamically and uses int8 matrix
+/// multiplication. This changes numerics, so it is only applied to weights
+/// whose names contain one of `weight_name_patterns`. A pattern of `*`
+/// matches all weights.
+///
+/// This must run before constant propagation, which would replace the
+/// `DequantizeLinear` with dequantized weights.
+pub struct ConvTransposeDynamicQuantFusion {
+    pub weight_name_patterns: Vec<String>,
+}
+
+impl FusionVisitor for ConvTransposeDynamicQuantFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "ConvTransposeDynamicQuantFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let Some(conv) = op_node.operator().downcast_ref::<ConvTranspose>() else {
+            return Err(FusionError::NoMatch);
+        };
+        let (input, weight, bias) = match op_node.input_ids() {
+            [Some(x), Some(w)] => (*x, *w, None),
+            [Some(x), Some(w), b] => (*x, *w, *b),
+            _ => return Err(FusionError::NoMatch),
+        };
+        if conv.groups != 1 {
+            return Err(FusionError::CheckFailed("groups != 1"));
+        }
+
+        let dq_node = dequantize_linear_source(graph, weight).ok_or(FusionError::NoMatch)?;
+        let dq = dq_node
+            .operator()
+            .downcast_ref::<DequantizeLinear>()
+            .unwrap();
+        let (weight_q, scale, zero_point) = match dq_node.input_ids() {
+            [Some(w), Some(s)] => (*w, *s, None),
+            [Some(w), Some(s), zp] => (*w, *s, *zp),
+            _ => return Err(FusionError::NoMatch),
+        };
+
+        let Some(Node::Constant(weight_const)) = graph.get_node(weight_q) else {
+            return Err(FusionError::CheckFailed("weight is not a constant"));
+        };
+        let Some(weight_view) = TypedConstant::<i8>::as_typed_view(weight_const) else {
+            return Err(FusionError::CheckFailed("weight is not int8"));
+        };
+        if !matches_weight_name(&self.weight_name_patterns, weight_const.name()) {
+            return Err(FusionError::CheckFailed("weight name not selected"));
+        }
+        let Some(Node::Constant(scale_const)) = graph.get_node(scale) else {
+            return Err(FusionError::CheckFailed("scale is not a constant"));
+        };
+        let Some(scale_view) = TypedConstant::<f32>::as_typed_view(scale_const) else {
+            return Err(FusionError::CheckFailed("scale is not f32"));
+        };
+        let zero_point_view = match zero_point.map(|zp| graph.get_node(zp)) {
+            None => None,
+            Some(Some(Node::Constant(zp))) => Some(
+                TypedConstant::<i8>::as_typed_view(zp)
+                    .ok_or(FusionError::CheckFailed("zero point is not int8"))?,
+            ),
+            Some(_) => return Err(FusionError::CheckFailed("zero point is not a constant")),
+        };
+
+        // Requantize the `[C, O, ...kernel]` weights with a scale for each
+        // column of the `[C, O * prod(kernel)]` matrix.
+        let pool = BufferPool::new();
+        let weight_f32 = dequantize_linear(
+            &pool,
+            weight_view,
+            scale_view,
+            zero_point_view,
+            dq.axis,
+            dq.block_size,
+        )
+        .map_err(|_| FusionError::CheckFailed("failed to dequantize weights"))?;
+        let shape = weight_f32.shape().to_vec();
+        let in_c = shape.first().copied().unwrap_or(0);
+        let weight_mat = weight_f32.reshaped([in_c, weight_f32.len() / in_c.max(1)]);
+        let (weight_t, scale_requant) =
+            quantize_per_output_channel(weight_mat.transposed().to_tensor().into_dyn());
+        let mut weight_requant = weight_t.transposed().to_tensor();
+        weight_requant.reshape(&shape);
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(ConvTransposeDynamicQuant {
+                dilations: conv.dilations.clone(),
+                padding: conv.padding.clone(),
+                strides: conv.strides.clone(),
+                output_padding: conv.output_padding.clone(),
+            }),
+            input_ids: vec![Some(input), None, None, bias],
+            new_constant_inputs: vec![
+                (1, Constant::new(None, weight_requant.into_arc())),
+                (2, vector_constant(scale_requant)),
+            ],
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: vec![Some(weight_q), Some(scale), zero_point],
         }))
     }
 }

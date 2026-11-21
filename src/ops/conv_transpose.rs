@@ -16,6 +16,7 @@ use crate::operator::{
     OutputTypesContext, PrepackedInput, check_eq, static_dims,
 };
 use crate::ops::Padding;
+use crate::ops::conv::{conv_1x1_dynamic_quant, pack_weights};
 use crate::value::ValueView;
 
 /// Compute the range of input positions along a spatial axis that result in
@@ -87,11 +88,8 @@ fn col2im(
     dilations: [usize; 2],
     bias: Option<NdTensorView<f32, 1>>,
 ) {
-    let [stride_h, stride_w] = strides;
-    let [dilation_h, dilation_w] = dilations;
-    let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
-    let [col_chans, kernel_h, kernel_w, _img_h, _img_w] = columns.shape();
-    let [out_chans, out_h, out_w] = output.shape();
+    let [col_chans, _, _, _, _] = columns.shape();
+    let [out_chans, _, _] = output.shape();
     assert!(col_chans == out_chans);
 
     output
@@ -105,37 +103,108 @@ fn col2im(
             // Safety: We just initialized all elements of `out_img`.
             let mut out_img = unsafe { out_img.assume_init() };
 
-            for k_y in 0..kernel_h {
-                for k_x in 0..kernel_w {
-                    let in_img = columns.slice([out_c, k_y, k_x]);
-                    let [img_h, img_w] = in_img.shape();
+            col2im_channel(
+                &mut out_img,
+                &columns.slice(out_c),
+                [0, 0],
+                padding,
+                strides,
+                dilations,
+            );
+        });
+}
 
-                    let y_range =
-                        col2im_input_range(img_h, out_h, pad_top, k_y * dilation_h, stride_h);
-                    let x_range =
-                        col2im_input_range(img_w, out_w, pad_left, k_x * dilation_w, stride_w);
+/// Accumulate columns of a matrix into an image, for a region of the input
+/// image starting at `in_offset`.
+///
+/// This is like [`col2im`], except that `columns` has shape
+/// `[O,Kh,Kw,Hc,Wc]`, where `Hc` and `Wc` are the size of the region, and the
+/// columns are added to the existing values of `output`.
+fn col2im_accumulate(
+    output: &mut NdTensorViewMut<f32, 3>,
+    columns: &NdTensorView<f32, 5>,
+    in_offset: [usize; 2],
+    padding: [usize; 4],
+    strides: [usize; 2],
+    dilations: [usize; 2],
+) {
+    let [col_chans, _, _, _, _] = columns.shape();
+    let [out_chans, _, _] = output.shape();
+    assert!(col_chans == out_chans);
 
-                    for y in y_range {
-                        let out_y = y * stride_h + k_y * dilation_h;
-                        debug_assert!(out_y >= pad_top);
-                        debug_assert!(out_y < out_h + pad_top);
+    output
+        .axis_iter_mut(0)
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(out_c, mut out_img)| {
+            col2im_channel(
+                &mut out_img,
+                &columns.slice(out_c),
+                in_offset,
+                padding,
+                strides,
+                dilations,
+            );
+        });
+}
 
-                        for x in x_range.clone() {
-                            let out_x = x * stride_w + k_x * dilation_w;
-                            debug_assert!(out_x >= pad_left);
-                            debug_assert!(out_x < out_w + pad_left);
+/// Accumulate the columns for one output channel into `out_img`.
+///
+/// `columns` has shape `[Kh,Kw,Hc,Wc]` and contains the columns for a region
+/// of the input image starting at `in_offset`.
+fn col2im_channel(
+    out_img: &mut NdTensorViewMut<f32, 2>,
+    columns: &NdTensorView<f32, 4>,
+    in_offset: [usize; 2],
+    padding: [usize; 4],
+    strides: [usize; 2],
+    dilations: [usize; 2],
+) {
+    let [stride_h, stride_w] = strides;
+    let [dilation_h, dilation_w] = dilations;
+    let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
+    let [kernel_h, kernel_w, img_h, img_w] = columns.shape();
+    let [out_h, out_w] = out_img.shape();
+    let [y_offset, x_offset] = in_offset;
 
-                            // Safety: We computed x, y, out_x and out_y such that they are
-                            // in-bounds for out_img and in_img.
-                            unsafe {
-                                *out_img.get_unchecked_mut([out_y - pad_top, out_x - pad_left]) +=
-                                    in_img.get_unchecked([y, x]);
-                            }
-                        }
+    for k_y in 0..kernel_h {
+        for k_x in 0..kernel_w {
+            let in_img = columns.slice([k_y, k_x]);
+
+            // Ranges of input positions in the region which map to valid
+            // output positions.
+            let y_range =
+                col2im_input_range(y_offset + img_h, out_h, pad_top, k_y * dilation_h, stride_h);
+            let y_range = y_range.start.max(y_offset)..y_range.end.max(y_offset);
+            let x_range = col2im_input_range(
+                x_offset + img_w,
+                out_w,
+                pad_left,
+                k_x * dilation_w,
+                stride_w,
+            );
+            let x_range = x_range.start.max(x_offset)..x_range.end.max(x_offset);
+
+            for y in y_range {
+                let out_y = y * stride_h + k_y * dilation_h;
+                debug_assert!(out_y >= pad_top);
+                debug_assert!(out_y < out_h + pad_top);
+
+                for x in x_range.clone() {
+                    let out_x = x * stride_w + k_x * dilation_w;
+                    debug_assert!(out_x >= pad_left);
+                    debug_assert!(out_x < out_w + pad_left);
+
+                    // Safety: We computed x, y, out_x and out_y such that they are
+                    // in-bounds for out_img and in_img.
+                    unsafe {
+                        *out_img.get_unchecked_mut([out_y - pad_top, out_x - pad_left]) +=
+                            in_img.get_unchecked([y - y_offset, x - x_offset]);
                     }
                 }
             }
-        });
+        }
+    }
 }
 
 /// Perform a depthwise transposed convolution, where each group has one input
@@ -623,6 +692,237 @@ impl_infer_shapes!(
     }
 );
 
+/// Transposed convolution with int8 weights and dynamically quantized
+/// activations.
+///
+/// Inputs are `X, W, W_scale, B`, where `W` is an int8 weight tensor with
+/// shape `[C, O, ...kernel]`, `W_scale` is a scale with shape `[O * prod(kernel)]`
+/// for each output channel and kernel position and `B` is an optional bias of
+/// shape `[O]`. Only `groups = 1` is supported.
+///
+/// Activations are quantized with a separate scale and zero point for each
+/// input position. This is not an ONNX operator. It is created from
+/// `ConvTranspose` operators with `DequantizeLinear` weights when dynamic
+/// quantization of convolutions is enabled.
+#[derive(Clone, Debug)]
+pub struct ConvTransposeDynamicQuant {
+    pub dilations: Vec<usize>,
+    pub padding: Padding,
+    pub strides: Vec<usize>,
+    pub output_padding: Option<Vec<usize>>,
+}
+
+impl ConvTransposeDynamicQuant {
+    /// Return contiguous weights as a `[O * prod(kernel), C]` matrix.
+    fn weight_matrix<'a>(weight: &TensorView<'a, i8>) -> Option<NdTensorView<'a, i8, 2>> {
+        let in_c = *weight.shape().first()?;
+        let mat = NdTensorView::from_data([in_c, weight.len() / in_c.max(1)], weight.data()?);
+        Some(mat.transposed())
+    }
+}
+
+impl Operator for ConvTransposeDynamicQuant {
+    fn name(&self) -> &str {
+        "ConvTransposeDynamicQuant"
+    }
+
+    fn max_inputs(&self) -> Option<usize> {
+        Some(4)
+    }
+
+    fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
+        let pool = ctx.pool();
+        let inputs = ctx.inputs();
+        let input: TensorView<f32> = inputs.require_as(0)?;
+        let weight: TensorView<i8> = inputs.require_as(1)?;
+        let weight_scale: NdTensorView<f32, 1> = inputs.require_as(2)?;
+        let bias: Option<NdTensorView<f32, 1>> = inputs.get_as(3)?;
+        let packed_weight = match inputs.get_prepacked(1) {
+            Some(PrepackedInput::UInt8AMatrix(packed)) => Some(packed),
+            _ => None,
+        };
+
+        // Expand 1D transposed convolutions to 2D.
+        let is_1d = input.ndim() == 3;
+        let (input, weight, padding, strides, dilations, output_padding) = if is_1d {
+            let mut input = input;
+            input.insert_axis(2);
+            let mut weight = weight;
+            weight.insert_axis(2);
+            let (&[stride], &[dilation]) = (self.strides.as_slice(), self.dilations.as_slice())
+            else {
+                return Err(OpError::invalid_value(
+                    "expected 1 stride and dilation value",
+                ));
+            };
+            let out_pad = match self.output_padding.as_deref() {
+                Some(&[pad]) => pad,
+                None => 0,
+                _ => return Err(OpError::invalid_value("expected 1 output_padding value")),
+            };
+            let padding = self.padding.expand_1d_to_2d()?;
+            (
+                input,
+                weight,
+                padding,
+                [1, stride],
+                [1, dilation],
+                [0, out_pad],
+            )
+        } else {
+            let (&[stride_h, stride_w], &[dilation_h, dilation_w]) =
+                (self.strides.as_slice(), self.dilations.as_slice())
+            else {
+                return Err(OpError::invalid_value(
+                    "expected 2 stride and dilation values",
+                ));
+            };
+            let output_padding = match self.output_padding.as_deref() {
+                Some(&[h, w]) => [h, w],
+                None => [0, 0],
+                _ => return Err(OpError::invalid_value("expected 2 output_padding values")),
+            };
+            (
+                input,
+                weight,
+                self.padding.clone(),
+                [stride_h, stride_w],
+                [dilation_h, dilation_w],
+                output_padding,
+            )
+        };
+
+        let input = static_dims!(input, 4, "NCHW")?;
+        let [batch, in_c, in_h, in_w] = input.shape();
+        let [k_in_c, out_c, k_h, k_w] = static_dims!(weight, 4, "COHW")?.shape();
+        check_eq!(in_c, k_in_c, "input channels do not match weights")?;
+        check_eq!(
+            weight_scale.size(0),
+            out_c * k_h * k_w,
+            "weight scale length"
+        )?;
+        if let Some(bias) = &bias {
+            check_eq!(bias.size(0), out_c, "bias length")?;
+        }
+
+        let (out_shape, fixed_padding) = conv_transpose_output_size_and_padding(
+            [in_h, in_w],
+            [k_h, k_w],
+            padding,
+            strides,
+            dilations,
+            output_padding,
+        )?;
+        let [out_h, out_w] = out_shape;
+        let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
+
+        let weight = weight.to_contiguous_in(pool).auto_return(pool);
+        let weight_mat = Self::weight_matrix(&weight.view()).unwrap();
+        let weight_scale = weight_scale.to_contiguous_in(pool).auto_return(pool);
+
+        // Initialize each output channel with its bias.
+        let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
+        for mut image in output.axis_iter_mut(0) {
+            image
+                .axis_iter_mut(0)
+                .into_par_iter()
+                .enumerate()
+                .for_each(|(c, mut chan)| {
+                    chan.fill(MaybeUninit::new(bias.map(|b| b[c]).unwrap_or(0.)));
+                });
+        }
+        // Safety: Every channel of each image was initialized.
+        let mut output = unsafe { output.assume_init() };
+
+        // Compute the columns for regions of the input with an int8 matrix
+        // multiplication, and accumulate them into the output. Splitting the
+        // input limits the size of the column buffer, which can be reused for
+        // each region.
+        // Regions also have a minimum size, so that each matrix multiplication
+        // can be divided efficiently between threads.
+        const COLUMN_BUF_BYTES: usize = 4 * 1024 * 1024;
+        const MIN_POSITIONS: usize = 1024;
+        let positions =
+            (COLUMN_BUF_BYTES / (weight_mat.size(0) * size_of::<f32>()).max(1)).max(MIN_POSITIONS);
+        let (region_h, region_w) = if positions >= in_w {
+            (positions / in_w, in_w)
+        } else {
+            (1, positions)
+        };
+        for n in 0..batch {
+            for y in range_chunks(0..in_h, region_h) {
+                for x in range_chunks(0..in_w, region_w) {
+                    let region = input.slice((n..n + 1, .., y.clone(), x.clone()));
+                    let columns = conv_1x1_dynamic_quant(
+                        pool,
+                        region,
+                        weight_mat,
+                        weight_scale.data(),
+                        packed_weight,
+                    )?
+                    .auto_return(pool);
+                    col2im_accumulate(
+                        &mut output.slice_mut(n),
+                        &columns
+                            .slice(0)
+                            .reshaped([out_c, k_h, k_w, y.len(), x.len()])
+                            .view(),
+                        [y.start, x.start],
+                        [pad_top, pad_left, pad_right, pad_bottom],
+                        strides,
+                        dilations,
+                    );
+                }
+            }
+        }
+
+        let mut output = output.into_dyn();
+        if is_1d {
+            output.reshape(&[batch, out_c, out_w]);
+        }
+        output.into_op_result()
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        [1].into()
+    }
+
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        _zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
+        if index != 1 {
+            return None;
+        }
+        let weight: TensorView<i8> = input.try_into().ok()?;
+        let weight_mat = Self::weight_matrix(&weight)?;
+        let packed = pack_weights(&BufferPool::new(), weight_mat).ok()?;
+        Some(PrepackedInput::UInt8AMatrix(packed))
+    }
+
+    fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
+        Some([OutputType::CopyFromInput(0)].into())
+    }
+
+    fn as_infer_shapes(&self) -> Option<&dyn InferShapes> {
+        Some(self)
+    }
+}
+
+impl_infer_shapes!(
+    ConvTransposeDynamicQuant,
+    op,
+    shape_ops::ConvTranspose {
+        groups: 1,
+        padding: op.padding.as_shape_inference_padding(),
+        strides: &op.strides,
+        dilations: &op.dilations,
+        output_padding: op.output_padding.as_deref(),
+    }
+);
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -633,7 +933,12 @@ mod tests {
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{ConvTranspose, conv_transpose, conv_transpose_output_size_and_padding};
+    use rten_gemm::GemmExecutor;
+
+    use super::{
+        ConvTranspose, ConvTransposeDynamicQuant, conv_transpose,
+        conv_transpose_output_size_and_padding,
+    };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpRunContext, Operator, OperatorExt, OutputMask};
     use crate::ops::{OpError, Padding};
@@ -1246,6 +1551,143 @@ mod tests {
             [1, 1],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_conv_transpose_dynamic_quant() {
+        #[derive(Debug)]
+        struct Case {
+            input_shape: Vec<usize>,
+            kernel_shape: Vec<usize>,
+            strides: Vec<usize>,
+            pads: Vec<usize>,
+        }
+
+        let cases = [
+            // 1D upsampling
+            Case {
+                input_shape: [1, 8, 20].into(),
+                kernel_shape: [8, 4, 6].into(),
+                strides: [3].into(),
+                pads: [1, 2].into(),
+            },
+            // 1D, with the input split into several regions
+            Case {
+                input_shape: [1, 4, 2500].into(),
+                kernel_shape: [4, 128, 16].into(),
+                strides: [8].into(),
+                pads: [4, 4].into(),
+            },
+            // 2D with batch size > 1
+            Case {
+                input_shape: [2, 3, 5, 6].into(),
+                kernel_shape: [3, 2, 3, 3].into(),
+                strides: [2, 2].into(),
+                pads: [1, 1, 1, 1].into(),
+            },
+            // 2D, with the input split into regions of several rows
+            Case {
+                input_shape: [1, 2, 60, 40].into(),
+                kernel_shape: [2, 128, 3, 3].into(),
+                strides: [1, 1].into(),
+                pads: [1, 1, 1, 1].into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut rng = XorShiftRng::new(1234);
+            let input = Tensor::<f32>::rand(&case.input_shape, &mut rng).map(|x| x - 0.3);
+            let weight = Tensor::<i8>::rand(&case.kernel_shape, &mut rng).map(|&x| x.max(-127));
+            let [in_c, out_c] = [case.kernel_shape[0], case.kernel_shape[1]];
+            let n_cols = weight.len() / in_c;
+            let weight_scale = Tensor::from_fn(&[n_cols], |idx| 0.01 + 0.001 * (idx[0] % 7) as f32);
+            let bias = Tensor::from_fn(&[out_c], |idx| idx[0] as f32 * 0.1);
+            let n_spatial = case.strides.len();
+            let op = ConvTransposeDynamicQuant {
+                dilations: vec![1; n_spatial],
+                padding: Padding::Fixed(case.pads.as_slice().into()),
+                strides: case.strides.clone(),
+                output_padding: None,
+            };
+            let result: Tensor<f32> = op
+                .run_simple((
+                    input.view(),
+                    weight.view(),
+                    weight_scale.view(),
+                    bias.view(),
+                ))
+                .unwrap();
+
+            // Run again with prepacked weights. The unpacked weights are
+            // replaced with zeros to check that the prepacked ones are used.
+            let packed = op.prepack(1, weight.view().into(), None).unwrap();
+            let get_prepacked = |idx| (idx == 1).then_some(&packed);
+            let zero_weight = Tensor::<i8>::zeros(weight.shape());
+            let input_values = [
+                Some(input.view().into()),
+                Some(zero_weight.view().into()),
+                Some(weight_scale.view().into()),
+                Some(bias.view().into()),
+            ];
+            let inputs = InputList::from_optional(&input_values).with_prepacked(&get_prepacked);
+            let pool = BufferPool::new();
+            let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
+            let prepacked_result: Tensor<f32> = op.run(&ctx).unwrap().remove(0).try_into().unwrap();
+            assert_eq!(prepacked_result, result);
+
+            // Quantize the input as the operator does, with a scale for each
+            // position, and compare against a float transposed convolution
+            // using the quantized input and weights.
+            let levels = if GemmExecutor::<u8, i8, i32>::default().may_saturate() {
+                127.
+            } else {
+                255.
+            };
+            let mut input_q = input.clone();
+            let [batch, chans] = [input.size(0), input.size(1)];
+            let n_pos = input.len() / (batch * chans);
+            let data = input_q.data_mut().unwrap();
+            for n in 0..batch {
+                for pos in 0..n_pos {
+                    let idx = |c: usize| (n * chans + c) * n_pos + pos;
+                    let (lo, hi) = (0..chans)
+                        .map(|c| data[idx(c)])
+                        .fold((0f32, 0f32), |(lo, hi), x| (lo.min(x), hi.max(x)));
+                    let scale = if hi > lo { (hi - lo) / levels } else { 1. };
+                    let zp =
+                        ((-lo / scale).round_ties_even() - (levels + 1.) / 2.).clamp(-128., 127.);
+                    for c in 0..chans {
+                        let q = (data[idx(c)] / scale + zp)
+                            .round_ties_even()
+                            .clamp(-128., 127.);
+                        data[idx(c)] = (q - zp) * scale;
+                    }
+                }
+            }
+            let weight_f32 = Tensor::from_fn(weight.shape(), |idx| {
+                let col = idx[1..]
+                    .iter()
+                    .zip(&weight.shape()[1..])
+                    .fold(0, |acc, (&i, &s)| acc * s + i);
+                weight[idx] as f32 * weight_scale[[col]]
+            });
+            let expected = conv_transpose(
+                &BufferPool::new(),
+                input_q.view(),
+                weight_f32.view(),
+                Some(bias.nd_view()),
+                op.padding.clone(),
+                1,
+                &op.strides,
+                &op.dilations,
+                None,
+            )
+            .unwrap();
+            assert_eq!(result.shape(), expected.shape());
+            for (r, e) in result.iter().zip(expected.iter()) {
+                assert!((r - e).abs() <= 1e-4 * e.abs().max(1.), "{r} != {e}");
+            }
+        });
     }
 
     #[test]
