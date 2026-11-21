@@ -107,6 +107,66 @@ pub fn pack_a_block<T: Copy + Default, const MR: usize>(
     cols: Range<usize>,
 ) {
     assert_eq!(out.len(), rows.len().next_multiple_of(MR) * cols.len());
+    // Pack full panels of column-major matrices in tiles of `MR` rows and
+    // `TILE_COLS` columns, so that reads from each column and writes to each
+    // packed row are contiguous. Panels are processed in groups that span a
+    // cache line of each column.
+    if a.row_stride() == 1 && a.col_stride() != 1 {
+        const TILE_COLS: usize = 8;
+        const GROUP: usize = 4;
+
+        let n_cols = cols.len();
+        let full_panels = rows.len() / MR;
+        let col_stride = a.col_stride();
+        let a_data = a.storage();
+
+        for group_start in (0..full_panels).step_by(GROUP) {
+            let group_end = (group_start + GROUP).min(full_panels);
+            for col_start in cols.clone().step_by(TILE_COLS) {
+                let tile_cols = TILE_COLS.min(cols.end - col_start);
+                let out_col = col_start - cols.start;
+                for panel in group_start..group_end {
+                    let row_start = rows.start + panel * MR;
+                    let panel_out = &mut out[panel * MR * n_cols..][..MR * n_cols];
+                    let mut tile = [[T::default(); TILE_COLS]; MR];
+                    for c in 0..tile_cols {
+                        let col_offset = row_start + (col_start + c) * col_stride;
+                        for (r, tile_row) in tile.iter_mut().enumerate() {
+                            // Safety: `row_start + r` and `col_start + c` are
+                            // in `rows` and `cols`, which are valid for `a`.
+                            tile_row[c] = unsafe { *a_data.get_unchecked(col_offset + r) };
+                        }
+                    }
+                    for (r, tile_row) in tile.iter().enumerate() {
+                        let out_row = &mut panel_out[r * n_cols + out_col..][..tile_cols];
+                        for (y, x) in out_row.iter_mut().zip(tile_row) {
+                            y.write(*x);
+                        }
+                    }
+                }
+            }
+        }
+
+        let rows = rows.start + full_panels * MR..rows.end;
+        let out = &mut out[full_panels * MR * n_cols..];
+        pack_a_block_rows::<T, MR>(out, a, rows, cols);
+        return;
+    }
+
+    pack_a_block_rows::<T, MR>(out, a, rows, cols);
+}
+
+/// Pack a block of the "A" matrix in row-major order, reading the matrix one
+/// row at a time.
+///
+/// See [`pack_a_block`].
+#[inline]
+fn pack_a_block_rows<T: Copy + Default, const MR: usize>(
+    out: &mut [MaybeUninit<T>],
+    a: Matrix<T>,
+    rows: Range<usize>,
+    cols: Range<usize>,
+) {
     let mut out = SliceWriter::new(out);
 
     for panel_rows in range_chunks(rows, MR) {

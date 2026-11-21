@@ -635,15 +635,21 @@ fn test_gemm_u8i8_i32_invalid_zero_point() {
 #[test]
 fn test_gemm_transposed() -> Result<(), Box<dyn Error>> {
     let mut rng = XorShiftRng::new(1234);
-    let mut a = NdTensor::<f32, 2>::rand([20, 30], &mut rng);
-    let mut b = NdTensor::rand([10, 20], &mut rng);
 
-    // Transpose the input matrices. This will alter their row and column
-    // strides and shapes, but not re-order the data.
-    a.permute([1, 0]);
-    b.permute([1, 0]);
+    // Sizes of the transposed A matrix. These include row counts which are
+    // not a multiple of the kernel's MR, and which span several groups of
+    // row panels in the column-major packing path.
+    for (m, k) in [(30, 20), (85, 37)] {
+        let mut a = NdTensor::<f32, 2>::rand([k, m], &mut rng);
+        let mut b = NdTensor::rand([10, k], &mut rng);
 
-    run_compare_matmul(a.view(), b.view(), None, None);
+        // Transpose the input matrices. This will alter their row and column
+        // strides and shapes, but not re-order the data.
+        a.permute([1, 0]);
+        b.permute([1, 0]);
+
+        run_compare_matmul(a.view(), b.view(), None, None);
+    }
 
     Ok(())
 }
