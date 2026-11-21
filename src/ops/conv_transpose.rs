@@ -3,18 +3,20 @@ use std::mem::MaybeUninit;
 use rayon::prelude::*;
 use rten_base::iter::range_chunks;
 use rten_base::num::div_ceil;
-use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions};
+use rten_gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmUninitOptions, PackedAMatrix};
 use rten_shape_inference::ops as shape_ops;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
-    OutputTypesContext, check_eq, static_dims,
+    OutputTypesContext, PrepackedInput, check_eq, static_dims,
 };
 use crate::ops::Padding;
+use crate::value::ValueView;
 
 /// Compute the range of input positions along a spatial axis that result in
 /// valid output positions for a col2im operation.
@@ -299,6 +301,49 @@ pub fn conv_transpose(
     dilations: &[usize],
     output_padding: Option<&[usize]>,
 ) -> Result<Tensor, OpError> {
+    conv_transpose_impl(
+        pool,
+        input,
+        kernel,
+        None,
+        bias,
+        padding,
+        groups,
+        strides,
+        dilations,
+        output_padding,
+    )
+}
+
+/// Pack the kernel of a transposed convolution with one group.
+///
+/// `kernel` has shape `[C_in, C_out, ...]`. The result can be passed to
+/// [`conv_transpose_impl`] in place of the kernel matrix it computes.
+fn pack_kernel(kernel: TensorView) -> Option<PackedAMatrix<f32>> {
+    let in_c = *kernel.shape().first()?;
+    let kernel_mat = kernel.reshaped([in_c, kernel.len() / in_c.max(1)]);
+    let gemm = GemmExecutor::new();
+    Some(gemm.prepack_a(kernel_mat.transposed()))
+}
+
+/// Perform a transposed convolution.
+///
+/// If `packed_kernel` is provided, it is used instead of `kernel` for the
+/// matrix multiplication when there is one group. It must be the result of
+/// [`pack_kernel`] for `kernel`.
+#[allow(clippy::too_many_arguments)]
+fn conv_transpose_impl(
+    pool: &BufferPool,
+    input: TensorView,
+    kernel: TensorView,
+    packed_kernel: Option<&PackedAMatrix<f32>>,
+    bias: Option<NdTensorView<f32, 1>>,
+    padding: Padding,
+    groups: usize,
+    strides: &[usize],
+    dilations: &[usize],
+    output_padding: Option<&[usize]>,
+) -> Result<Tensor, OpError> {
     // Handle 1D transposed convolution by expanding to 2D and then removing
     // the extra dimension from the result.
     if let &[n, c, w] = input.shape() {
@@ -335,10 +380,11 @@ pub fn conv_transpose(
             }
         };
 
-        let result_2d = conv_transpose(
+        let result_2d = conv_transpose_impl(
             pool,
             input_2d.view(),
             kernel_2d.view(),
+            packed_kernel,
             bias,
             padding_2d,
             groups,
@@ -456,7 +502,10 @@ pub fn conv_transpose(
             let col2im_init = gemm
                 .gemm_uninit(
                     col2im_mat.data_mut().unwrap(),
-                    GemmInputA::Unpacked(kernel_mat),
+                    match packed_kernel {
+                        Some(packed) if groups == 1 => GemmInputA::Packed(packed),
+                        _ => GemmInputA::Unpacked(kernel_mat),
+                    },
                     GemmInputB::Unpacked(input_mat.view()),
                     GemmUninitOptions::default(),
                 )
@@ -470,7 +519,6 @@ pub fn conv_transpose(
                 col2im_init.as_ref(),
             );
             let mut out_img = out_group.slice_mut(n);
-
             col2im(
                 &mut out_img,
                 &col2im_mat
@@ -513,11 +561,16 @@ impl Operator for ConvTranspose {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
+        let packed_weight = match inputs.get_prepacked(1) {
+            Some(PrepackedInput::FloatAMatrix(packed)) => Some(packed),
+            _ => None,
+        };
 
-        conv_transpose(
+        conv_transpose_impl(
             ctx.pool(),
             input,
             weight,
+            packed_weight,
             bias,
             self.padding.clone(),
             self.groups,
@@ -526,6 +579,27 @@ impl Operator for ConvTranspose {
             self.output_padding.as_deref(),
         )
         .into_op_result()
+    }
+
+    fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
+        if self.groups == 1 {
+            [1].into()
+        } else {
+            SmallVec::new()
+        }
+    }
+
+    fn prepack(
+        &self,
+        index: usize,
+        input: ValueView,
+        _zero_point: Option<ValueView>,
+    ) -> Option<PrepackedInput> {
+        if index != 1 || self.groups != 1 {
+            return None;
+        }
+        let kernel: TensorView<f32> = input.try_into().ok()?;
+        pack_kernel(kernel).map(PrepackedInput::FloatAMatrix)
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -559,8 +633,9 @@ mod tests {
     use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
     use rten_testing::TestCases;
 
-    use super::{conv_transpose, conv_transpose_output_size_and_padding};
+    use super::{ConvTranspose, conv_transpose, conv_transpose_output_size_and_padding};
     use crate::buffer_pool::BufferPool;
+    use crate::operator::{InputList, OpRunContext, Operator, OperatorExt, OutputMask};
     use crate::ops::{OpError, Padding};
 
     fn reference_conv_transpose(
@@ -1171,6 +1246,81 @@ mod tests {
             [1, 1],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_conv_transpose_prepacked() {
+        #[derive(Debug)]
+        struct Case {
+            input_shape: Vec<usize>,
+            kernel_shape: Vec<usize>,
+            strides: Vec<usize>,
+            groups: usize,
+        }
+
+        let cases = [
+            // 1D upsampling, where the kernel is a multiple of the stride
+            Case {
+                input_shape: [1, 16, 10].into(),
+                kernel_shape: [16, 8, 6].into(),
+                strides: [3].into(),
+                groups: 1,
+            },
+            // 2D
+            Case {
+                input_shape: [2, 9, 5, 5].into(),
+                kernel_shape: [9, 3, 3, 3].into(),
+                strides: [2, 2].into(),
+                groups: 1,
+            },
+            // Grouped. Weights are not prepacked.
+            Case {
+                input_shape: [1, 4, 5, 5].into(),
+                kernel_shape: [4, 3, 3, 3].into(),
+                strides: [1, 1].into(),
+                groups: 2,
+            },
+        ];
+
+        cases.test_each(|case| {
+            let mut rng = XorShiftRng::new(1234);
+            let input = Tensor::<f32>::rand(&case.input_shape, &mut rng);
+            let kernel = Tensor::<f32>::rand(&case.kernel_shape, &mut rng);
+            let out_c = case.kernel_shape[1] * case.groups;
+            let bias = Tensor::<f32>::rand(&[out_c], &mut rng);
+            let n_spatial = case.strides.len();
+            let op = ConvTranspose {
+                groups: case.groups,
+                dilations: vec![1; n_spatial],
+                padding: Padding::Fixed(vec![1; n_spatial * 2].into()),
+                strides: case.strides.clone(),
+                output_padding: None,
+            };
+            let result: Tensor<f32> = op
+                .run_simple((input.view(), kernel.view(), bias.view()))
+                .unwrap();
+
+            let packed = op.prepack(1, kernel.view().into(), None);
+            assert_eq!(packed.is_some(), case.groups == 1);
+            let Some(packed) = packed else {
+                return;
+            };
+
+            // Run again with prepacked weights. The unpacked weights are
+            // replaced with zeros to check that the prepacked ones are used.
+            let get_prepacked = |idx| (idx == 1).then_some(&packed);
+            let zero_kernel = Tensor::<f32>::zeros(kernel.shape());
+            let input_values = [
+                Some(input.view().into()),
+                Some(zero_kernel.view().into()),
+                Some(bias.view().into()),
+            ];
+            let inputs = InputList::from_optional(&input_values).with_prepacked(&get_prepacked);
+            let pool = BufferPool::new();
+            let ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
+            let prepacked_result: Tensor<f32> = op.run(&ctx).unwrap().remove(0).try_into().unwrap();
+            assert_eq!(prepacked_result, result);
+        });
     }
 
     #[test]
