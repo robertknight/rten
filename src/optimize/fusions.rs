@@ -17,7 +17,7 @@ use crate::graph::{
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
-    AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
+    Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
     ConvIntegerToFloat, DequantizeLinear, FusedMatMul, Gelu, GroupedQueryAttentionMatMul,
     InstanceNormalization, LayerNormalization, MatMul, MatMulDynamicQuant, MatMulIntegerToFloat,
     RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Snake, Softmax, Swish,
@@ -1779,6 +1779,71 @@ impl FusionVisitor for MatMulDynamicQuantAddFusion {
                 pat_match.node_id("b_scale"),
                 Some(bias),
             ],
+            new_constant_inputs: Vec::new(),
+            output_ids: op_node.output_ids().to_vec(),
+            unused_input_ids: Vec::new(),
+        }))
+    }
+}
+
+/// Fuse `Add(ConvDynamicQuant(X, W, W_scale, B), R)` into
+/// `ConvDynamicQuant(X, W, W_scale, B, R)`.
+///
+/// This avoids a separate pass over the output to add residual connections,
+/// if `R` has the same shape as the output.
+pub struct ConvDynamicQuantAddFusion {}
+
+impl FusionVisitor for ConvDynamicQuantAddFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "ConvDynamicQuantAddFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _state: &(),
+        graph: &Graph,
+        _op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        if op_node.operator().downcast_ref::<Add>().is_none() {
+            return Err(FusionError::NoMatch);
+        }
+        let [Some(lhs), Some(rhs)] = op_node.input_ids() else {
+            return Err(FusionError::NoMatch);
+        };
+        if lhs == rhs {
+            return Err(FusionError::CheckFailed(
+                "residual is the convolution output",
+            ));
+        }
+
+        // Find the operand which is the output of a convolution without a
+        // residual input.
+        let conv_source = |id: NodeId| {
+            let (_, src) = graph.get_source_node(id)?;
+            let conv = src.operator().downcast_ref::<ConvDynamicQuant>()?;
+            (src.input_ids().len() <= 4).then_some((conv, src))
+        };
+        let (residual, conv, conv_node) = if let Some((conv, src)) = conv_source(*lhs) {
+            (*rhs, conv, src)
+        } else if let Some((conv, src)) = conv_source(*rhs) {
+            (*lhs, conv, src)
+        } else {
+            return Err(FusionError::NoMatch);
+        };
+
+        let mut input_ids = conv_node.input_ids().to_vec();
+        input_ids.resize(4, None);
+        input_ids.push(Some(residual));
+
+        Ok(Fusion::Op(FusedOp {
+            name: op_node.name().map(|s| s.to_string()),
+            fused_op: Arc::new(conv.clone()),
+            input_ids,
             new_constant_inputs: Vec::new(),
             output_ids: op_node.output_ids().to_vec(),
             unused_input_ids: Vec::new(),

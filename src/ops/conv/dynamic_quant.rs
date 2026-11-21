@@ -15,12 +15,13 @@ use rten_tensor::{NdTensor, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::buffer_pool::{AutoReturn, BufferPool};
-use crate::infer_shapes::{InferShapes, impl_infer_shapes};
+use crate::infer_shapes::InferShapes;
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext, PrepackedInput, check_eq, static_dims,
 };
 use crate::ops::Padding;
+use crate::ops::binary_elementwise::add;
 use crate::ops::matmul::shift_cast_gemm_lhs_to_u8;
 use crate::ops::pooling::{RoundMode, calc_output_size_and_padding};
 use crate::value::ValueView;
@@ -574,6 +575,7 @@ fn conv_dynamic_quant_2d(
     weight_scale: &[f32],
     bias: Option<&[f32]>,
     packed_weight: Option<&PackedAMatrix<u8>>,
+    residual: Option<&[f32]>,
     geom: ConvGeometry,
 ) -> Result<NdTensor<f32, 4>, OpError> {
     let [batch, in_c, _, _] = input.shape();
@@ -586,6 +588,9 @@ fn conv_dynamic_quant_2d(
     check_eq!(weight_scale.len(), out_c, "weight scale length")?;
     if let Some(bias) = bias {
         check_eq!(bias.len(), out_c, "bias length")?;
+    }
+    if let Some(residual) = residual {
+        check_eq!(residual.len(), batch * out_c * n_cols, "residual length")?;
     }
 
     let gemm = GemmExecutor::<u8, i8, i32>::default();
@@ -638,17 +643,28 @@ fn conv_dynamic_quant_2d(
         )
         .map_err(|_| OpError::invalid_value("GEMM failed"))?;
 
-        // Rescale accumulators and add bias.
+        // Rescale accumulators and add the bias and residual.
+        let item_residual = residual.map(|r| &r[n * out_c * n_cols..][..out_c * n_cols]);
         out_data
             .par_chunks_mut(n_cols)
             .enumerate()
             .for_each(|(oc, out_row)| {
                 let w_scale = weight_scale[oc];
                 let b = bias.map(|b| b[oc]).unwrap_or(0.);
-                for (y, &s) in out_row.iter_mut().zip(&quant.scale) {
+                let to_f32 = |y: &MaybeUninit<f32>, s: f32| {
                     // Safety: The GEMM initialized `y` with an `i32`.
                     let acc = i32::from_ne_bytes(unsafe { y.assume_init() }.to_ne_bytes());
-                    y.write(acc as f32 * (w_scale * s) + b);
+                    acc as f32 * (w_scale * s) + b
+                };
+                if let Some(residual) = item_residual {
+                    let residual = &residual[oc * n_cols..][..n_cols];
+                    for ((y, &s), &r) in out_row.iter_mut().zip(&quant.scale).zip(residual) {
+                        y.write(to_f32(y, s) + r);
+                    }
+                } else {
+                    for (y, &s) in out_row.iter_mut().zip(&quant.scale) {
+                        y.write(to_f32(y, s));
+                    }
                 }
             });
     }
@@ -660,16 +676,16 @@ fn conv_dynamic_quant_2d(
 
 /// Convolution with int8 weights and dynamically quantized int8 activations.
 ///
-/// Inputs are `X, W, W_scale, B`, where `W` is an int8 weight tensor with
+/// Inputs are `X, W, W_scale, B, R`, where `W` is an int8 weight tensor with
 /// shape `[O, C, ...kernel]`, `W_scale` is a per-output-channel scale with
-/// shape `[O]` and `B` is an optional bias of shape `[O]`. Only `groups = 1`
-/// is supported.
+/// shape `[O]`, `B` is an optional bias of shape `[O]` and `R` is an optional
+/// residual which is added to the output. Only `groups = 1` is supported.
 ///
 /// Activations are quantized with a separate scale and zero point for each
 /// output position. This is not an ONNX operator. It is created from `Conv`
 /// operators with `DequantizeLinear` weights when dynamic quantization of
 /// convolutions is enabled.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ConvDynamicQuant {
     pub padding: Padding,
     pub strides: Vec<usize>,
@@ -682,7 +698,7 @@ impl Operator for ConvDynamicQuant {
     }
 
     fn max_inputs(&self) -> Option<usize> {
-        Some(4)
+        Some(5)
     }
 
     fn prepack_inputs(&self) -> SmallVec<[usize; 1]> {
@@ -711,6 +727,7 @@ impl Operator for ConvDynamicQuant {
         let weight: TensorView<i8> = inputs.require_as(1)?;
         let weight_scale: NdTensorView<f32, 1> = inputs.require_as(2)?;
         let bias: Option<NdTensorView<f32, 1>> = inputs.get_as(3)?;
+        let residual: Option<TensorView<f32>> = inputs.get_as(4)?;
         let packed_weight = match inputs.get_prepacked(1) {
             Some(PrepackedInput::UInt8AMatrix(packed)) => Some(packed),
             _ => None,
@@ -777,22 +794,40 @@ impl Operator for ConvDynamicQuant {
             dilations,
         };
 
+        // Add the residual while converting accumulators to floats if it has
+        // the same shape as the output, or separately otherwise.
+        let [batch, _, _, _] = input.shape();
+        let out_c = weight.size(0);
+        let out_shape: SmallVec<[usize; 4]> = if is_1d {
+            SmallVec::from_slice(&[batch, out_c, out_w])
+        } else {
+            SmallVec::from_slice(&[batch, out_c, out_h, out_w])
+        };
+        let pool = ctx.pool();
+        let fused_residual = residual
+            .as_ref()
+            .filter(|r| r.shape() == out_shape.as_slice())
+            .map(|r| r.to_contiguous_in(pool).auto_return(pool));
+
         let output = conv_dynamic_quant_2d(
-            ctx.pool(),
+            pool,
             input,
             weight,
             weight_scale.data(),
             bias.as_ref().map(|b| b.data()),
             packed_weight,
+            fused_residual.as_ref().map(|r| r.data()),
             geom,
         )?;
 
         let mut output: Tensor<f32> = output.into_dyn();
-        if is_1d {
-            let [n, c, _h, w]: [usize; 4] = output.shape().try_into().unwrap();
-            output.reshape(&[n, c, w]);
+        output.reshape(&out_shape);
+        match residual {
+            Some(residual) if fused_residual.is_none() => {
+                add(pool, output.view(), residual)?.into_op_result()
+            }
+            _ => output.into_op_result(),
         }
-        output.into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -804,15 +839,29 @@ impl Operator for ConvDynamicQuant {
     }
 }
 
-impl_infer_shapes!(
-    ConvDynamicQuant,
-    op,
-    shape_ops::Conv {
-        strides: &op.strides,
-        dilations: &op.dilations,
-        padding: op.padding.as_shape_inference_padding(),
+impl rten_shape_inference::InferShapes for ConvDynamicQuant {
+    fn infer_shapes(
+        &self,
+        inputs: rten_shape_inference::InferShapesContext,
+        sym_gen: &mut rten_shape_inference::SymbolGen,
+    ) -> Result<Vec<rten_shape_inference::SymTensor>, rten_shape_inference::InferShapesError> {
+        let conv = shape_ops::Conv {
+            strides: &self.strides,
+            dilations: &self.dilations,
+            padding: self.padding.as_shape_inference_padding(),
+        };
+        let conv_inputs: Vec<_> = (0..4).map(|i| inputs.get(i).cloned()).collect();
+        let conv_outputs = conv.infer_shapes(conv_inputs.into(), sym_gen)?;
+
+        // The residual is broadcast with the convolution output.
+        match (inputs.get(4), conv_outputs.as_slice()) {
+            (Some(residual), [conv_out]) => {
+                shape_ops::Add.infer_shapes([conv_out.clone(), residual.clone()].into(), sym_gen)
+            }
+            _ => Ok(conv_outputs),
+        }
     }
-);
+}
 
 #[cfg(test)]
 mod tests {
@@ -824,6 +873,7 @@ mod tests {
     use super::ConvDynamicQuant;
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpRunContext, Operator, OperatorExt, OutputMask};
+    use crate::ops::binary_elementwise::add;
     use crate::ops::{Padding, conv};
 
     /// Reference implementation which quantizes each im2col column
@@ -893,6 +943,49 @@ mod tests {
             }
         }
         output
+    }
+
+    #[test]
+    fn test_conv_dynamic_quant_residual() {
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::<f32>::rand(&[1, 3, 8], &mut rng);
+        let weight = Tensor::<i8>::rand(&[4, 3, 3], &mut rng);
+        let weight_scale = Tensor::from([0.01f32, 0.02, 0.03, 0.04]);
+        let bias = Tensor::from([0.5f32, -0.5, 1., 0.]);
+        let op = ConvDynamicQuant {
+            padding: Padding::Fixed([1, 1].as_slice().into()),
+            strides: [1].into(),
+            dilations: [1].into(),
+        };
+        let output: Tensor<f32> = op
+            .run_simple((
+                input.view(),
+                weight.view(),
+                weight_scale.view(),
+                bias.view(),
+            ))
+            .unwrap();
+
+        // Residuals with the same shape as the output, which are added while
+        // computing the output, and which are broadcast.
+        let residuals = [
+            Tensor::<f32>::rand(&[1, 4, 8], &mut rng),
+            Tensor::<f32>::rand(&[1, 4, 1], &mut rng),
+            Tensor::<f32>::rand(&[2, 1, 8], &mut rng),
+        ];
+        for residual in residuals {
+            let result: Tensor<f32> = op
+                .run_simple((
+                    input.view(),
+                    weight.view(),
+                    weight_scale.view(),
+                    bias.view(),
+                    residual.view(),
+                ))
+                .unwrap();
+            let expected = add(&BufferPool::new(), output.view(), residual.view()).unwrap();
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]

@@ -27,14 +27,14 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
-    ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantFusion,
-    ConvIntegerToFloatFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
-    GroupedQueryAttentionMatMulFusion, IdentityFusion, InstanceNormalizationAffineFusion,
-    InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
-    MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion,
-    MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion,
-    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SnakeFusion, SwishFusion, TransposeFusion,
+    ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantAddFusion,
+    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, Fusion, FusionError, FusionVisitor,
+    GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    InstanceNormalizationAffineFusion, InstanceNormalizationFusion, LayerNormalizationFusion,
+    MatMulAddFusion, MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion,
+    MatMulIntegerToFloatFusion, MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion,
+    RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion,
+    SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SnakeFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -745,6 +745,7 @@ impl GraphOptimizer {
         fusions.push(ConvAddFusion {});
         fusions.push(ConvBatchNormFusion {});
         fusions.push(ConvIntegerToFloatFusion {}.into_visitor());
+        fusions.push(ConvDynamicQuantAddFusion {});
 
         // Attention fusions.
         //
