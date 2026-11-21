@@ -8,7 +8,7 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 
 use rten_base::bit_set::BitSet;
-use rten_gemm::PackedBMatrix;
+use rten_gemm::{PackedAMatrix, PackedBMatrix};
 use rten_tensor::errors::DimensionError;
 use rten_tensor::{Layout, Storage, TensorBase};
 use smallvec::SmallVec;
@@ -22,12 +22,16 @@ use crate::weight_cache::WeightCache;
 
 /// An operator input which has been pre-packed for more efficient use during
 /// inference.
+#[allow(clippy::enum_variant_names)]
 pub enum PrepackedInput {
     /// Prepacked RHS / B input for matrix multiplication with f32 weights.
     FloatBMatrix(PackedBMatrix<f32>),
 
     /// Prepacked RHS / B input for matrix multiplication with i8 weights.
     Int8BMatrix(PackedBMatrix<i8>),
+
+    /// Prepacked LHS / A input for matrix multiplication with f32 weights.
+    FloatAMatrix(PackedAMatrix<f32>),
 }
 
 impl PrepackedInput {
@@ -35,6 +39,7 @@ impl PrepackedInput {
         match self {
             Self::FloatBMatrix(_) => DataType::Float,
             Self::Int8BMatrix(_) => DataType::Int8,
+            Self::FloatAMatrix(_) => DataType::Float,
         }
     }
 }
