@@ -911,6 +911,139 @@ fn test_fuse_conv_dynamic_quant() {
 }
 
 #[test]
+fn test_fuse_conv_dynamic_quant_residual() {
+    #[derive(Debug)]
+    struct Case {
+        // Put the residual on the left side of the `Add`.
+        residual_first: bool,
+        // Add the convolution output to itself instead of to the input.
+        add_to_self: bool,
+        // Also use the convolution output as a graph output.
+        reuse_conv_output: bool,
+        expect_fused: bool,
+    }
+
+    let cases = [
+        Case {
+            residual_first: false,
+            add_to_self: false,
+            reuse_conv_output: false,
+            expect_fused: true,
+        },
+        Case {
+            residual_first: true,
+            add_to_self: false,
+            reuse_conv_output: false,
+            expect_fused: true,
+        },
+        Case {
+            residual_first: false,
+            add_to_self: true,
+            reuse_conv_output: false,
+            expect_fused: false,
+        },
+        Case {
+            residual_first: false,
+            add_to_self: false,
+            reuse_conv_output: true,
+            expect_fused: false,
+        },
+    ];
+
+    cases.test_each(|case| {
+        let make_graph = || {
+            let mut graph = Graph::new();
+            let x = graph.add_value(Some("x"), None, None);
+            let weight_q = graph.add_constant(
+                Some("weight_q"),
+                Tensor::<i8>::from_fn(&[4, 4, 3], |idx| (idx[0] + 2 * idx[1]) as i8 - idx[2] as i8)
+                    .into_arc(),
+            );
+            let scale = graph.add_constant(
+                Some("scale"),
+                Tensor::from([0.5f32, 0.25, 1., 2.]).into_arc(),
+            );
+            let (_, weight) = graph.add_simple_op(
+                "dequantize",
+                DequantizeLinear {
+                    axis: 0,
+                    block_size: 0,
+                },
+                &[weight_q, scale],
+            );
+            let (_, conv_out) = graph.add_simple_op(
+                "conv",
+                Conv {
+                    groups: 1,
+                    dilations: vec![1],
+                    padding: Padding::Same,
+                    strides: vec![1],
+                },
+                &[x, weight],
+            );
+            let add_inputs = if case.add_to_self {
+                [conv_out, conv_out]
+            } else if case.residual_first {
+                [x, conv_out]
+            } else {
+                [conv_out, x]
+            };
+            let (_, output) = graph.add_simple_op("add", Add {}, &add_inputs);
+            graph.set_input_ids(&[x]);
+            if case.reuse_conv_output {
+                graph.set_output_ids(&[output, conv_out]);
+            } else {
+                graph.set_output_ids(&[output]);
+            }
+            graph
+        };
+
+        let graph = GraphOptimizer::new()
+            .optimize(
+                make_graph(),
+                None,
+                OptimizeOptions {
+                    conv_dynamic_quant_weights: ["*".to_string()].into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+        if !case.expect_fused {
+            assert_eq!(op.operator().name(), "Add");
+            return;
+        }
+        assert_eq!(op.operator().name(), "ConvDynamicQuant");
+        assert_eq!(op.input_ids().len(), 5);
+        assert_eq!(op.input_ids()[4], Some(graph.input_ids()[0]));
+
+        // Compare the fused and unfused graphs on concrete input.
+        let x = Tensor::from([[
+            [0.5f32, -1., 2., 0.25, 1.5],
+            [3., 1., -0.5, 0., 2.],
+            [1., 1., 1., 1., 1.],
+            [-2., 0.5, 0.25, 1., 0.],
+        ]]);
+        let run = |graph: &Graph| -> Tensor<f32> {
+            let inputs = vec![(graph.input_ids()[0], x.view().into())];
+            graph
+                .run(inputs, &graph.output_ids()[..1], None, None)
+                .unwrap()
+                .remove(0)
+                .try_into()
+                .unwrap()
+        };
+        let expected = run(&make_graph());
+        let actual = run(&graph);
+        assert_eq!(actual.shape(), expected.shape());
+        for (a, e) in actual.iter().zip(expected.iter()) {
+            assert!((a - e).abs() < 0.05 * e.abs().max(1.), "{a} != {e}");
+        }
+    })
+}
+
+#[test]
 fn test_fuse_batch_normalization() {
     #[derive(Debug)]
     struct Case {
