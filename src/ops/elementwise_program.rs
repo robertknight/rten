@@ -6,6 +6,12 @@
 //! the tensor is instead split into tiles which are small enough that a tile
 //! of each input and intermediate value fits in the L1 cache, and all of the
 //! operations are applied to one tile before moving on to the next.
+//!
+//! Programs can also reduce the values in each _row_ of the tensor to a
+//! scalar, and use it in later operations on the same row. This requires
+//! several passes over the row. For example normalizing each row to have zero
+//! mean and unit variance takes one pass to compute the mean, a second to
+//! compute the variance and a third to compute the output.
 
 use std::ops::Range;
 
@@ -52,15 +58,19 @@ pub enum Dst {
 
 /// An operation on one tile.
 ///
-/// The destination may be the same register as a source.
+/// The destination may be the same register as a source. Scalar operands
+/// are indices of scalars, which are the operator's scalar inputs followed by
+/// the scalars computed by the program.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TileOp {
     /// Compute `a + b`.
     Add { dst: Dst, a: Src, b: Src },
-    /// Multiply `src` by the scalar input with index `scalar`.
+    /// Compute `src + scalar`.
+    AddScalar { dst: Dst, src: Src, scalar: usize },
+    /// Compute `src * scalar`.
     MulScalar { dst: Dst, src: Src, scalar: usize },
-    /// Compute `addend + src * scalar`, where `scalar` is the index of a
-    /// scalar input. This uses a fused multiply-add if available.
+    /// Compute `addend + src * scalar`. This uses a fused multiply-add if
+    /// available.
     MulScalarAdd {
         dst: Dst,
         src: Src,
@@ -73,55 +83,151 @@ pub enum TileOp {
     SinSquared { dst: Dst, src: Src },
     /// Compute `src * src`.
     Square { dst: Dst, src: Src },
+    /// Compute `src - scalar`.
+    SubScalar { dst: Dst, src: Src, scalar: usize },
+    /// Add the sum of the elements of `src` to a scalar.
+    Sum { src: Src, scalar: usize },
 }
 
 impl TileOp {
-    fn dst(&self) -> Dst {
+    /// Return the tile written by this operation, if any.
+    fn dst(&self) -> Option<Dst> {
         match *self {
             TileOp::Add { dst, .. }
+            | TileOp::AddScalar { dst, .. }
             | TileOp::MulScalar { dst, .. }
             | TileOp::MulScalarAdd { dst, .. }
             | TileOp::Sin { dst, .. }
             | TileOp::SinSquared { dst, .. }
-            | TileOp::Square { dst, .. } => dst,
+            | TileOp::Square { dst, .. }
+            | TileOp::SubScalar { dst, .. } => Some(dst),
+            TileOp::Sum { .. } => None,
+        }
+    }
+
+    /// Return the scalar read or updated by this operation, if any.
+    fn scalar(&self) -> Option<usize> {
+        match *self {
+            TileOp::AddScalar { scalar, .. }
+            | TileOp::MulScalar { scalar, .. }
+            | TileOp::MulScalarAdd { scalar, .. }
+            | TileOp::SubScalar { scalar, .. }
+            | TileOp::Sum { scalar, .. } => Some(scalar),
+            TileOp::Add { .. }
+            | TileOp::Sin { .. }
+            | TileOp::SinSquared { .. }
+            | TileOp::Square { .. } => None,
         }
     }
 }
 
-/// A sequence of operations which compute one tile of an operator's output
-/// from the corresponding tiles of its inputs.
+/// An operation on the scalars for one row.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScalarOp {
+    /// Compute `a + b`.
+    Add { dst: usize, a: usize, b: usize },
+    /// Divide a scalar by the number of elements in the row.
+    DivRowLen { scalar: usize },
+    /// Compute `1 / src`.
+    Reciprocal { dst: usize, src: usize },
+    /// Compute `sqrt(src)`.
+    Sqrt { dst: usize, src: usize },
+}
+
+impl ScalarOp {
+    /// Return the scalar written by this operation.
+    fn dst(&self) -> usize {
+        match *self {
+            ScalarOp::Add { dst, .. }
+            | ScalarOp::Reciprocal { dst, .. }
+            | ScalarOp::Sqrt { dst, .. } => dst,
+            ScalarOp::DivRowLen { scalar } => scalar,
+        }
+    }
+
+    fn run(&self, scalars: &mut [f32], row_len: usize) {
+        match *self {
+            ScalarOp::Add { dst, a, b } => scalars[dst] = scalars[a] + scalars[b],
+            ScalarOp::DivRowLen { scalar } => scalars[scalar] /= row_len as f32,
+            ScalarOp::Reciprocal { dst, src } => scalars[dst] = 1. / scalars[src],
+            ScalarOp::Sqrt { dst, src } => scalars[dst] = scalars[src].sqrt(),
+        }
+    }
+}
+
+/// One pass over a row.
+///
+/// The scalar operations are run first, followed by the tile operations for
+/// each tile of the row.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pass {
+    pub scalar_ops: Vec<ScalarOp>,
+    pub tile_ops: Vec<TileOp>,
+}
+
+impl From<Vec<TileOp>> for Pass {
+    fn from(tile_ops: Vec<TileOp>) -> Pass {
+        Pass {
+            scalar_ops: Vec::new(),
+            tile_ops,
+        }
+    }
+}
+
+/// A sequence of passes which compute one row of an operator's output from
+/// the corresponding rows of its inputs.
+///
+/// Scalars computed by the program are zero at the start of each row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TileProgram {
-    ops: Vec<TileOp>,
+    passes: Vec<Pass>,
     n_inputs: usize,
+    n_scalar_inputs: usize,
+    /// Number of scalars, including scalar inputs.
     n_scalars: usize,
     n_regs: usize,
 }
 
 impl TileProgram {
-    /// Create a program which reads `n_inputs` tensor inputs and `n_scalars`
-    /// scalar inputs.
+    /// Create a program which reads `n_inputs` tensor inputs and
+    /// `n_scalar_inputs` scalar inputs.
     ///
-    /// Only the last operation may write the output. Since the output shares
-    /// a buffer with input 0, this means input 0 can be read by any operation.
-    pub fn new(ops: Vec<TileOp>, n_inputs: usize, n_scalars: usize) -> TileProgram {
-        let (last, rest) = ops.split_last().expect("program should not be empty");
-        assert_eq!(last.dst(), Dst::Output);
-        assert!(rest.iter().all(|op| op.dst() != Dst::Output));
+    /// Only the last operation of the last pass may write the output. Since
+    /// the output shares a buffer with input 0, this means input 0 can be
+    /// read by any operation.
+    pub fn new(passes: Vec<Pass>, n_inputs: usize, n_scalar_inputs: usize) -> TileProgram {
+        let tile_ops = || passes.iter().flat_map(|pass| &pass.tile_ops);
+        let n_tile_ops = tile_ops().count();
+        assert!(tile_ops().enumerate().all(|(index, op)| {
+            let is_last = index == n_tile_ops - 1;
+            (op.dst() == Some(Dst::Output)) == is_last
+        }));
         assert!(n_inputs >= 1);
 
-        let n_regs = ops
-            .iter()
+        let n_regs = tile_ops()
             .filter_map(|op| match op.dst() {
-                Dst::Reg(reg) => Some(reg + 1),
-                Dst::Output => None,
+                Some(Dst::Reg(reg)) => Some(reg + 1),
+                _ => None,
             })
             .max()
             .unwrap_or(0);
+        let n_scalars = tile_ops()
+            .filter_map(|op| op.scalar())
+            .chain(
+                passes
+                    .iter()
+                    .flat_map(|pass| &pass.scalar_ops)
+                    .map(|op| op.dst()),
+            )
+            .map(|scalar| scalar + 1)
+            .max()
+            .unwrap_or(0)
+            .max(n_scalar_inputs);
 
         TileProgram {
-            ops,
+            passes,
             n_inputs,
+            n_scalar_inputs,
             n_scalars,
             n_regs,
         }
@@ -217,6 +323,15 @@ impl TileState<'_, '_> {
         })
     }
 
+    /// Return the buffer for `src`.
+    fn source(&self, src: Src) -> &[f32] {
+        match src {
+            Src::Input(0) => self.output,
+            Src::Input(index) => &self.inputs[index - 1][self.range.clone()],
+            Src::Reg(reg) => &self.regs[reg][..self.range.len()],
+        }
+    }
+
     /// Call `kernel` with the buffers for `dst` and `srcs`.
     ///
     /// Sources which are the same buffer as the destination are passed as
@@ -245,9 +360,42 @@ impl TileState<'_, '_> {
         }
     }
 
-    fn run(&mut self, ops: &[TileOp], scalars: &[f32]) {
+    fn run(&mut self, ops: &[TileOp], scalars: &mut [f32]) {
         for op in ops {
             match *op {
+                TileOp::AddScalar { dst, src, scalar } => {
+                    let scalar = scalars[scalar];
+                    self.apply(dst, [src], |dst, [src]| match src {
+                        Some(src) => {
+                            for (y, x) in dst.iter_mut().zip(src) {
+                                *y = x + scalar;
+                            }
+                        }
+                        None => {
+                            for y in dst {
+                                *y += scalar;
+                            }
+                        }
+                    })
+                }
+                TileOp::SubScalar { dst, src, scalar } => {
+                    let scalar = scalars[scalar];
+                    self.apply(dst, [src], |dst, [src]| match src {
+                        Some(src) => {
+                            for (y, x) in dst.iter_mut().zip(src) {
+                                *y = x - scalar;
+                            }
+                        }
+                        None => {
+                            for y in dst {
+                                *y -= scalar;
+                            }
+                        }
+                    })
+                }
+                TileOp::Sum { src, scalar } => {
+                    scalars[scalar] += vecmath::Sum::new(self.source(src)).dispatch();
+                }
                 TileOp::Add { dst, a, b } => self.apply(dst, [a, b], |dst, srcs| match srcs {
                     [Some(a), Some(b)] => {
                         for ((y, a), b) in dst.iter_mut().zip(a).zip(b) {
@@ -335,13 +483,12 @@ impl TileState<'_, '_> {
 /// formed by flattening those dimensions.
 ///
 /// This is not an ONNX operator. It is created by fusing subgraphs of
-/// elementwise operators.
+/// elementwise operators and reductions over rows.
 #[derive(Debug)]
 pub struct ElementwiseProgram {
     pub program: TileProgram,
 
-    /// Number of trailing dimensions in which scalar inputs have a size of
-    /// one.
+    /// Number of trailing dimensions which are flattened to form a row.
     pub inner_dims: usize,
 }
 
@@ -353,12 +500,14 @@ impl ElementwiseProgram {
         mut output: Tensor<f32>,
     ) -> Result<Tensor<f32>, OpError> {
         let TileProgram {
-            ops,
+            passes,
             n_inputs,
+            n_scalar_inputs,
             n_scalars,
             n_regs,
         } = &self.program;
-        let (n_inputs, n_scalars, n_regs) = (*n_inputs, *n_scalars, *n_regs);
+        let (n_inputs, n_scalar_inputs, n_scalars, n_regs) =
+            (*n_inputs, *n_scalar_inputs, *n_scalars, *n_regs);
         let pool = ctx.pool();
         let inputs = ctx.inputs();
 
@@ -384,8 +533,8 @@ impl ElementwiseProgram {
         let mut row_shape = output.shape().to_vec();
         row_shape[outer_dims..].fill(1);
         let n_rows: usize = row_shape.iter().product();
-        let mut row_scalars = vec![0.; n_rows * n_scalars];
-        for index in 0..n_scalars {
+        let mut row_scalars = vec![0.; n_rows * n_scalar_inputs];
+        for index in 0..n_scalar_inputs {
             let scalar: TensorView<f32> = inputs.require_as(n_inputs + index)?;
             let Some(scalar) = scalar.try_broadcast(row_shape.as_slice()).ok() else {
                 return Err(OpError::incompatible_input_shapes(
@@ -393,7 +542,7 @@ impl ElementwiseProgram {
                 ));
             };
             for (row, value) in scalar.iter().enumerate() {
-                row_scalars[row * n_scalars + index] = *value;
+                row_scalars[row * n_scalar_inputs + index] = *value;
             }
         }
 
@@ -401,38 +550,70 @@ impl ElementwiseProgram {
             return Ok(output);
         }
 
+        // Run all of the passes over `segment`, which is all or part of a
+        // row and starts at offset `start` in the output.
+        let run_segment = |regs: &mut [&mut [f32]],
+                           scalars: &mut [f32],
+                           row: usize,
+                           start: usize,
+                           segment: &mut [f32]| {
+            let (scalar_inputs, computed_scalars) = scalars.split_at_mut(n_scalar_inputs);
+            scalar_inputs.copy_from_slice(&row_scalars[row * n_scalar_inputs..][..n_scalar_inputs]);
+            computed_scalars.fill(0.);
+
+            for pass in passes {
+                for op in &pass.scalar_ops {
+                    op.run(scalars, segment.len());
+                }
+                let mut tile_start = start;
+                for tile in segment.chunks_mut(TILE_LEN) {
+                    let range = tile_start..tile_start + tile.len();
+                    tile_start = range.end;
+                    let mut tile = TileState {
+                        inputs: &other_inputs,
+                        range,
+                        regs,
+                        output: tile,
+                    };
+                    tile.run(&pass.tile_ops, scalars);
+                }
+            }
+        };
+        let init = || (vec![0.; n_regs * TILE_LEN], vec![0.; n_scalars]);
+
         output.make_contiguous_in(pool);
-        output
-            .data_mut()
-            .unwrap()
-            .par_chunks_mut(TASK_LEN)
-            .enumerate()
-            .for_each_init(
-                || vec![0.; n_regs * TILE_LEN],
-                |reg_buf, (task, chunk)| {
+        let data = output.data_mut().unwrap();
+        if let [_] = passes.as_slice() {
+            // With a single pass, each part of a row can be computed
+            // separately, so divide long rows between tasks.
+            data.par_chunks_mut(TASK_LEN).enumerate().for_each_init(
+                init,
+                |(reg_buf, scalars), (task, chunk)| {
                     let mut regs: Vec<&mut [f32]> = reg_buf.chunks_mut(TILE_LEN).collect();
                     let task_start = task * TASK_LEN;
 
-                    // Split the chunk into tiles which each lie within one row.
+                    // Split the chunk into segments which each lie within
+                    // one row.
                     let mut pos = 0;
                     while pos < chunk.len() {
                         let start = task_start + pos;
                         let row = start / row_len;
                         let row_end = (row + 1) * row_len;
-                        let len = TILE_LEN.min(chunk.len() - pos).min(row_end - start);
-
-                        let mut tile = TileState {
-                            inputs: &other_inputs,
-                            range: start..start + len,
-                            regs: &mut regs,
-                            output: &mut chunk[pos..pos + len],
-                        };
-                        tile.run(ops, &row_scalars[row * n_scalars..][..n_scalars]);
-
+                        let len = (chunk.len() - pos).min(row_end - start);
+                        run_segment(&mut regs, scalars, row, start, &mut chunk[pos..pos + len]);
                         pos += len;
                     }
                 },
             );
+        } else {
+            data.par_chunks_mut(row_len)
+                .enumerate()
+                .with_min_len((TASK_LEN / row_len).max(1))
+                .for_each_init(init, |(reg_buf, scalars), (row, row_data)| {
+                    let mut regs: Vec<&mut [f32]> = reg_buf.chunks_mut(TILE_LEN).collect();
+                    run_segment(&mut regs, scalars, row, row * row_len, row_data);
+                });
+        }
 
         Ok(output)
     }
@@ -444,7 +625,7 @@ impl Operator for ElementwiseProgram {
     }
 
     fn max_inputs(&self) -> Option<usize> {
-        Some(self.program.n_inputs + self.program.n_scalars)
+        Some(self.program.n_inputs + self.program.n_scalar_inputs)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -479,10 +660,12 @@ impl Operator for ElementwiseProgram {
 mod tests {
     use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
-    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
-    use super::{Dst, ElementwiseProgram, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram};
+    use super::{
+        Dst, ElementwiseProgram, Pass, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram,
+    };
     use crate::operator::{OpError, OperatorExt};
 
     /// Return a program which computes `x + beta * sin(alpha * x)^2`, where
@@ -491,7 +674,7 @@ mod tests {
         let reg = Dst::Reg(0);
         let reg_src = Src::Reg(0);
         TileProgram::new(
-            [
+            vec![Pass::from(vec![
                 TileOp::MulScalar {
                     dst: reg,
                     src: Src::Input(0),
@@ -515,8 +698,7 @@ mod tests {
                     a: Src::Input(0),
                     b: reg_src,
                 },
-            ]
-            .into(),
+            ])],
             1,
             2,
         )
@@ -617,7 +799,7 @@ mod tests {
     fn test_elementwise_program_multiple_inputs() {
         // Compute `sin(a) + b`.
         let program = TileProgram::new(
-            [
+            vec![Pass::from(vec![
                 TileOp::Sin {
                     dst: Dst::Reg(0),
                     src: Src::Input(1),
@@ -627,8 +809,7 @@ mod tests {
                     a: Src::Reg(0),
                     b: Src::Input(0),
                 },
-            ]
-            .into(),
+            ])],
             2,
             0,
         );
@@ -680,13 +861,12 @@ mod tests {
 
         cases.test_each(|case| {
             let program = TileProgram::new(
-                [TileOp::MulScalarAdd {
+                vec![Pass::from(vec![TileOp::MulScalarAdd {
                     dst: Dst::Output,
                     src: case.src,
                     scalar: 0,
                     addend: case.addend,
-                }]
-                .into(),
+                }])],
                 2,
                 1,
             );
@@ -712,6 +892,127 @@ mod tests {
             let (src, addend) = (input(case.src), input(case.addend));
             let expected = Tensor::from_fn(src.shape(), |idx| addend[idx] + src[idx] * 1.5);
             expect_equal(&result, &expected).unwrap();
+        })
+    }
+
+    #[test]
+    fn test_elementwise_program_multiple_passes() {
+        // Normalize each row to have zero mean and unit variance, then
+        // compute `normalized * gamma + beta`. Scalars are the inputs
+        // (epsilon, gamma, beta) followed by the mean, variance, variance +
+        // epsilon, standard deviation and its reciprocal.
+        let reg = Dst::Reg(0);
+        let reg_src = Src::Reg(0);
+        let x = Src::Input(0);
+        let program = TileProgram::new(
+            vec![
+                vec![TileOp::Sum { src: x, scalar: 3 }].into(),
+                Pass {
+                    scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }],
+                    tile_ops: vec![
+                        TileOp::SubScalar {
+                            dst: reg,
+                            src: x,
+                            scalar: 3,
+                        },
+                        TileOp::Square {
+                            dst: reg,
+                            src: reg_src,
+                        },
+                        TileOp::Sum {
+                            src: reg_src,
+                            scalar: 4,
+                        },
+                    ],
+                },
+                Pass {
+                    scalar_ops: vec![
+                        ScalarOp::DivRowLen { scalar: 4 },
+                        ScalarOp::Add { dst: 5, a: 4, b: 0 },
+                        ScalarOp::Sqrt { dst: 6, src: 5 },
+                        ScalarOp::Reciprocal { dst: 7, src: 6 },
+                    ],
+                    tile_ops: vec![
+                        TileOp::SubScalar {
+                            dst: reg,
+                            src: x,
+                            scalar: 3,
+                        },
+                        TileOp::MulScalar {
+                            dst: reg,
+                            src: reg_src,
+                            scalar: 7,
+                        },
+                        TileOp::MulScalar {
+                            dst: reg,
+                            src: reg_src,
+                            scalar: 1,
+                        },
+                        TileOp::AddScalar {
+                            dst: Dst::Output,
+                            src: reg_src,
+                            scalar: 2,
+                        },
+                    ],
+                },
+            ],
+            1,
+            3,
+        );
+        let op = ElementwiseProgram {
+            program,
+            inner_dims: 1,
+        };
+
+        #[derive(Debug)]
+        struct Case {
+            shape: Vec<usize>,
+        }
+
+        let cases = [
+            // Rows shorter than a tile.
+            Case {
+                shape: [2, 3, 50].into(),
+            },
+            // Rows which span several tiles.
+            Case {
+                shape: [2, 3, 2 * TILE_LEN + 7].into(),
+            },
+            // Many short rows, which are grouped into tasks.
+            Case {
+                shape: [1, 4 * TASK_LEN / 300, 300].into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let x = test_input(&case.shape);
+            let chans = case.shape[1];
+            let epsilon = Tensor::from(1e-5);
+            let gamma = Tensor::from_data(
+                &[1, chans, 1],
+                (0..chans)
+                    .map(|i| 0.5 + i as f32 * 0.25)
+                    .collect::<Vec<_>>(),
+            );
+            let beta = gamma.map(|x| x - 1.);
+
+            let result: Tensor<f32> = op
+                .run_simple((x.view(), epsilon.view(), gamma.view(), beta.view()))
+                .unwrap();
+
+            let mut expected = x.clone();
+            for (row, mut lane) in expected.lanes_mut(2).enumerate() {
+                let chan = row % chans;
+                let lane = lane.as_slice_mut().unwrap();
+                let len = lane.len() as f32;
+                let mean = lane.iter().sum::<f32>() / len;
+                let var = lane.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / len;
+                let std = (var + 1e-5).sqrt();
+                for x in lane.iter_mut() {
+                    *x = (*x - mean) / std * gamma[[0, chan, 0]] + beta[[0, chan, 0]];
+                }
+            }
+            expect_equal_with_tolerance(&result, &expected, 1e-4, 1e-4).unwrap();
         })
     }
 

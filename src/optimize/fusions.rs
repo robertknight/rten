@@ -19,11 +19,11 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
-    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, Dst,
-    ElementwiseProgram, FusedMatMul, Gelu, GroupedQueryAttentionMatMul, InstanceNormalization,
-    LayerNormalization, MatMul, MatMulDynamicQuant, MatMulIntegerToFloat, Mul, Pow,
-    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Sin, Softmax, Src,
-    Swish, SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
+    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, Div, Dst,
+    ElementwiseProgram, FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul,
+    MatMulDynamicQuant, MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal,
+    ReduceMean, RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src, Sub, Swish,
+    SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -748,238 +748,6 @@ impl PatternFusion for LayerNormalizationFusion {
             axis: -1,
             epsilon: Some(epsilon),
         })
-    }
-}
-
-/// Fuse the normalization step of instance normalization into
-/// `InstanceNormalization(x, ones, zeros)`.
-///
-/// This matches `(x - mean(x)) / sqrt(mean((x - mean(x))^2) + epsilon)`, where
-/// `x` has shape `[N, C, ...spatial]` and the means are taken over all the
-/// spatial axes. Any subsequent scaling and shifting is left as separate
-/// operators. This handles cases where the scale and shift are computed at
-/// runtime, such as adaptive instance normalization (AdaIN), which
-/// `InstanceNormalization` cannot represent as its scale and bias are
-/// per-channel only.
-///
-/// When applied to a rank-3 input, this also matches the normalization step
-/// of layer normalization over the last axis. [`LayerNormalizationFusion`]
-/// should be tried first so that the full layer normalization is fused where
-/// possible.
-pub struct InstanceNormalizationFusion {}
-
-impl InstanceNormalizationFusion {
-    fn pattern() -> Pattern {
-        let x = Pattern::symbol("x");
-        let center_pat =
-            x.clone() - Pattern::unary_op("ReduceMean", x.clone()).with_name("center_mean");
-        let epsilon = Pattern::const_symbol("epsilon");
-        center_pat.clone()
-            / Pattern::unary_op(
-                "Sqrt",
-                epsilon
-                    + Pattern::unary_op(
-                        "ReduceMean",
-                        Pattern::binary_op("Pow", center_pat.clone(), 2.0),
-                    )
-                    .with_name("norm_mean"),
-            )
-    }
-}
-
-/// Return true if `node_id` is a `ReduceMean` which keeps reduced dimensions
-/// and reduces over exactly the spatial axes (`2..rank`) of an input with
-/// rank `rank`.
-fn reduce_mean_over_spatial_axes(graph: &Graph, node_id: NodeId, rank: usize) -> bool {
-    let Some(reduce_op) = graph
-        .get_node(node_id)
-        .and_then(|n| n.as_operator())
-        .and_then(|op| op.operator().downcast_ref::<ReduceMean>())
-    else {
-        return false;
-    };
-    if !reduce_op.keep_dims {
-        return false;
-    }
-    let Some(axes) = reduce_op.axes.as_deref() else {
-        return false;
-    };
-    let mut axes: Vec<_> = axes
-        .iter()
-        .map(|&axis| if axis < 0 { axis + rank as i32 } else { axis })
-        .collect();
-    axes.sort();
-    axes.into_iter().eq(2..rank as i32)
-}
-
-impl FusionVisitor for InstanceNormalizationFusion {
-    type State = Pattern;
-
-    fn name(&self) -> &str {
-        "InstanceNormalizationFusion"
-    }
-
-    fn prepare(&self, _: &Graph) -> Pattern {
-        Self::pattern()
-    }
-
-    fn maybe_fuse(
-        &self,
-        pattern: &Pattern,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Result<Fusion, FusionError> {
-        let pat_match = pattern
-            .test(op_node_id, graph)
-            .ok_or(FusionError::NoMatch)?;
-        let x = pat_match.node_id("x").unwrap();
-
-        // The channel count must be known to create the scale and bias.
-        let shape = graph
-            .get_node(x)
-            .and_then(|n| n.shape())
-            .ok_or(FusionError::CheckFailed("unknown input shape"))?;
-        if shape.len() < 3 {
-            return Err(FusionError::CheckFailed("input has no spatial dims"));
-        }
-        let Dimension::Fixed(channels) = shape[1] else {
-            return Err(FusionError::CheckFailed("unknown channel count"));
-        };
-
-        for mean in ["center_mean", "norm_mean"] {
-            let mean_id = pat_match.node_id(mean).unwrap();
-            if !reduce_mean_over_spatial_axes(graph, mean_id, shape.len()) {
-                return Err(FusionError::CheckFailed("not applied to spatial axes"));
-            }
-        }
-
-        let epsilon = graph
-            .get_scalar(pat_match.node_id("epsilon").unwrap())
-            .ok_or(FusionError::CheckFailed("epsilon not a scalar"))?;
-
-        Ok(Fusion::Op(FusedOp {
-            name: op_node.name().map(|s| s.to_string()),
-            fused_op: Arc::new(InstanceNormalization {
-                epsilon: Some(epsilon),
-            }),
-            input_ids: vec![Some(x), None, None],
-            new_constant_inputs: vec![
-                (1, vector_constant(vec![1.; channels])),
-                (2, vector_constant(vec![0.; channels])),
-            ],
-            output_ids: op_node.output_ids().to_vec(),
-            unused_input_ids: Vec::new(),
-        }))
-    }
-}
-
-/// Fuse `InstanceNormalization(x, 1, 0) * gamma + beta` into
-/// `InstanceNormalization(x, gamma, beta)`.
-///
-/// `gamma` and `beta` are per-channel values with shape `[N or 1, C, 1, ...]`
-/// which may be computed at runtime. This pattern occurs in adaptive instance
-/// normalization (AdaIN), where they are computed from a style vector.
-pub struct InstanceNormalizationAffineFusion {}
-
-impl InstanceNormalizationAffineFusion {
-    fn pattern() -> Pattern {
-        let norm = Pattern::operator(
-            "InstanceNormalization",
-            [
-                Pattern::symbol("x"),
-                Pattern::const_symbol("scale"),
-                Pattern::const_symbol("bias"),
-            ],
-        )
-        .with_name("norm");
-        norm * Pattern::symbol("gamma") + Pattern::symbol("beta")
-    }
-}
-
-/// Return true if `shape` is a per-channel parameter shape (`[N or 1, C, 1,
-/// ...]`) for an input of shape `input_shape` (`[N, C, ...]`).
-fn is_per_channel_param_shape(shape: &[Dimension], input_shape: &[Dimension]) -> bool {
-    let [batch, chans, ..] = shape else {
-        return false;
-    };
-    shape.len() == input_shape.len()
-        && (*batch == Dimension::Fixed(1) || *batch == input_shape[0])
-        && *chans == input_shape[1]
-        && shape[2..].iter().all(|d| *d == Dimension::Fixed(1))
-}
-
-impl FusionVisitor for InstanceNormalizationAffineFusion {
-    type State = Pattern;
-
-    fn name(&self) -> &str {
-        "InstanceNormalizationAffineFusion"
-    }
-
-    fn prepare(&self, _: &Graph) -> Pattern {
-        Self::pattern()
-    }
-
-    fn maybe_fuse(
-        &self,
-        pattern: &Pattern,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Result<Fusion, FusionError> {
-        let pat_match = pattern
-            .test(op_node_id, graph)
-            .ok_or(FusionError::NoMatch)?;
-        let x = pat_match.node_id("x").unwrap();
-        let gamma = pat_match.node_id("gamma").unwrap();
-        let beta = pat_match.node_id("beta").unwrap();
-
-        let norm_id = pat_match.node_id("norm").unwrap();
-        let norm_op = graph
-            .get_operator::<InstanceNormalization>(norm_id)
-            .ok_or(FusionError::NoMatch)?;
-        let norm_output = graph
-            .get_node(norm_id)
-            .and_then(|n| n.as_operator())
-            .and_then(|op| op.output_ids().first().copied().flatten())
-            .ok_or(FusionError::NoMatch)?;
-
-        let is_filled = |id, value: f32| {
-            graph
-                .get_vector::<f32>(pat_match.node_id(id).unwrap())
-                .is_some_and(|v| v.iter().all(|&x| x == value))
-        };
-        if !is_filled("scale", 1.) || !is_filled("bias", 0.) {
-            return Err(FusionError::CheckFailed("scale or bias is not identity"));
-        }
-
-        let shape_of = |id| graph.get_node(id).and_then(|n| n.shape());
-        let input_shape = shape_of(x).ok_or(FusionError::CheckFailed("unknown input shape"))?;
-        for param in [gamma, beta] {
-            let is_per_channel = shape_of(param)
-                .is_some_and(|shape| is_per_channel_param_shape(&shape, &input_shape));
-            if !is_per_channel {
-                return Err(FusionError::CheckFailed("gamma or beta is not per-channel"));
-            }
-        }
-
-        Ok(Fusion::Op(FusedOp {
-            name: op_node.name().map(|s| s.to_string()),
-            fused_op: Arc::new(InstanceNormalization {
-                epsilon: norm_op.epsilon,
-            }),
-            input_ids: vec![Some(x), Some(gamma), Some(beta)],
-            new_constant_inputs: Vec::new(),
-            output_ids: op_node.output_ids().to_vec(),
-            // Exclude the normalization from the fused subgraph, so that the
-            // fusion can be applied when the normalized output has other
-            // users. This happens when several AdaIN layers with different
-            // styles share an input. The fused operator recomputes the
-            // normalization, which costs about the same as the multiplication
-            // and addition it replaces. The original normalization is removed
-            // if it is no longer used.
-            unused_input_ids: vec![Some(norm_output)],
-        }))
     }
 }
 
@@ -2978,36 +2746,36 @@ impl FusionVisitor for ConvBatchNormFusion {
     }
 }
 
-/// Describes how an input of an elementwise subgraph relates to the
+/// Describes how a value used by an elementwise subgraph relates to the
 /// subgraph's output.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ElementwiseInput {
-    /// The input has the same shape as the output.
+enum ElementwiseValue {
+    /// The value has the same shape as the output.
     Tensor,
-    /// The input is broadcast against the output and has a size of one in
+    /// The value is broadcast against the output and has a size of one in
     /// the last `inner_dims` dimensions of the output.
     Scalar { inner_dims: usize },
 }
 
-/// Classify an input of an elementwise subgraph whose output has shape
+/// Classify a value used by an elementwise subgraph whose output has shape
 /// `out_shape`.
 ///
-/// Returns `None` if the input's type or shape is unknown or unsupported.
-fn elementwise_input(
+/// Returns `None` if the value's type or shape is unknown or unsupported.
+fn elementwise_value(
     graph: &Graph,
-    input_id: NodeId,
+    value_id: NodeId,
     out_shape: &[Dimension],
-) -> Option<ElementwiseInput> {
-    let node = graph.get_node(input_id)?;
+) -> Option<ElementwiseValue> {
+    let node = graph.get_node(value_id)?;
     if node.dtype() != Some(ValueType::Tensor(DataType::Float)) {
         return None;
     }
     let shape = node.shape()?;
     if shape.as_ref() == out_shape {
-        return Some(ElementwiseInput::Tensor);
+        return Some(ElementwiseValue::Tensor);
     }
 
-    // Align the input's dimensions with the output's, as broadcasting does.
+    // Align the value's dimensions with the output's, as broadcasting does.
     let pad = out_shape.len().checked_sub(shape.len())?;
     let is_one = |dim: usize| dim < pad || shape[dim - pad] == Dimension::Fixed(1);
 
@@ -3021,26 +2789,33 @@ fn elementwise_input(
     {
         return None;
     }
-    Some(ElementwiseInput::Scalar { inner_dims })
+    Some(ElementwiseValue::Scalar { inner_dims })
 }
 
-/// An operator which can be evaluated by a [`TileOp`], with the IDs of its
-/// inputs.
+/// An operator which can be evaluated by an [`ElementwiseProgram`], with the
+/// IDs of its inputs.
 #[derive(Clone, Copy, Debug)]
 enum ElementwiseStep {
+    // Steps which produce a tensor.
     Add {
         a: NodeId,
         b: NodeId,
     },
+    AddScalar {
+        src: NodeId,
+        scalar: NodeId,
+    },
+    DivScalar {
+        src: NodeId,
+        scalar: NodeId,
+    },
     MulScalar {
         src: NodeId,
         scalar: NodeId,
-        inner_dims: usize,
     },
     MulScalarAdd {
         src: NodeId,
         scalar: NodeId,
-        inner_dims: usize,
         addend: NodeId,
     },
     Sin {
@@ -3054,91 +2829,187 @@ enum ElementwiseStep {
         src: NodeId,
         exponent: NodeId,
     },
+    SubScalar {
+        src: NodeId,
+        scalar: NodeId,
+    },
+
+    // Steps which produce a scalar for each row.
+    /// Mean of the last `inner_dims` dimensions of `src`.
+    ReduceMean {
+        src: NodeId,
+        inner_dims: usize,
+    },
+    ScalarAdd {
+        a: NodeId,
+        b: NodeId,
+    },
+    ScalarSqrt {
+        src: NodeId,
+    },
 }
 
 impl ElementwiseStep {
     /// Return the step which evaluates `op_node`, if it is a supported
-    /// operator that produces a float tensor of shape `out_shape` from inputs
-    /// of supported shapes.
+    /// operator whose inputs and output are tensors of shape `out_shape` or
+    /// scalars.
     fn from_operator(
         graph: &Graph,
         op_node: &OperatorNode,
         out_shape: &[Dimension],
     ) -> Option<ElementwiseStep> {
+        use ElementwiseValue::{Scalar, Tensor};
+
         let [Some(output_id)] = op_node.output_ids() else {
             return None;
         };
-        let output = graph.get_node(*output_id)?;
-        if output.dtype() != Some(ValueType::Tensor(DataType::Float))
-            || output.shape()?.as_ref() != out_shape
-        {
-            return None;
-        }
-
         let input = |index: usize| op_node.input_ids().get(index).copied().flatten();
-        let kind = |input_id: NodeId| elementwise_input(graph, input_id, out_shape);
-        let is_tensor = |input_id: NodeId| kind(input_id) == Some(ElementwiseInput::Tensor);
+        let kind = |value_id: NodeId| elementwise_value(graph, value_id, out_shape);
+        let is_tensor = |value_id: NodeId| kind(value_id) == Some(Tensor);
 
         let op = op_node.operator();
-        if op.downcast_ref::<Add>().is_some() {
+        let step = if op.downcast_ref::<Add>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
-            (is_tensor(a) && is_tensor(b)).then_some(ElementwiseStep::Add { a, b })
+            match (kind(a)?, kind(b)?) {
+                (Tensor, Tensor) => ElementwiseStep::Add { a, b },
+                (Tensor, Scalar { .. }) => ElementwiseStep::AddScalar { src: a, scalar: b },
+                (Scalar { .. }, Tensor) => ElementwiseStep::AddScalar { src: b, scalar: a },
+                (Scalar { .. }, Scalar { .. }) => ElementwiseStep::ScalarAdd { a, b },
+            }
+        } else if op.downcast_ref::<Sub>().is_some() {
+            let (src, scalar) = (input(0)?, input(1)?);
+            match (kind(src)?, kind(scalar)?) {
+                (Tensor, Scalar { .. }) => ElementwiseStep::SubScalar { src, scalar },
+                _ => return None,
+            }
         } else if op.downcast_ref::<Mul>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
             match (kind(a)?, kind(b)?) {
-                (ElementwiseInput::Tensor, ElementwiseInput::Scalar { inner_dims }) => {
-                    Some(ElementwiseStep::MulScalar {
-                        src: a,
-                        scalar: b,
-                        inner_dims,
-                    })
-                }
-                (ElementwiseInput::Scalar { inner_dims }, ElementwiseInput::Tensor) => {
-                    Some(ElementwiseStep::MulScalar {
-                        src: b,
-                        scalar: a,
-                        inner_dims,
-                    })
-                }
-                _ => None,
+                (Tensor, Scalar { .. }) => ElementwiseStep::MulScalar { src: a, scalar: b },
+                (Scalar { .. }, Tensor) => ElementwiseStep::MulScalar { src: b, scalar: a },
+                _ => return None,
+            }
+        } else if op.downcast_ref::<Div>().is_some() {
+            let (src, scalar) = (input(0)?, input(1)?);
+            match (kind(src)?, kind(scalar)?) {
+                (Tensor, Scalar { .. }) => ElementwiseStep::DivScalar { src, scalar },
+                _ => return None,
             }
         } else if op.downcast_ref::<Pow>().is_some() {
             let (src, exponent) = (input(0)?, input(1)?);
-            (is_tensor(src) && graph.get_scalar::<f32>(exponent) == Some(2.))
-                .then_some(ElementwiseStep::Square { src, exponent })
+            if !is_tensor(src) || graph.get_scalar::<f32>(exponent) != Some(2.) {
+                return None;
+            }
+            ElementwiseStep::Square { src, exponent }
         } else if op.downcast_ref::<Sin>().is_some() {
             let src = input(0)?;
-            is_tensor(src).then_some(ElementwiseStep::Sin { src })
+            if !is_tensor(src) {
+                return None;
+            }
+            ElementwiseStep::Sin { src }
+        } else if op.downcast_ref::<Sqrt>().is_some() {
+            let src = input(0)?;
+            if is_tensor(src) {
+                return None;
+            }
+            kind(src)?;
+            ElementwiseStep::ScalarSqrt { src }
+        } else if let Some(reduce) = op.downcast_ref::<ReduceMean>() {
+            let src = input(0)?;
+            if !is_tensor(src) || input(1).is_some() || !reduce.keep_dims {
+                return None;
+            }
+
+            // The reduced axes must be the last `inner_dims` axes.
+            let rank = out_shape.len() as i32;
+            let mut axes: Vec<_> = reduce
+                .axes
+                .as_deref()?
+                .iter()
+                .map(|&axis| if axis < 0 { axis + rank } else { axis })
+                .collect();
+            axes.sort();
+            let inner_dims = axes.len();
+            if inner_dims == 0 || !axes.into_iter().eq(rank - inner_dims as i32..rank) {
+                return None;
+            }
+            ElementwiseStep::ReduceMean { src, inner_dims }
         } else {
-            None
-        }
+            return None;
+        };
+
+        // Check that the output is a tensor or scalar, as expected for the
+        // step.
+        let output_is_scalar = matches!(kind(*output_id)?, Scalar { .. });
+        (output_is_scalar == step.is_scalar()).then_some(step)
     }
 
-    /// Return the IDs of the inputs which have the same shape as the output.
-    fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> {
+    /// Return true if this step produces a scalar for each row.
+    fn is_scalar(&self) -> bool {
+        matches!(
+            self,
+            ElementwiseStep::ReduceMean { .. }
+                | ElementwiseStep::ScalarAdd { .. }
+                | ElementwiseStep::ScalarSqrt { .. }
+        )
+    }
+
+    /// Return the IDs of the inputs which have the same shape as the
+    /// subgraph's output.
+    fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
         let inputs = match *self {
             ElementwiseStep::Add { a, b } => [Some(a), Some(b)],
             ElementwiseStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
-            ElementwiseStep::MulScalar { src, .. }
+            ElementwiseStep::AddScalar { src, .. }
+            | ElementwiseStep::DivScalar { src, .. }
+            | ElementwiseStep::MulScalar { src, .. }
+            | ElementwiseStep::ReduceMean { src, .. }
             | ElementwiseStep::Sin { src }
             | ElementwiseStep::SinSquared { src, .. }
-            | ElementwiseStep::Square { src, .. } => [Some(src), None],
+            | ElementwiseStep::Square { src, .. }
+            | ElementwiseStep::SubScalar { src, .. } => [Some(src), None],
+            ElementwiseStep::ScalarAdd { .. } | ElementwiseStep::ScalarSqrt { .. } => [None, None],
         };
         inputs.into_iter().flatten()
     }
+
+    /// Return the IDs of the inputs which are scalars.
+    fn scalar_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
+        let inputs = match *self {
+            ElementwiseStep::ScalarAdd { a, b } => [Some(a), Some(b)],
+            ElementwiseStep::AddScalar { scalar, .. }
+            | ElementwiseStep::DivScalar { scalar, .. }
+            | ElementwiseStep::MulScalar { scalar, .. }
+            | ElementwiseStep::MulScalarAdd { scalar, .. }
+            | ElementwiseStep::SubScalar { scalar, .. } => [Some(scalar), None],
+            ElementwiseStep::ScalarSqrt { src } => [Some(src), None],
+            ElementwiseStep::Add { .. }
+            | ElementwiseStep::ReduceMean { .. }
+            | ElementwiseStep::Sin { .. }
+            | ElementwiseStep::SinSquared { .. }
+            | ElementwiseStep::Square { .. } => [None, None],
+        };
+        inputs.into_iter().flatten()
+    }
+
+    /// Return the IDs of all inputs which are tensors or scalars.
+    fn inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
+        self.tensor_inputs().chain(self.scalar_inputs())
+    }
 }
 
-/// Fuse subgraphs of elementwise operators into an [`ElementwiseProgram`],
-/// which evaluates all of the operators on one small tile of the inputs at a
-/// time.
+/// Fuse subgraphs of elementwise operators, and reductions over the trailing
+/// dimensions of their inputs, into an [`ElementwiseProgram`]. This evaluates
+/// all of the operators on one small tile of the inputs at a time.
 ///
 /// A subgraph is formed from the visited operator and the supported operators
-/// which it depends on. Shape inference must show that every operator in the
-/// subgraph produces a float tensor of the same shape, and that each input of
-/// the subgraph either has this shape or is constant along one or more
-/// trailing dimensions (eg. a scalar, or per-channel values of shape
-/// `[1, C, 1]` for an `[N, C, T]` output). Values which are used outside the
-/// subgraph become inputs to it.
+/// which it depends on. Shape inference must show that every value in the
+/// subgraph is either a float tensor with the same shape as the output, or a
+/// _scalar_ which is constant along one or more trailing dimensions of the
+/// output (eg. a scalar, or per-channel values of shape `[1, C, 1]` for an
+/// `[N, C, T]` output). Scalars may be inputs of the subgraph or be computed
+/// by it, by reducing those trailing dimensions of a tensor. Values which are
+/// used outside the subgraph become inputs to it.
 pub struct ElementwiseProgramFusion {}
 
 impl FusionVisitor for ElementwiseProgramFusion {
@@ -3160,8 +3031,9 @@ impl FusionVisitor for ElementwiseProgramFusion {
         let [Some(output_id)] = op_node.output_ids() else {
             return Err(FusionError::NoMatch);
         };
+        let output_id = *output_id;
         let out_shape = graph
-            .get_node(*output_id)
+            .get_node(output_id)
             .and_then(|node| node.shape())
             .ok_or(FusionError::NoMatch)?;
         let root_step = ElementwiseStep::from_operator(graph, op_node, &out_shape)
@@ -3171,12 +3043,12 @@ impl FusionVisitor for ElementwiseProgramFusion {
         // directly or via other supported operators. This maps operator IDs
         // to the operator's output and the step which evaluates it.
         let mut steps = HashMap::new();
-        let mut pending = vec![(op_node_id, *output_id, root_step)];
+        let mut pending = vec![(op_node_id, output_id, root_step)];
         while let Some((op_id, op_output, step)) = pending.pop() {
             if steps.insert(op_id, (op_output, step)).is_some() {
                 continue;
             }
-            for input in step.tensor_inputs() {
+            for input in step.inputs() {
                 let Some((src_id, src_op)) = graph.get_source_node(input) else {
                     continue;
                 };
@@ -3207,7 +3079,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
                     stack.push((op_id, true));
                     let (_, step) = steps[&op_id];
                     stack.extend(
-                        step.tensor_inputs()
+                        step.inputs()
                             .filter_map(|input| source_step(input, &steps))
                             .map(|src_id| (src_id, false)),
                     );
@@ -3233,7 +3105,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
             return Err(FusionError::NoMatch);
         }
 
-        // Count the uses of each value within the subgraph.
+        // Count the uses of each tensor within the subgraph.
         let mut uses: HashMap<NodeId, usize> = HashMap::new();
         for op_id in &order {
             let (_, step) = steps[op_id];
@@ -3274,22 +3146,16 @@ impl FusionVisitor for ElementwiseProgramFusion {
             let combined = [(b, a), (a, b)].into_iter().find_map(|(product, addend)| {
                 let mul_id = source_step(product, &steps)?;
                 match steps[&mul_id] {
-                    (
-                        _,
-                        ElementwiseStep::MulScalar {
-                            src,
-                            scalar,
-                            inner_dims,
-                        },
-                    ) if uses[&product] == 1 => Some((
-                        mul_id,
-                        ElementwiseStep::MulScalarAdd {
-                            src,
-                            scalar,
-                            inner_dims,
-                            addend,
-                        },
-                    )),
+                    (_, ElementwiseStep::MulScalar { src, scalar }) if uses[&product] == 1 => {
+                        Some((
+                            mul_id,
+                            ElementwiseStep::MulScalarAdd {
+                                src,
+                                scalar,
+                                addend,
+                            },
+                        ))
+                    }
                     _ => None,
                 }
             });
@@ -3299,25 +3165,197 @@ impl FusionVisitor for ElementwiseProgramFusion {
             }
         }
 
-        // Convert each operator into a tile operation.
+        // Map of value ID to the step which computes it.
+        let value_steps: HashMap<NodeId, ElementwiseStep> =
+            order.iter().map(|op_id| steps[op_id]).collect();
+        let steps = || order.iter().map(|op_id| steps[op_id]);
+
+        // Assign an index to each scalar: first the subgraph's scalar inputs,
+        // then the scalars it computes, then the reciprocals of divisors.
+        let mut scalar_inputs = Vec::new();
+        for (_, step) in steps() {
+            for scalar in step.scalar_inputs() {
+                if !value_steps.contains_key(&scalar) && !scalar_inputs.contains(&scalar) {
+                    scalar_inputs.push(scalar);
+                }
+            }
+        }
+        let mut scalar_ids: HashMap<NodeId, usize> = scalar_inputs
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (*id, index))
+            .collect();
+        for (value_id, step) in steps() {
+            if step.is_scalar() {
+                scalar_ids.insert(value_id, scalar_ids.len());
+            }
+        }
+        let mut reciprocal_ids: HashMap<NodeId, usize> = HashMap::new();
+        for (_, step) in steps() {
+            if let ElementwiseStep::DivScalar { scalar, .. } = step {
+                let next_id = scalar_ids.len() + reciprocal_ids.len();
+                reciprocal_ids.entry(scalar).or_insert(next_id);
+            }
+        }
+
+        // Get the number of trailing dimensions which form a row. Reductions
+        // must all be over the same dimensions, and every scalar input must
+        // be constant within a row.
+        let mut reduce_dims = steps().filter_map(|(_, step)| match step {
+            ElementwiseStep::ReduceMean { inner_dims, .. } => Some(inner_dims),
+            _ => None,
+        });
+        let scalar_input_dims = || {
+            scalar_inputs.iter().filter_map(|scalar| {
+                match elementwise_value(graph, *scalar, &out_shape) {
+                    Some(ElementwiseValue::Scalar { inner_dims }) => Some(inner_dims),
+                    _ => None,
+                }
+            })
+        };
+        let inner_dims = if let Some(inner_dims) = reduce_dims.next() {
+            if reduce_dims.any(|dims| dims != inner_dims) {
+                return Err(FusionError::CheckFailed(
+                    "reductions are over different dimensions",
+                ));
+            }
+            inner_dims
+        } else {
+            scalar_input_dims().min().unwrap_or(out_shape.len())
+        };
+        if scalar_input_dims().any(|dims| dims < inner_dims) {
+            return Err(FusionError::CheckFailed("scalar input varies within rows"));
+        }
+
+        // Skip subgraphs whose rows are known to be short. A tile never spans
+        // more than one row, so the cost of evaluating the program would then
+        // be dominated by the overhead for each tile.
+        const MIN_ROW_LEN: usize = 256;
+        let row_len: Option<usize> = out_shape[out_shape.len() - inner_dims..]
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Fixed(size) => Some(*size),
+                Dimension::Symbolic(_) => None,
+            })
+            .product();
+        if row_len.is_some_and(|len| len < MIN_ROW_LEN) {
+            return Err(FusionError::CheckFailed("rows are too short"));
+        }
+
+        // Find the first pass in which each value can be used. The mean of a
+        // tensor is available in the pass after the one which reads the
+        // tensor. Other values are available as soon as their inputs are.
+        // Inputs of the subgraph are available in the first pass.
+        let mut value_pass: HashMap<NodeId, usize> = HashMap::new();
+        for (value_id, step) in steps() {
+            let inputs_pass = step
+                .inputs()
+                .map(|input| value_pass.get(&input).copied().unwrap_or(0))
+                .max()
+                .unwrap_or(0);
+            let pass = match step {
+                ElementwiseStep::ReduceMean { .. } => inputs_pass + 1,
+                _ => inputs_pass,
+            };
+            value_pass.insert(value_id, pass);
+        }
+        let n_passes = value_pass[&output_id] + 1;
+
         let mut inputs = Vec::new();
-        let mut scalars = Vec::new();
-        let mut unused_inputs = Vec::new();
-        let mut inner_dims = out_shape.len();
-        let mut ops = Vec::new();
+        let mut passes = Vec::new();
+        for pass in 0..n_passes {
+            // Compute the scalars which become available in this pass.
+            let mut scalar_ops = Vec::new();
+            for (value_id, step) in steps() {
+                if value_pass[&value_id] != pass {
+                    continue;
+                }
+                let dst = || scalar_ids[&value_id];
+                match step {
+                    ElementwiseStep::ReduceMean { .. } => {
+                        scalar_ops.push(ScalarOp::DivRowLen { scalar: dst() })
+                    }
+                    ElementwiseStep::ScalarAdd { a, b } => scalar_ops.push(ScalarOp::Add {
+                        dst: dst(),
+                        a: scalar_ids[&a],
+                        b: scalar_ids[&b],
+                    }),
+                    ElementwiseStep::ScalarSqrt { src } => scalar_ops.push(ScalarOp::Sqrt {
+                        dst: dst(),
+                        src: scalar_ids[&src],
+                    }),
+                    _ => {}
+                }
+            }
+            let mut reciprocals: Vec<_> = reciprocal_ids
+                .iter()
+                .filter(|(scalar, _)| value_pass.get(*scalar).copied().unwrap_or(0) == pass)
+                .map(|(scalar, dst)| ScalarOp::Reciprocal {
+                    dst: *dst,
+                    src: scalar_ids[scalar],
+                })
+                .collect();
+            reciprocals.sort_by_key(|op| match op {
+                ScalarOp::Reciprocal { dst, .. } => *dst,
+                _ => 0,
+            });
+            scalar_ops.extend(reciprocals);
 
-        // Map of value ID to the register which holds the value, for values
-        // computed by the subgraph.
-        let mut value_regs: HashMap<NodeId, usize> = HashMap::new();
-        let mut free_regs = Vec::new();
-        let mut n_regs = 0;
+            // Find the tensors which this pass must produce: those which are
+            // reduced to a scalar that becomes available in the next pass,
+            // or the output in the last pass.
+            let reductions: Vec<(NodeId, usize)> = steps()
+                .filter_map(|(value_id, step)| match step {
+                    ElementwiseStep::ReduceMean { src, .. }
+                        if value_pass[&value_id] == pass + 1 =>
+                    {
+                        Some((src, scalar_ids[&value_id]))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut targets: Vec<NodeId> = reductions.iter().map(|(src, _)| *src).collect();
+            if pass == n_passes - 1 {
+                targets.push(output_id);
+            }
 
-        for op_id in order {
-            let (op_output, step) = steps[&op_id];
+            // Find the steps needed to compute those tensors, sorted so that
+            // each comes after its inputs. Registers do not persist between
+            // passes, so this includes steps which were also computed in
+            // earlier passes.
+            let mut pass_steps = Vec::new();
+            let mut visited = FxHashSet::default();
+            let mut stack: Vec<_> = targets.iter().rev().map(|id| (*id, false)).collect();
+            while let Some((value_id, inputs_visited)) = stack.pop() {
+                let Some(step) = value_steps.get(&value_id) else {
+                    continue;
+                };
+                if inputs_visited {
+                    pass_steps.push((value_id, *step));
+                } else if visited.insert(value_id) {
+                    stack.push((value_id, true));
+                    stack.extend(step.tensor_inputs().map(|input| (input, false)));
+                }
+            }
 
-            // Get the source of an input and release its register after the
-            // last use, so that it can be reused as the destination.
-            let mut src = |value_id: NodeId| {
+            // Count the uses of each tensor within the pass.
+            let mut uses: HashMap<NodeId, usize> = HashMap::new();
+            let step_inputs = pass_steps.iter().flat_map(|(_, step)| step.tensor_inputs());
+            for input in step_inputs.chain(reductions.iter().map(|(src, _)| *src)) {
+                *uses.entry(input).or_default() += 1;
+            }
+
+            // Map of value ID to the register which holds the value, for
+            // values computed in this pass.
+            let mut value_regs: HashMap<NodeId, usize> = HashMap::new();
+            let mut free_regs = Vec::new();
+            let mut n_regs = 0;
+
+            // Get the source of a tensor and release its register after the
+            // last use, so that it can be reused as a destination.
+            let mut src = |value_id: NodeId,
+                           value_regs: &HashMap<NodeId, usize>,
+                           free_regs: &mut Vec<usize>| {
                 if let Some(&reg) = value_regs.get(&value_id) {
                     let remaining = uses.get_mut(&value_id).unwrap();
                     *remaining -= 1;
@@ -3336,98 +3374,89 @@ impl FusionVisitor for ElementwiseProgramFusion {
                     Src::Input(index)
                 }
             };
-            let srcs: [Src; 2] = match step {
-                ElementwiseStep::Add { a, b } => [src(a), src(b)],
-                ElementwiseStep::MulScalarAdd {
-                    src: value, addend, ..
-                } => [src(value), src(addend)],
-                ElementwiseStep::MulScalar { src: value, .. }
-                | ElementwiseStep::Sin { src: value }
-                | ElementwiseStep::SinSquared { src: value, .. }
-                | ElementwiseStep::Square { src: value, .. } => {
-                    let value = src(value);
-                    [value, value]
-                }
-            };
 
-            let dst = if op_id == op_node_id {
-                Dst::Output
-            } else {
-                // Use the lowest free register.
-                free_regs.sort_by(|a, b| b.cmp(a));
-                let reg = free_regs.pop().unwrap_or_else(|| {
-                    n_regs += 1;
-                    n_regs - 1
-                });
-                value_regs.insert(op_output, reg);
-                Dst::Reg(reg)
-            };
+            let mut tile_ops = Vec::new();
+            for (value_id, step) in pass_steps {
+                let srcs: Vec<Src> = step
+                    .tensor_inputs()
+                    .map(|input| src(input, &value_regs, &mut free_regs))
+                    .collect();
+                let a = srcs[0];
 
-            let [a, b] = srcs;
-            ops.push(match step {
-                ElementwiseStep::Add { .. } => TileOp::Add { dst, a, b },
-                ElementwiseStep::MulScalar {
-                    scalar,
-                    inner_dims: scalar_inner_dims,
-                    ..
-                }
-                | ElementwiseStep::MulScalarAdd {
-                    scalar,
-                    inner_dims: scalar_inner_dims,
-                    ..
-                } => {
-                    inner_dims = inner_dims.min(scalar_inner_dims);
-                    let scalar = scalars
-                        .iter()
-                        .position(|id| *id == scalar)
-                        .unwrap_or_else(|| {
-                            scalars.push(scalar);
-                            scalars.len() - 1
-                        });
-                    if matches!(step, ElementwiseStep::MulScalarAdd { .. }) {
-                        TileOp::MulScalarAdd {
-                            dst,
-                            src: a,
-                            scalar,
-                            addend: b,
-                        }
-                    } else {
-                        TileOp::MulScalar {
-                            dst,
-                            src: a,
-                            scalar,
-                        }
+                let dst = if value_id == output_id {
+                    Dst::Output
+                } else {
+                    // Use the lowest free register.
+                    free_regs.sort_by(|a, b| b.cmp(a));
+                    let reg = free_regs.pop().unwrap_or_else(|| {
+                        n_regs += 1;
+                        n_regs - 1
+                    });
+                    value_regs.insert(value_id, reg);
+                    Dst::Reg(reg)
+                };
+
+                tile_ops.push(match step {
+                    ElementwiseStep::Add { .. } => TileOp::Add { dst, a, b: srcs[1] },
+                    ElementwiseStep::AddScalar { scalar, .. } => TileOp::AddScalar {
+                        dst,
+                        src: a,
+                        scalar: scalar_ids[&scalar],
+                    },
+                    ElementwiseStep::DivScalar { scalar, .. } => TileOp::MulScalar {
+                        dst,
+                        src: a,
+                        scalar: reciprocal_ids[&scalar],
+                    },
+                    ElementwiseStep::MulScalar { scalar, .. } => TileOp::MulScalar {
+                        dst,
+                        src: a,
+                        scalar: scalar_ids[&scalar],
+                    },
+                    ElementwiseStep::MulScalarAdd { scalar, .. } => TileOp::MulScalarAdd {
+                        dst,
+                        src: a,
+                        scalar: scalar_ids[&scalar],
+                        addend: srcs[1],
+                    },
+                    ElementwiseStep::Sin { .. } => TileOp::Sin { dst, src: a },
+                    ElementwiseStep::SinSquared { .. } => TileOp::SinSquared { dst, src: a },
+                    ElementwiseStep::Square { .. } => TileOp::Square { dst, src: a },
+                    ElementwiseStep::SubScalar { scalar, .. } => TileOp::SubScalar {
+                        dst,
+                        src: a,
+                        scalar: scalar_ids[&scalar],
+                    },
+                    ElementwiseStep::ReduceMean { .. }
+                    | ElementwiseStep::ScalarAdd { .. }
+                    | ElementwiseStep::ScalarSqrt { .. } => {
+                        unreachable!("pass steps produce tensors")
                     }
-                }
-                ElementwiseStep::Sin { .. } => TileOp::Sin { dst, src: a },
-                ElementwiseStep::SinSquared { exponent, .. } => {
-                    unused_inputs.push(Some(exponent));
-                    TileOp::SinSquared { dst, src: a }
-                }
-                ElementwiseStep::Square { exponent, .. } => {
-                    unused_inputs.push(Some(exponent));
-                    TileOp::Square { dst, src: a }
-                }
+                });
+            }
+            for (value_id, scalar) in reductions {
+                tile_ops.push(TileOp::Sum {
+                    src: src(value_id, &value_regs, &mut free_regs),
+                    scalar,
+                });
+            }
+
+            passes.push(Pass {
+                scalar_ops,
+                tile_ops,
             });
         }
 
-        // Skip subgraphs whose rows are known to be short. A tile never spans
-        // more than one row, so the cost of evaluating the program would then
-        // be dominated by the overhead for each tile.
-        const MIN_ROW_LEN: usize = 256;
-        let row_len: Option<usize> = out_shape[out_shape.len() - inner_dims..]
-            .iter()
-            .map(|dim| match dim {
-                Dimension::Fixed(size) => Some(*size),
-                Dimension::Symbolic(_) => None,
+        let unused_inputs: Vec<_> = steps()
+            .filter_map(|(_, step)| match step {
+                ElementwiseStep::SinSquared { exponent, .. }
+                | ElementwiseStep::Square { exponent, .. } => Some(Some(exponent)),
+                _ => None,
             })
-            .product();
-        if row_len.is_some_and(|len| len < MIN_ROW_LEN) {
-            return Err(FusionError::CheckFailed("rows are too short"));
-        }
+            .collect();
 
-        let program = TileProgram::new(ops, inputs.len(), scalars.len());
-        let input_ids: Vec<_> = inputs.into_iter().chain(scalars).map(Some).collect();
+        let program = TileProgram::new(passes, inputs.len(), scalar_inputs.len());
+        let input_ids: Vec<_> = inputs.into_iter().chain(scalar_inputs).map(Some).collect();
         Ok(Fusion::from_op(
             op_node.name(),
             Arc::new(ElementwiseProgram {
@@ -3435,7 +3464,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
                 inner_dims,
             }),
             &input_ids,
-            &[Some(*output_id)],
+            &[Some(output_id)],
             &unused_inputs,
         ))
     }

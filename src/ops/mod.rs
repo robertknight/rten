@@ -83,7 +83,7 @@ pub(crate) use {
     conv_transpose::{ConvTranspose, ConvTransposeDynamicQuant},
     convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
-    elementwise_program::{Dst, ElementwiseProgram, Src, TileOp, TileProgram},
+    elementwise_program::{Dst, ElementwiseProgram, Pass, ScalarOp, Src, TileOp, TileProgram},
     embedding::RotaryEmbedding,
     gather::{Gather, GatherElements, GatherND, ReverseSequence},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},

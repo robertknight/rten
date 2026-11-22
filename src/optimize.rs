@@ -30,8 +30,7 @@ use fusions::{
     ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantAddFusion,
     ConvDynamicQuantFusion, ConvIntegerToFloatFusion, ConvTransposeDynamicQuantFusion,
     ElementwiseProgramFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
-    GroupedQueryAttentionMatMulFusion, IdentityFusion, InstanceNormalizationAffineFusion,
-    InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
+    GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
     MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion,
     MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion,
     ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
@@ -881,8 +880,6 @@ impl GraphOptimizer {
 
         // Normalization fusions
         fusions.push(LayerNormalizationFusion {}.into_visitor());
-        fusions.push(InstanceNormalizationFusion {});
-        fusions.push(InstanceNormalizationAffineFusion {});
         fusions.push(RMSNormalizationFusion {}.into_visitor());
         fusions.push(BatchNormalizationFusion {});
 
