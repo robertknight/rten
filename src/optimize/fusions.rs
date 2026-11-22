@@ -22,8 +22,8 @@ use crate::ops::{
     ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, Div, Dst,
     FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul, MatMulDynamicQuant,
     MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean,
-    RepeatInterleave, RowProgram, RowProgramCode, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src,
-    Sub, Swish, SymbolInfo, TileOp, Transpose, dequantize_linear,
+    RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src, Sub, Swish, SymbolInfo,
+    TileOp, TileProgram, TileProgramCode, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -2747,9 +2747,9 @@ impl FusionVisitor for ConvBatchNormFusion {
 }
 
 /// Describes how a value used by a subgraph which is fused into a
-/// [`RowProgram`] relates to the subgraph's output.
+/// [`TileProgram`] relates to the subgraph's output.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum RowValue {
+enum ProgramValue {
     /// The value has the same shape as the output.
     Tensor,
     /// The value is broadcast against the output and has a size of one in
@@ -2760,14 +2760,14 @@ enum RowValue {
 /// Classify a value used by a subgraph whose output has shape `out_shape`.
 ///
 /// Returns `None` if the value's type or shape is unknown or unsupported.
-fn row_value(graph: &Graph, value_id: NodeId, out_shape: &[Dimension]) -> Option<RowValue> {
+fn program_value(graph: &Graph, value_id: NodeId, out_shape: &[Dimension]) -> Option<ProgramValue> {
     let node = graph.get_node(value_id)?;
     if node.dtype() != Some(ValueType::Tensor(DataType::Float)) {
         return None;
     }
     let shape = node.shape()?;
     if shape.as_ref() == out_shape {
-        return Some(RowValue::Tensor);
+        return Some(ProgramValue::Tensor);
     }
 
     // Align the value's dimensions with the output's, as broadcasting does.
@@ -2784,13 +2784,13 @@ fn row_value(graph: &Graph, value_id: NodeId, out_shape: &[Dimension]) -> Option
     {
         return None;
     }
-    Some(RowValue::Scalar { inner_dims })
+    Some(ProgramValue::Scalar { inner_dims })
 }
 
-/// An operator which can be evaluated by a [`RowProgram`], with the IDs of
+/// An operator which can be evaluated by a [`TileProgram`], with the IDs of
 /// its inputs.
 #[derive(Clone, Copy, Debug)]
-enum RowStep {
+enum ProgramStep {
     // Steps which produce a tensor.
     Add {
         a: NodeId,
@@ -2844,7 +2844,7 @@ enum RowStep {
     },
 }
 
-impl RowStep {
+impl ProgramStep {
     /// Return the step which evaluates `op_node`, if it is a supported
     /// operator whose inputs and output are tensors of shape `out_shape` or
     /// scalars.
@@ -2852,42 +2852,42 @@ impl RowStep {
         graph: &Graph,
         op_node: &OperatorNode,
         out_shape: &[Dimension],
-    ) -> Option<RowStep> {
-        use RowValue::{Scalar, Tensor};
+    ) -> Option<ProgramStep> {
+        use ProgramValue::{Scalar, Tensor};
 
         let [Some(output_id)] = op_node.output_ids() else {
             return None;
         };
         let input = |index: usize| op_node.input_ids().get(index).copied().flatten();
-        let kind = |value_id: NodeId| row_value(graph, value_id, out_shape);
+        let kind = |value_id: NodeId| program_value(graph, value_id, out_shape);
         let is_tensor = |value_id: NodeId| kind(value_id) == Some(Tensor);
 
         let op = op_node.operator();
         let step = if op.downcast_ref::<Add>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
             match (kind(a)?, kind(b)?) {
-                (Tensor, Tensor) => RowStep::Add { a, b },
-                (Tensor, Scalar { .. }) => RowStep::AddScalar { src: a, scalar: b },
-                (Scalar { .. }, Tensor) => RowStep::AddScalar { src: b, scalar: a },
-                (Scalar { .. }, Scalar { .. }) => RowStep::ScalarAdd { a, b },
+                (Tensor, Tensor) => ProgramStep::Add { a, b },
+                (Tensor, Scalar { .. }) => ProgramStep::AddScalar { src: a, scalar: b },
+                (Scalar { .. }, Tensor) => ProgramStep::AddScalar { src: b, scalar: a },
+                (Scalar { .. }, Scalar { .. }) => ProgramStep::ScalarAdd { a, b },
             }
         } else if op.downcast_ref::<Sub>().is_some() {
             let (src, scalar) = (input(0)?, input(1)?);
             match (kind(src)?, kind(scalar)?) {
-                (Tensor, Scalar { .. }) => RowStep::SubScalar { src, scalar },
+                (Tensor, Scalar { .. }) => ProgramStep::SubScalar { src, scalar },
                 _ => return None,
             }
         } else if op.downcast_ref::<Mul>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
             match (kind(a)?, kind(b)?) {
-                (Tensor, Scalar { .. }) => RowStep::MulScalar { src: a, scalar: b },
-                (Scalar { .. }, Tensor) => RowStep::MulScalar { src: b, scalar: a },
+                (Tensor, Scalar { .. }) => ProgramStep::MulScalar { src: a, scalar: b },
+                (Scalar { .. }, Tensor) => ProgramStep::MulScalar { src: b, scalar: a },
                 _ => return None,
             }
         } else if op.downcast_ref::<Div>().is_some() {
             let (src, scalar) = (input(0)?, input(1)?);
             match (kind(src)?, kind(scalar)?) {
-                (Tensor, Scalar { .. }) => RowStep::DivScalar { src, scalar },
+                (Tensor, Scalar { .. }) => ProgramStep::DivScalar { src, scalar },
                 _ => return None,
             }
         } else if op.downcast_ref::<Pow>().is_some() {
@@ -2895,20 +2895,20 @@ impl RowStep {
             if !is_tensor(src) || graph.get_scalar::<f32>(exponent) != Some(2.) {
                 return None;
             }
-            RowStep::Square { src, exponent }
+            ProgramStep::Square { src, exponent }
         } else if op.downcast_ref::<Sin>().is_some() {
             let src = input(0)?;
             if !is_tensor(src) {
                 return None;
             }
-            RowStep::Sin { src }
+            ProgramStep::Sin { src }
         } else if op.downcast_ref::<Sqrt>().is_some() {
             let src = input(0)?;
             if is_tensor(src) {
                 return None;
             }
             kind(src)?;
-            RowStep::ScalarSqrt { src }
+            ProgramStep::ScalarSqrt { src }
         } else if let Some(reduce) = op.downcast_ref::<ReduceMean>() {
             let src = input(0)?;
             if !is_tensor(src) || input(1).is_some() || !reduce.keep_dims {
@@ -2928,7 +2928,7 @@ impl RowStep {
             if inner_dims == 0 || !axes.into_iter().eq(rank - inner_dims as i32..rank) {
                 return None;
             }
-            RowStep::ReduceMean { src, inner_dims }
+            ProgramStep::ReduceMean { src, inner_dims }
         } else {
             return None;
         };
@@ -2943,7 +2943,9 @@ impl RowStep {
     fn is_scalar(&self) -> bool {
         matches!(
             self,
-            RowStep::ReduceMean { .. } | RowStep::ScalarAdd { .. } | RowStep::ScalarSqrt { .. }
+            ProgramStep::ReduceMean { .. }
+                | ProgramStep::ScalarAdd { .. }
+                | ProgramStep::ScalarSqrt { .. }
         )
     }
 
@@ -2951,17 +2953,17 @@ impl RowStep {
     /// subgraph's output.
     fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
         let inputs = match *self {
-            RowStep::Add { a, b } => [Some(a), Some(b)],
-            RowStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
-            RowStep::AddScalar { src, .. }
-            | RowStep::DivScalar { src, .. }
-            | RowStep::MulScalar { src, .. }
-            | RowStep::ReduceMean { src, .. }
-            | RowStep::Sin { src }
-            | RowStep::SinSquared { src, .. }
-            | RowStep::Square { src, .. }
-            | RowStep::SubScalar { src, .. } => [Some(src), None],
-            RowStep::ScalarAdd { .. } | RowStep::ScalarSqrt { .. } => [None, None],
+            ProgramStep::Add { a, b } => [Some(a), Some(b)],
+            ProgramStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
+            ProgramStep::AddScalar { src, .. }
+            | ProgramStep::DivScalar { src, .. }
+            | ProgramStep::MulScalar { src, .. }
+            | ProgramStep::ReduceMean { src, .. }
+            | ProgramStep::Sin { src }
+            | ProgramStep::SinSquared { src, .. }
+            | ProgramStep::Square { src, .. }
+            | ProgramStep::SubScalar { src, .. } => [Some(src), None],
+            ProgramStep::ScalarAdd { .. } | ProgramStep::ScalarSqrt { .. } => [None, None],
         };
         inputs.into_iter().flatten()
     }
@@ -2969,18 +2971,18 @@ impl RowStep {
     /// Return the IDs of the inputs which are scalars.
     fn scalar_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
         let inputs = match *self {
-            RowStep::ScalarAdd { a, b } => [Some(a), Some(b)],
-            RowStep::AddScalar { scalar, .. }
-            | RowStep::DivScalar { scalar, .. }
-            | RowStep::MulScalar { scalar, .. }
-            | RowStep::MulScalarAdd { scalar, .. }
-            | RowStep::SubScalar { scalar, .. } => [Some(scalar), None],
-            RowStep::ScalarSqrt { src } => [Some(src), None],
-            RowStep::Add { .. }
-            | RowStep::ReduceMean { .. }
-            | RowStep::Sin { .. }
-            | RowStep::SinSquared { .. }
-            | RowStep::Square { .. } => [None, None],
+            ProgramStep::ScalarAdd { a, b } => [Some(a), Some(b)],
+            ProgramStep::AddScalar { scalar, .. }
+            | ProgramStep::DivScalar { scalar, .. }
+            | ProgramStep::MulScalar { scalar, .. }
+            | ProgramStep::MulScalarAdd { scalar, .. }
+            | ProgramStep::SubScalar { scalar, .. } => [Some(scalar), None],
+            ProgramStep::ScalarSqrt { src } => [Some(src), None],
+            ProgramStep::Add { .. }
+            | ProgramStep::ReduceMean { .. }
+            | ProgramStep::Sin { .. }
+            | ProgramStep::SinSquared { .. }
+            | ProgramStep::Square { .. } => [None, None],
         };
         inputs.into_iter().flatten()
     }
@@ -2992,7 +2994,7 @@ impl RowStep {
 }
 
 /// Fuse subgraphs of elementwise operators, and reductions over the trailing
-/// dimensions of their inputs, into a [`RowProgram`]. This evaluates all of
+/// dimensions of their inputs, into a [`TileProgram`]. This evaluates all of
 /// the operators on one small tile of the inputs at a time.
 ///
 /// A subgraph is formed from the visited operator and the supported operators
@@ -3003,13 +3005,13 @@ impl RowStep {
 /// `[N, C, T]` output). Scalars may be inputs of the subgraph or be computed
 /// by it, by reducing those trailing dimensions of a tensor. Values which are
 /// used outside the subgraph become inputs to it.
-pub struct RowProgramFusion {}
+pub struct TileProgramFusion {}
 
-impl FusionVisitor for RowProgramFusion {
+impl FusionVisitor for TileProgramFusion {
     type State = ();
 
     fn name(&self) -> &str {
-        "RowProgramFusion"
+        "TileProgramFusion"
     }
 
     fn prepare(&self, _: &Graph) {}
@@ -3030,7 +3032,7 @@ impl FusionVisitor for RowProgramFusion {
             .and_then(|node| node.shape())
             .ok_or(FusionError::NoMatch)?;
         let root_step =
-            RowStep::from_operator(graph, op_node, &out_shape).ok_or(FusionError::NoMatch)?;
+            ProgramStep::from_operator(graph, op_node, &out_shape).ok_or(FusionError::NoMatch)?;
 
         // Find the supported operators which the visited operator depends on,
         // directly or via other supported operators. This maps operator IDs
@@ -3045,7 +3047,7 @@ impl FusionVisitor for RowProgramFusion {
                 let Some((src_id, src_op)) = graph.get_source_node(input) else {
                     continue;
                 };
-                if let Some(src_step) = RowStep::from_operator(graph, src_op, &out_shape) {
+                if let Some(src_step) = ProgramStep::from_operator(graph, src_op, &out_shape) {
                     pending.push((src_id, input, src_step));
                 }
             }
@@ -3110,19 +3112,19 @@ impl FusionVisitor for RowProgramFusion {
         // Combine `Sin` and `Square` steps, if the sine is not used by any
         // other operator.
         for op_id in order.clone() {
-            let (op_output, RowStep::Square { src, exponent }) = steps[&op_id] else {
+            let (op_output, ProgramStep::Square { src, exponent }) = steps[&op_id] else {
                 continue;
             };
             let Some(sin_id) = source_step(src, &steps) else {
                 continue;
             };
-            let (_, RowStep::Sin { src: sin_src }) = steps[&sin_id] else {
+            let (_, ProgramStep::Sin { src: sin_src }) = steps[&sin_id] else {
                 continue;
             };
             if uses[&src] != 1 {
                 continue;
             }
-            let step = RowStep::SinSquared {
+            let step = ProgramStep::SinSquared {
                 src: sin_src,
                 exponent,
             };
@@ -3133,15 +3135,15 @@ impl FusionVisitor for RowProgramFusion {
         // Combine `MulScalar` and `Add` steps, if the product is not used by
         // any other operator.
         for op_id in order.clone() {
-            let (op_output, RowStep::Add { a, b }) = steps[&op_id] else {
+            let (op_output, ProgramStep::Add { a, b }) = steps[&op_id] else {
                 continue;
             };
             let combined = [(b, a), (a, b)].into_iter().find_map(|(product, addend)| {
                 let mul_id = source_step(product, &steps)?;
                 match steps[&mul_id] {
-                    (_, RowStep::MulScalar { src, scalar }) if uses[&product] == 1 => Some((
+                    (_, ProgramStep::MulScalar { src, scalar }) if uses[&product] == 1 => Some((
                         mul_id,
-                        RowStep::MulScalarAdd {
+                        ProgramStep::MulScalarAdd {
                             src,
                             scalar,
                             addend,
@@ -3157,7 +3159,7 @@ impl FusionVisitor for RowProgramFusion {
         }
 
         // Map of value ID to the step which computes it.
-        let value_steps: HashMap<NodeId, RowStep> =
+        let value_steps: HashMap<NodeId, ProgramStep> =
             order.iter().map(|op_id| steps[op_id]).collect();
         let steps = || order.iter().map(|op_id| steps[op_id]);
 
@@ -3183,7 +3185,7 @@ impl FusionVisitor for RowProgramFusion {
         }
         let mut reciprocal_ids: HashMap<NodeId, usize> = HashMap::new();
         for (_, step) in steps() {
-            if let RowStep::DivScalar { scalar, .. } = step {
+            if let ProgramStep::DivScalar { scalar, .. } = step {
                 let next_id = scalar_ids.len() + reciprocal_ids.len();
                 reciprocal_ids.entry(scalar).or_insert(next_id);
             }
@@ -3193,16 +3195,16 @@ impl FusionVisitor for RowProgramFusion {
         // must all be over the same dimensions, and every scalar input must
         // be constant within a row.
         let mut reduce_dims = steps().filter_map(|(_, step)| match step {
-            RowStep::ReduceMean { inner_dims, .. } => Some(inner_dims),
+            ProgramStep::ReduceMean { inner_dims, .. } => Some(inner_dims),
             _ => None,
         });
         let scalar_input_dims = || {
-            scalar_inputs
-                .iter()
-                .filter_map(|scalar| match row_value(graph, *scalar, &out_shape) {
-                    Some(RowValue::Scalar { inner_dims }) => Some(inner_dims),
+            scalar_inputs.iter().filter_map(|scalar| {
+                match program_value(graph, *scalar, &out_shape) {
+                    Some(ProgramValue::Scalar { inner_dims }) => Some(inner_dims),
                     _ => None,
-                })
+                }
+            })
         };
         let inner_dims = if let Some(inner_dims) = reduce_dims.next() {
             if reduce_dims.any(|dims| dims != inner_dims) {
@@ -3245,7 +3247,7 @@ impl FusionVisitor for RowProgramFusion {
                 .max()
                 .unwrap_or(0);
             let pass = match step {
-                RowStep::ReduceMean { .. } => inputs_pass + 1,
+                ProgramStep::ReduceMean { .. } => inputs_pass + 1,
                 _ => inputs_pass,
             };
             value_pass.insert(value_id, pass);
@@ -3263,15 +3265,15 @@ impl FusionVisitor for RowProgramFusion {
                 }
                 let dst = || scalar_ids[&value_id];
                 match step {
-                    RowStep::ReduceMean { .. } => {
+                    ProgramStep::ReduceMean { .. } => {
                         scalar_ops.push(ScalarOp::DivRowLen { scalar: dst() })
                     }
-                    RowStep::ScalarAdd { a, b } => scalar_ops.push(ScalarOp::Add {
+                    ProgramStep::ScalarAdd { a, b } => scalar_ops.push(ScalarOp::Add {
                         dst: dst(),
                         a: scalar_ids[&a],
                         b: scalar_ids[&b],
                     }),
-                    RowStep::ScalarSqrt { src } => scalar_ops.push(ScalarOp::Sqrt {
+                    ProgramStep::ScalarSqrt { src } => scalar_ops.push(ScalarOp::Sqrt {
                         dst: dst(),
                         src: scalar_ids[&src],
                     }),
@@ -3297,7 +3299,7 @@ impl FusionVisitor for RowProgramFusion {
             // or the output in the last pass.
             let reductions: Vec<(NodeId, usize)> = steps()
                 .filter_map(|(value_id, step)| match step {
-                    RowStep::ReduceMean { src, .. } if value_pass[&value_id] == pass + 1 => {
+                    ProgramStep::ReduceMean { src, .. } if value_pass[&value_id] == pass + 1 => {
                         Some((src, scalar_ids[&value_id]))
                     }
                     _ => None,
@@ -3386,39 +3388,39 @@ impl FusionVisitor for RowProgramFusion {
                 };
 
                 tile_ops.push(match step {
-                    RowStep::Add { .. } => TileOp::Add { dst, a, b: srcs[1] },
-                    RowStep::AddScalar { scalar, .. } => TileOp::AddScalar {
+                    ProgramStep::Add { .. } => TileOp::Add { dst, a, b: srcs[1] },
+                    ProgramStep::AddScalar { scalar, .. } => TileOp::AddScalar {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                     },
-                    RowStep::DivScalar { scalar, .. } => TileOp::MulScalar {
+                    ProgramStep::DivScalar { scalar, .. } => TileOp::MulScalar {
                         dst,
                         src: a,
                         scalar: reciprocal_ids[&scalar],
                     },
-                    RowStep::MulScalar { scalar, .. } => TileOp::MulScalar {
+                    ProgramStep::MulScalar { scalar, .. } => TileOp::MulScalar {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                     },
-                    RowStep::MulScalarAdd { scalar, .. } => TileOp::MulScalarAdd {
+                    ProgramStep::MulScalarAdd { scalar, .. } => TileOp::MulScalarAdd {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                         addend: srcs[1],
                     },
-                    RowStep::Sin { .. } => TileOp::Sin { dst, src: a },
-                    RowStep::SinSquared { .. } => TileOp::SinSquared { dst, src: a },
-                    RowStep::Square { .. } => TileOp::Square { dst, src: a },
-                    RowStep::SubScalar { scalar, .. } => TileOp::SubScalar {
+                    ProgramStep::Sin { .. } => TileOp::Sin { dst, src: a },
+                    ProgramStep::SinSquared { .. } => TileOp::SinSquared { dst, src: a },
+                    ProgramStep::Square { .. } => TileOp::Square { dst, src: a },
+                    ProgramStep::SubScalar { scalar, .. } => TileOp::SubScalar {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                     },
-                    RowStep::ReduceMean { .. }
-                    | RowStep::ScalarAdd { .. }
-                    | RowStep::ScalarSqrt { .. } => {
+                    ProgramStep::ReduceMean { .. }
+                    | ProgramStep::ScalarAdd { .. }
+                    | ProgramStep::ScalarSqrt { .. } => {
                         unreachable!("pass steps produce tensors")
                     }
                 });
@@ -3438,18 +3440,18 @@ impl FusionVisitor for RowProgramFusion {
 
         let unused_inputs: Vec<_> = steps()
             .filter_map(|(_, step)| match step {
-                RowStep::SinSquared { exponent, .. } | RowStep::Square { exponent, .. } => {
+                ProgramStep::SinSquared { exponent, .. } | ProgramStep::Square { exponent, .. } => {
                     Some(Some(exponent))
                 }
                 _ => None,
             })
             .collect();
 
-        let program = RowProgramCode::new(passes, inputs.len(), scalar_inputs.len());
+        let program = TileProgramCode::new(passes, inputs.len(), scalar_inputs.len());
         let input_ids: Vec<_> = inputs.into_iter().chain(scalar_inputs).map(Some).collect();
         Ok(Fusion::from_op(
             op_node.name(),
-            Arc::new(RowProgram {
+            Arc::new(TileProgram {
                 program,
                 inner_dims,
             }),

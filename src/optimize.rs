@@ -33,8 +33,8 @@ use fusions::{
     LayerNormalizationFusion, MatMulAddFusion, MatMulDynamicQuantAddFusion,
     MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
     MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion, ReciprocalFusion,
-    ReduceMeanAxesFusion, RepeatInterleaveFusion, RowProgramFusion, SafeSoftmaxFusion,
-    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
+    ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion, ShapeSliceToConstant,
+    SiluFusion, SwishFusion, TileProgramFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -918,9 +918,9 @@ impl GraphOptimizer {
         // Fuse the remaining chains of elementwise operators and reductions
         // over rows. This is done after the other fusions so that they take
         // priority.
-        let mut row_program_fusions = FusionList::new();
-        row_program_fusions.push(RowProgramFusion {});
-        self.apply_fusions(&mut graph_mut, row_program_fusions.visitors(), &diag)?;
+        let mut tile_program_fusions = FusionList::new();
+        tile_program_fusions.push(TileProgramFusion {});
+        self.apply_fusions(&mut graph_mut, tile_program_fusions.visitors(), &diag)?;
 
         // Remove nodes made unreachable by constant propagation and fusion.
         // This frees the memory used by eg. quantized weights that were

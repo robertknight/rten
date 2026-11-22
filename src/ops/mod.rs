@@ -40,7 +40,7 @@ mod norm;
 mod pad;
 mod pooling;
 mod quantize;
-mod row_program;
+mod tile_program;
 
 #[cfg(feature = "fft")]
 mod fft;
@@ -105,7 +105,6 @@ pub(crate) use {
     },
     resize::{Resize, Upsample},
     rnn::{GRU, LSTM},
-    row_program::{Dst, Pass, RowProgram, RowProgramCode, ScalarOp, Src, TileOp},
     scatter::{Scatter, ScatterElements, ScatterND, ScatterReduction},
     sequence::{
         ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,
@@ -113,6 +112,7 @@ pub(crate) use {
     },
     slice::Slice,
     split::Split,
+    tile_program::{Dst, Pass, ScalarOp, Src, TileOp, TileProgram, TileProgramCode},
     trilu::Trilu,
     unary_elementwise::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Ceil, Clip, Cos, Cosh, Elu, Erf, Exp, Floor,

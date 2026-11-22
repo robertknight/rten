@@ -22,9 +22,9 @@ use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose,
     DequantizeLinear, Dst, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
     GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
-    Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, RowProgram,
-    RowProgramCode, ScalarOp, Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Src, Swish, Tanh,
-    TileOp, Transpose, Unsqueeze, Where,
+    Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, ScalarOp,
+    Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Src, Swish, Tanh, TileOp, TileProgram,
+    TileProgramCode, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -408,7 +408,7 @@ fn test_fuse_silu() {
 }
 
 #[test]
-fn test_fuse_row_program() {
+fn test_fuse_tile_program() {
     // Operations which compute `x + beta * sin(alpha * x)^2` using one
     // register.
     let snake_program = || {
@@ -431,7 +431,7 @@ fn test_fuse_row_program() {
                 addend: Src::Input(0),
             },
         ];
-        RowProgramCode::new(vec![ops.into()], 1, 2)
+        TileProgramCode::new(vec![ops.into()], 1, 2)
     };
 
     #[derive(Debug)]
@@ -444,7 +444,7 @@ fn test_fuse_row_program() {
         sin_is_output: bool,
         // Expected program and `inner_dims`, or `None` if the output should
         // not be fused.
-        expected: Option<(RowProgramCode, usize)>,
+        expected: Option<(TileProgramCode, usize)>,
     }
 
     let cases = [
@@ -497,7 +497,7 @@ fn test_fuse_row_program() {
             input_shape: Some(dims!("batch", 3, "time").into()),
             sin_is_output: true,
             expected: Some((
-                RowProgramCode::new(
+                TileProgramCode::new(
                     vec![
                         vec![
                             TileOp::Square {
@@ -551,7 +551,7 @@ fn test_fuse_row_program() {
         if let Some((program, inner_dims)) = &case.expected {
             let op = op
                 .operator()
-                .downcast_ref::<RowProgram>()
+                .downcast_ref::<TileProgram>()
                 .expect("output should be fused");
             assert_eq!(op.program, *program);
             assert_eq!(op.inner_dims, *inner_dims);
@@ -562,7 +562,7 @@ fn test_fuse_row_program() {
 }
 
 #[test]
-fn test_fuse_row_program_instance_norm() {
+fn test_fuse_tile_program_instance_norm() {
     let graph = {
         let float = ValueType::Tensor(DataType::Float);
         let x = Expr::value_with_info("x", float, &dims!("batch", 3, "time"));
@@ -585,7 +585,7 @@ fn test_fuse_row_program_instance_norm() {
     let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
     let op = op
         .operator()
-        .downcast_ref::<RowProgram>()
+        .downcast_ref::<TileProgram>()
         .expect("output should be fused");
     assert_eq!(op.inner_dims, 1);
 
@@ -594,7 +594,7 @@ fn test_fuse_row_program_instance_norm() {
     let reg = Dst::Reg(0);
     let reg_src = Src::Reg(0);
     let x = Src::Input(0);
-    let expected = RowProgramCode::new(
+    let expected = TileProgramCode::new(
         vec![
             vec![TileOp::Sum { src: x, scalar: 3 }].into(),
             Pass {
