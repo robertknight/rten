@@ -22,8 +22,8 @@ use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose, Cos,
     DequantizeLinear, Dst, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
     GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
-    Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, ScalarOp,
-    Shape, Sigmoid, Sin, Slice, Softmax, Softplus, Split, Sqrt, Src, Swish, Tanh, TileOp,
+    Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RegId, RepeatInterleave, Reshape,
+    ScalarOp, Shape, Sigmoid, Sin, Slice, Softmax, Softplus, Split, Sqrt, Src, Swish, Tanh, TileOp,
     TileProgram, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
@@ -412,8 +412,8 @@ fn test_fuse_tile_program() {
     // Operations which compute `x + beta * sin(alpha * x)^2` using one
     // register.
     let snake_program = |inner_dims: usize| {
-        let reg = Dst::Reg(0);
-        let reg_src = Src::Reg(0);
+        let reg = Dst::Reg(RegId(0));
+        let reg_src = Src::Reg(RegId(0));
         let ops = vec![
             TileOp::MulScalar {
                 dst: reg,
@@ -499,21 +499,21 @@ fn test_fuse_tile_program() {
                 vec![
                     vec![
                         TileOp::MulScalar {
-                            dst: Dst::Reg(0),
+                            dst: Dst::Reg(RegId(0)),
                             src: Src::Input(0),
                             scalar: 0,
                         },
                         TileOp::Sin {
                             dst: Dst::Output(1),
-                            src: Src::Reg(0),
+                            src: Src::Reg(RegId(0)),
                         },
                         TileOp::Square {
-                            dst: Dst::Reg(0),
+                            dst: Dst::Reg(RegId(0)),
                             src: Src::Output(1),
                         },
                         TileOp::MulScalarAdd {
                             dst: Dst::Output(0),
-                            src: Src::Reg(0),
+                            src: Src::Reg(RegId(0)),
                             scalar: 1,
                             addend: Src::Input(0),
                         },
@@ -595,8 +595,8 @@ fn test_fuse_tile_program_instance_norm() {
 
     // Scalars are the inputs (epsilon, gamma, beta) followed by the mean,
     // variance, variance + epsilon, standard deviation and its reciprocal.
-    let reg = Dst::Reg(0);
-    let reg_src = Src::Reg(0);
+    let reg = Dst::Reg(RegId(0));
+    let reg_src = Src::Reg(RegId(0));
     let x = Src::Input(0);
     let expected = TileProgram::new(
         vec![
@@ -691,30 +691,30 @@ fn test_fuse_tile_program_multiple_outputs() {
         vec![
             vec![
                 TileOp::Sin {
-                    dst: Dst::Reg(0),
+                    dst: Dst::Reg(RegId(0)),
                     src: Src::Input(0),
                 },
                 TileOp::Cos {
-                    dst: Dst::Reg(1),
-                    src: Src::Reg(0),
+                    dst: Dst::Reg(RegId(1)),
+                    src: Src::Reg(RegId(0)),
                 },
                 TileOp::Softplus {
-                    dst: Dst::Reg(2),
+                    dst: Dst::Reg(RegId(2)),
                     src: Src::Input(1),
                 },
                 TileOp::Mul {
                     dst: Dst::Output(1),
-                    a: Src::Reg(2),
-                    b: Src::Reg(1),
+                    a: Src::Reg(RegId(2)),
+                    b: Src::Reg(RegId(1)),
                 },
                 TileOp::Sin {
-                    dst: Dst::Reg(0),
-                    src: Src::Reg(0),
+                    dst: Dst::Reg(RegId(0)),
+                    src: Src::Reg(RegId(0)),
                 },
                 TileOp::Mul {
                     dst: Dst::Output(0),
-                    a: Src::Reg(2),
-                    b: Src::Reg(0),
+                    a: Src::Reg(RegId(2)),
+                    b: Src::Reg(RegId(0)),
                 },
             ]
             .into(),

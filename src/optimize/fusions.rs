@@ -21,7 +21,7 @@ use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
     ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, Cos, DequantizeLinear, Div, Dst,
     FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul, MatMulDynamicQuant,
-    MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean,
+    MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean, RegId,
     RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Softplus, Sqrt, Src, Sub, Swish,
     SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
 };
@@ -3501,7 +3501,7 @@ impl FusionVisitor for TileProgramFusion {
             // last use, so that it can be reused as a destination.
             let mut src = |value_id: NodeId,
                            value_srcs: &HashMap<NodeId, Src>,
-                           free_regs: &mut Vec<usize>| {
+                           free_regs: &mut Vec<RegId>| {
                 if let Some(&value_src) = value_srcs.get(&value_id) {
                     if let Src::Reg(reg) = value_src {
                         let remaining = uses.get_mut(&value_id).unwrap();
@@ -3541,10 +3541,16 @@ impl FusionVisitor for TileProgramFusion {
                 } else {
                     // Use the lowest free register.
                     free_regs.sort_by(|a, b| b.cmp(a));
-                    let reg = free_regs.pop().unwrap_or_else(|| {
-                        n_regs += 1;
-                        n_regs - 1
-                    });
+                    let reg = match free_regs.pop() {
+                        Some(reg) => reg,
+                        None => {
+                            let reg = RegId::new(n_regs).ok_or(FusionError::CheckFailed(
+                                "program needs too many registers",
+                            ))?;
+                            n_regs += 1;
+                            reg
+                        }
+                    };
                     value_srcs.insert(value_id, Src::Reg(reg));
                     Dst::Reg(reg)
                 };

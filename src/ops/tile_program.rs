@@ -42,13 +42,29 @@ const TILE_LEN: usize = 1024;
 /// Number of elements processed by one task when running in parallel.
 const TASK_LEN: usize = 32 * TILE_LEN;
 
+/// Identifies a register, which holds one tile of an intermediate value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RegId(pub u8);
+
+impl RegId {
+    /// Return the ID of the register with a given index, or `None` if there
+    /// are too many registers.
+    pub fn new(index: usize) -> Option<RegId> {
+        index.try_into().ok().map(RegId)
+    }
+
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// Source of a tile read by a [`TileOp`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Src {
     /// A tile of one of the operator's tensor inputs.
     Input(usize),
     /// A register holding the result of an earlier operation.
-    Reg(usize),
+    Reg(RegId),
     /// A tile of one of the operator's outputs, which was written by an
     /// earlier operation. Output 0 cannot be read.
     Output(usize),
@@ -57,7 +73,7 @@ pub enum Src {
 /// Destination of a tile written by a [`TileOp`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Dst {
-    Reg(usize),
+    Reg(RegId),
     /// A tile of one of the operator's outputs. Output 0 shares a buffer with
     /// input 0.
     Output(usize),
@@ -256,7 +272,7 @@ impl TileProgram {
 
         let n_regs = tile_ops()
             .filter_map(|op| match op.dst() {
-                Some(Dst::Reg(reg)) => Some(reg + 1),
+                Some(Dst::Reg(reg)) => Some(reg.index() + 1),
                 _ => None,
             })
             .max()
@@ -372,7 +388,7 @@ impl TileState<'_, '_, '_> {
             (Src::Input(0), _) => Some(&self.outputs[0][..]),
             (Src::Input(index), _) => Some(&self.inputs[index - 1][self.range.clone()]),
             (Src::Reg(src_reg), Dst::Reg(dst_reg)) if src_reg == dst_reg => None,
-            (Src::Reg(reg), _) => Some(&self.regs[reg][..self.range.len()]),
+            (Src::Reg(reg), _) => Some(&self.regs[reg.index()][..self.range.len()]),
             // An output is written once, so it is never both a source and
             // the destination.
             (Src::Output(index), _) => Some(&self.outputs[index][..]),
@@ -384,7 +400,7 @@ impl TileState<'_, '_, '_> {
         match src {
             Src::Input(0) => self.outputs[0],
             Src::Input(index) => &self.inputs[index - 1][self.range.clone()],
-            Src::Reg(reg) => &self.regs[reg][..self.range.len()],
+            Src::Reg(reg) => &self.regs[reg.index()][..self.range.len()],
             Src::Output(index) => self.outputs[index],
         }
     }
@@ -405,9 +421,9 @@ impl TileState<'_, '_, '_> {
         // can be borrowed as sources.
         match dst {
             Dst::Reg(reg) => {
-                let dst_buf = std::mem::take(&mut self.regs[reg]);
+                let dst_buf = std::mem::take(&mut self.regs[reg.index()]);
                 kernel(&mut dst_buf[..len], self.sources(dst, srcs));
-                self.regs[reg] = dst_buf;
+                self.regs[reg.index()] = dst_buf;
             }
             Dst::Output(index) => {
                 let dst_buf = std::mem::take(&mut self.outputs[index]);
@@ -782,15 +798,15 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
-    use super::{Dst, Pass, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram};
+    use super::{Dst, Pass, RegId, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram};
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask};
 
     /// Return a program which computes `x + beta * sin(alpha * x)^2`, where
     /// `alpha` and `beta` are the scalar inputs.
     fn snake_program(inner_dims: usize) -> TileProgram {
-        let reg = Dst::Reg(0);
-        let reg_src = Src::Reg(0);
+        let reg = Dst::Reg(RegId(0));
+        let reg_src = Src::Reg(RegId(0));
         TileProgram::new(
             vec![Pass::from(vec![
                 TileOp::MulScalar {
@@ -917,12 +933,12 @@ mod tests {
         let op = TileProgram::new(
             vec![Pass::from(vec![
                 TileOp::Sin {
-                    dst: Dst::Reg(0),
+                    dst: Dst::Reg(RegId(0)),
                     src: Src::Input(1),
                 },
                 TileOp::Add {
                     dst: Dst::Output(0),
-                    a: Src::Reg(0),
+                    a: Src::Reg(RegId(0)),
                     b: Src::Input(0),
                 },
             ])],
@@ -1011,8 +1027,8 @@ mod tests {
         // compute `normalized * gamma + beta`. Scalars are the inputs
         // (epsilon, gamma, beta) followed by the mean, variance, variance +
         // epsilon, standard deviation and its reciprocal.
-        let reg = Dst::Reg(0);
-        let reg_src = Src::Reg(0);
+        let reg = Dst::Reg(RegId(0));
+        let reg_src = Src::Reg(RegId(0));
         let x = Src::Input(0);
         let op = TileProgram::new(
             vec![
@@ -1130,30 +1146,30 @@ mod tests {
         let program = TileProgram::new(
             vec![Pass::from(vec![
                 TileOp::Sin {
-                    dst: Dst::Reg(0),
+                    dst: Dst::Reg(RegId(0)),
                     src: Src::Input(0),
                 },
                 TileOp::Cos {
-                    dst: Dst::Reg(1),
-                    src: Src::Reg(0),
+                    dst: Dst::Reg(RegId(1)),
+                    src: Src::Reg(RegId(0)),
                 },
                 TileOp::Softplus {
-                    dst: Dst::Reg(2),
+                    dst: Dst::Reg(RegId(2)),
                     src: Src::Input(1),
                 },
                 TileOp::Mul {
                     dst: Dst::Output(1),
-                    a: Src::Reg(2),
-                    b: Src::Reg(1),
+                    a: Src::Reg(RegId(2)),
+                    b: Src::Reg(RegId(1)),
                 },
                 TileOp::Sin {
-                    dst: Dst::Reg(0),
-                    src: Src::Reg(0),
+                    dst: Dst::Reg(RegId(0)),
+                    src: Src::Reg(RegId(0)),
                 },
                 TileOp::Mul {
                     dst: Dst::Output(0),
-                    a: Src::Reg(2),
-                    b: Src::Reg(0),
+                    a: Src::Reg(RegId(2)),
+                    b: Src::Reg(RegId(0)),
                 },
             ])],
             2,
