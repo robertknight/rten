@@ -60,6 +60,8 @@ pub enum TileOp {
     MulScalar { dst: Dst, src: Src, scalar: usize },
     /// Compute `sin(src)`.
     Sin { dst: Dst, src: Src },
+    /// Compute `sin(src)^2`.
+    SinSquared { dst: Dst, src: Src },
     /// Compute `src * src`.
     Square { dst: Dst, src: Src },
 }
@@ -70,6 +72,7 @@ impl TileOp {
             TileOp::Add { dst, .. }
             | TileOp::MulScalar { dst, .. }
             | TileOp::Sin { dst, .. }
+            | TileOp::SinSquared { dst, .. }
             | TileOp::Square { dst, .. } => dst,
         }
     }
@@ -207,6 +210,12 @@ impl TileState<'_, '_> {
                         dst.copy_from_slice(src);
                     }
                     vecmath::Sin::new().map_mut(dst);
+                }),
+                TileOp::SinSquared { dst, src } => self.apply(dst, [src], |dst, [src]| {
+                    if let Some(src) = src {
+                        dst.copy_from_slice(src);
+                    }
+                    vecmath::SinSquared::new().map_mut(dst);
                 }),
                 TileOp::Square { dst, src } => self.apply(dst, [src], |dst, [src]| match src {
                     Some(src) => {

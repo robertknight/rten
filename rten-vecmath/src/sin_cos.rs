@@ -54,6 +54,61 @@ impl SimdUnaryOp<f32> for Cos {
     }
 }
 
+/// Computes `sin(x)^2`.
+///
+/// This is faster than evaluating [`Sin`] and squaring the result.
+#[derive(Default)]
+pub struct SinSquared {}
+
+impl SinSquared {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl SimdUnaryOp<f32> for SinSquared {
+    #[inline(always)]
+    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
+        let ops = isa.f32();
+        let mask_ops = isa.m32();
+
+        // Fall back to scalar evaluation for large inputs, as in `SinCos`.
+        let large = ops.ge(ops.abs(x), ops.splat(LARGE_THRESHOLD));
+        if unlikely(mask_ops.any(large)) {
+            let mut out = x.to_array();
+            for i in 0..ops.len() {
+                let sin = out[i].sin();
+                out[i] = sin * sin;
+            }
+            return ops.load(out.as_ref());
+        }
+
+        // `sin(x)^2` has period π, so reduce `x` to `r ∈ [-π/2, π/2]` with
+        // `sin(r)^2 = sin(x)^2`. This needs less work than the reduction
+        // to `[-π, π]` in `SinCos`. `PI_HI` has few significant bits, so
+        // `k * PI_HI` is exact.
+        const INV_PI: f32 = 0.31830987;
+        const PI_HI: f32 = 3.140625;
+        const PI_LO: f32 = 9.676536e-4;
+        let k = ops.round_ties_even(ops.mul(x, ops.splat(INV_PI)));
+        let r = ops.mul_sub_from(k, ops.splat(PI_HI), x);
+        let r = ops.mul_sub_from(k, ops.splat(PI_LO), r);
+
+        // Approximate `sin(r)` with an odd polynomial, fitted to minimize the
+        // maximum error on `[-π/2, π/2]`. This avoids the division in the
+        // rational approximation used by `SinCos`.
+        let r_sq = ops.mul(r, r);
+        let p = ops.splat(-2.3845514e-8);
+        let p = ops.mul_add(p, r_sq, ops.splat(2.752255e-6));
+        let p = ops.mul_add(p, r_sq, ops.splat(-1.984080e-4));
+        let p = ops.mul_add(p, r_sq, ops.splat(8.33333e-3));
+        let p = ops.mul_add(p, r_sq, ops.splat(-0.16666667));
+        let sin = ops.mul_add(ops.mul(r, r_sq), p, r);
+
+        ops.mul(sin, sin)
+    }
+}
+
 /// Computes the sine or cosine function.
 #[derive(Default)]
 struct SinCos<const COS: bool> {}
@@ -129,7 +184,7 @@ impl<const COS: bool> SimdUnaryOp<f32> for SinCos<COS> {
 mod tests {
     use super::LARGE_THRESHOLD;
     use crate::testing::{ARange, Tolerance, UnaryOpTester, arange};
-    use crate::{Cos, Sin};
+    use crate::{Cos, Sin, SinSquared};
 
     // Maximum error of `SinCos` compared to `f32::sin` and `f32::cos` in the
     // `SMALL_X` range.
@@ -155,6 +210,21 @@ mod tests {
             simd: Sin::new(),
             range: SMALL_X.chain(multiples_of_pi()),
             tolerance: Tolerance::Absolute(MAX_ERROR_FOR_SMALL_X),
+        };
+        test.run();
+    }
+
+    #[test]
+    fn test_sin_squared() {
+        let test = UnaryOpTester {
+            reference: |x: f32| x.sin().powi(2),
+            simd: SinSquared::new(),
+            // Include multiples of π / 2, which are the worst cases for
+            // range reduction, and inputs which use the scalar fallback.
+            range: SMALL_X
+                .chain(multiples_of_pi().map(|x| x / 2.))
+                .chain([LARGE_THRESHOLD, -2. * LARGE_THRESHOLD]),
+            tolerance: Tolerance::Absolute(4. * f32::EPSILON),
         };
         test.run();
     }

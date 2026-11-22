@@ -3040,6 +3040,10 @@ enum ElementwiseStep {
     Sin {
         src: NodeId,
     },
+    SinSquared {
+        src: NodeId,
+        exponent: NodeId,
+    },
     Square {
         src: NodeId,
         exponent: NodeId,
@@ -3110,6 +3114,7 @@ impl ElementwiseStep {
             ElementwiseStep::Add { a, b } => [Some(a), Some(b)],
             ElementwiseStep::MulScalar { src, .. }
             | ElementwiseStep::Sin { src }
+            | ElementwiseStep::SinSquared { src, .. }
             | ElementwiseStep::Square { src, .. } => [Some(src), None],
         };
         inputs.into_iter().flatten()
@@ -3184,7 +3189,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
         // may in turn disconnect other operators from the subgraph's output.
         // Repeat until the subgraph has no such operators. This leaves the
         // subgraph's operators sorted so that each comes after its inputs.
-        let order = loop {
+        let mut order = loop {
             let mut order = Vec::new();
             let mut visited = FxHashSet::default();
             let mut stack = vec![(op_node_id, false)];
@@ -3230,6 +3235,29 @@ impl FusionVisitor for ElementwiseProgramFusion {
             }
         }
 
+        // Combine `Sin` and `Square` steps, if the sine is not used by any
+        // other operator.
+        for op_id in order.clone() {
+            let (op_output, ElementwiseStep::Square { src, exponent }) = steps[&op_id] else {
+                continue;
+            };
+            let Some(sin_id) = source_step(src, &steps) else {
+                continue;
+            };
+            let (_, ElementwiseStep::Sin { src: sin_src }) = steps[&sin_id] else {
+                continue;
+            };
+            if uses[&src] != 1 {
+                continue;
+            }
+            let step = ElementwiseStep::SinSquared {
+                src: sin_src,
+                exponent,
+            };
+            steps.insert(op_id, (op_output, step));
+            order.retain(|id| *id != sin_id);
+        }
+
         // Convert each operator into a tile operation.
         let mut inputs = Vec::new();
         let mut scalars = Vec::new();
@@ -3271,6 +3299,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
                 ElementwiseStep::Add { a, b } => [src(a), src(b)],
                 ElementwiseStep::MulScalar { src: value, .. }
                 | ElementwiseStep::Sin { src: value }
+                | ElementwiseStep::SinSquared { src: value, .. }
                 | ElementwiseStep::Square { src: value, .. } => {
                     let value = src(value);
                     [value, value]
@@ -3313,6 +3342,10 @@ impl FusionVisitor for ElementwiseProgramFusion {
                     }
                 }
                 ElementwiseStep::Sin { .. } => TileOp::Sin { dst, src: a },
+                ElementwiseStep::SinSquared { exponent, .. } => {
+                    unused_inputs.push(Some(exponent));
+                    TileOp::SinSquared { dst, src: a }
+                }
                 ElementwiseStep::Square { exponent, .. } => {
                     unused_inputs.push(Some(exponent));
                     TileOp::Square { dst, src: a }

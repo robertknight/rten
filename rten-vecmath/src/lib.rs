@@ -121,7 +121,7 @@ pub use exp::{Elu, Exp, Sigmoid, Silu, Softplus, Swish};
 pub use log::{Ln, Ln1p};
 pub use quantize::Quantize;
 pub use relu::LeakyRelu;
-pub use sin_cos::{Cos, Sin};
+pub use sin_cos::{Cos, Sin, SinSquared};
 pub use tanh::Tanh;
 
 // Normalization and reduction functions.

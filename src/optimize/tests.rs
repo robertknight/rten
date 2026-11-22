@@ -420,11 +420,7 @@ fn test_fuse_elementwise_program() {
                 src: Src::Input(0),
                 scalar: 0,
             },
-            TileOp::Sin {
-                dst: reg,
-                src: reg_src,
-            },
-            TileOp::Square {
+            TileOp::SinSquared {
                 dst: reg,
                 src: reg_src,
             },
@@ -498,8 +494,8 @@ fn test_fuse_elementwise_program() {
             sin_is_output: false,
             expected: None,
         },
-        // Intermediate value which is used outside the subgraph. Only the
-        // operators after it are fused.
+        // Sine which is used outside the subgraph. Only the operators after
+        // it are fused, and it is not combined with the squaring.
         Case {
             param_shape: [1, 3, 1].into(),
             input_shape: Some(dims!("batch", 3, "time").into()),
