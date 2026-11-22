@@ -3604,8 +3604,8 @@ impl FusionVisitor for TileProgramFusion {
             }
 
             passes.push(Pass {
-                scalar_ops,
-                tile_ops,
+                scalar_ops: scalar_ops.into(),
+                tile_ops: tile_ops.into(),
             });
         }
 

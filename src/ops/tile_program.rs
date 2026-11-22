@@ -13,6 +13,7 @@
 //! mean and unit variance takes one pass to compute the mean, a second to
 //! compute the variance and a third to compute the output.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use rayon::prelude::*;
@@ -53,7 +54,7 @@ impl RegId {
         index.try_into().ok().map(RegId)
     }
 
-    fn index(self) -> usize {
+    const fn index(self) -> usize {
         self.0 as usize
     }
 }
@@ -122,7 +123,7 @@ pub enum TileOp {
 
 impl TileOp {
     /// Return the tile written by this operation, if any.
-    fn dst(&self) -> Option<Dst> {
+    const fn dst(&self) -> Option<Dst> {
         match *self {
             TileOp::Add { dst, .. }
             | TileOp::AddScalar { dst, .. }
@@ -141,7 +142,7 @@ impl TileOp {
     }
 
     /// Return the scalar read or updated by this operation, if any.
-    fn scalar(&self) -> Option<usize> {
+    const fn scalar(&self) -> Option<usize> {
         match *self {
             TileOp::AddScalar { scalar, .. }
             | TileOp::MulScalar { scalar, .. }
@@ -175,7 +176,7 @@ pub enum ScalarOp {
 
 impl ScalarOp {
     /// Return the scalar written by this operation.
-    fn dst(&self) -> usize {
+    const fn dst(&self) -> usize {
         match *self {
             ScalarOp::Add { dst, .. }
             | ScalarOp::Reciprocal { dst, .. }
@@ -198,18 +199,29 @@ impl ScalarOp {
 ///
 /// The scalar operations are run first, followed by the tile operations for
 /// each tile of the row.
+///
+/// The operations can be borrowed from static data, for programs which are
+/// defined at compile time.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pass {
-    pub scalar_ops: Vec<ScalarOp>,
-    pub tile_ops: Vec<TileOp>,
+    pub scalar_ops: Cow<'static, [ScalarOp]>,
+    pub tile_ops: Cow<'static, [TileOp]>,
 }
 
 impl From<Vec<TileOp>> for Pass {
     fn from(tile_ops: Vec<TileOp>) -> Pass {
         Pass {
-            scalar_ops: Vec::new(),
-            tile_ops,
+            scalar_ops: Cow::Borrowed(&[]),
+            tile_ops: tile_ops.into(),
         }
+    }
+}
+
+/// Return the contents of `cow` as a slice.
+const fn cow_slice<'a, T: Clone>(cow: &'a Cow<'static, [T]>) -> &'a [T] {
+    match cow {
+        Cow::Borrowed(items) => items,
+        Cow::Owned(items) => items.as_slice(),
     }
 }
 
@@ -240,10 +252,10 @@ impl From<usize> for RowDims {
 ///
 /// Programs are created by fusing subgraphs of elementwise operators and
 /// reductions over rows. They are also used to implement some ONNX operators,
-/// such as [`TileProgram::mish`], without dedicated code for each.
+/// such as [`MISH_PROGRAM`], without dedicated code for each.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TileProgram {
-    passes: Vec<Pass>,
+    passes: Cow<'static, [Pass]>,
     n_inputs: usize,
     n_scalar_inputs: usize,
     /// Number of scalars, including scalar inputs.
@@ -262,54 +274,102 @@ impl TileProgram {
     /// `row_dims` specifies the dimensions which are flattened to form a row.
     /// A number is the count of trailing dimensions.
     ///
-    /// Each output is written once, in the last pass. The last operation of
-    /// that pass writes output 0. Since this shares a buffer with input 0, this
-    /// means input 0 can be read by any operation.
+    /// See [`from_parts`](Self::from_parts) for the requirements on `passes`.
     pub fn new(
         passes: Vec<Pass>,
         n_inputs: usize,
         n_scalar_inputs: usize,
         row_dims: impl Into<RowDims>,
     ) -> TileProgram {
-        let tile_ops = || passes.iter().flat_map(|pass| &pass.tile_ops);
-        let output_of = |op: &TileOp| match op.dst() {
-            Some(Dst::Output(index)) => Some(index),
-            _ => None,
-        };
-        let (last_pass, earlier_passes) = passes.split_last().expect("program has no passes");
-        assert!(
-            earlier_passes
-                .iter()
-                .flat_map(|pass| &pass.tile_ops)
-                .all(|op| output_of(op).is_none())
-        );
-        let mut outputs: Vec<usize> = last_pass.tile_ops.iter().filter_map(output_of).collect();
-        assert_eq!(outputs.last(), Some(&0));
-        assert_eq!(last_pass.tile_ops.last().and_then(output_of), Some(0));
-        let n_outputs = outputs.len();
-        outputs.sort();
-        assert!(outputs.into_iter().eq(0..n_outputs));
+        Self::from_parts(
+            Cow::Owned(passes),
+            n_inputs,
+            n_scalar_inputs,
+            row_dims.into(),
+        )
+    }
+
+    /// Create a program from passes which may be borrowed from static data.
+    ///
+    /// This can be used to define a program in a `static`, in which case the
+    /// program is checked at compile time.
+    ///
+    /// Each output is written once, in the last pass. The last operation of
+    /// that pass writes output 0. Since this shares a buffer with input 0, this
+    /// means input 0 can be read by any operation.
+    pub const fn from_parts(
+        passes: Cow<'static, [Pass]>,
+        n_inputs: usize,
+        n_scalar_inputs: usize,
+        row_dims: RowDims,
+    ) -> TileProgram {
+        let pass_list = cow_slice(&passes);
+        assert!(!pass_list.is_empty(), "program has no passes");
         assert!(n_inputs >= 1);
 
-        let n_regs = tile_ops()
-            .filter_map(|op| match op.dst() {
-                Some(Dst::Reg(reg)) => Some(reg.index() + 1),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0);
-        let n_scalars = tile_ops()
-            .filter_map(|op| op.scalar())
-            .chain(
-                passes
-                    .iter()
-                    .flat_map(|pass| &pass.scalar_ops)
-                    .map(|op| op.dst()),
-            )
-            .map(|scalar| scalar + 1)
-            .max()
-            .unwrap_or(0)
-            .max(n_scalar_inputs);
+        // Count the registers, scalars and outputs.
+        let mut n_regs = 0;
+        let mut n_scalars = n_scalar_inputs;
+        let mut n_outputs = 0;
+        let mut pass_index = 0;
+        while pass_index < pass_list.len() {
+            let pass = &pass_list[pass_index];
+            let tile_ops = cow_slice(&pass.tile_ops);
+            let mut i = 0;
+            while i < tile_ops.len() {
+                match tile_ops[i].dst() {
+                    Some(Dst::Reg(reg)) if reg.index() >= n_regs => n_regs = reg.index() + 1,
+                    Some(Dst::Output(_)) => {
+                        assert!(
+                            pass_index == pass_list.len() - 1,
+                            "outputs must be written in the last pass"
+                        );
+                        n_outputs += 1;
+                    }
+                    _ => {}
+                }
+                if let Some(scalar) = tile_ops[i].scalar()
+                    && scalar >= n_scalars
+                {
+                    n_scalars = scalar + 1;
+                }
+                i += 1;
+            }
+
+            let scalar_ops = cow_slice(&pass.scalar_ops);
+            let mut i = 0;
+            while i < scalar_ops.len() {
+                if scalar_ops[i].dst() >= n_scalars {
+                    n_scalars = scalar_ops[i].dst() + 1;
+                }
+                i += 1;
+            }
+            pass_index += 1;
+        }
+
+        // Check that each output is written once, and output 0 is written by
+        // the last operation.
+        let last_ops = cow_slice(&pass_list[pass_list.len() - 1].tile_ops);
+        let mut output = 0;
+        while output < n_outputs {
+            let mut writes = 0;
+            let mut i = 0;
+            while i < last_ops.len() {
+                if let Some(Dst::Output(index)) = last_ops[i].dst()
+                    && index == output
+                {
+                    writes += 1;
+                }
+                i += 1;
+            }
+            assert!(writes == 1, "each output must be written once");
+            output += 1;
+        }
+        assert!(
+            !last_ops.is_empty()
+                && matches!(last_ops[last_ops.len() - 1].dst(), Some(Dst::Output(0))),
+            "the last operation must write output 0"
+        );
 
         TileProgram {
             passes,
@@ -318,42 +378,46 @@ impl TileProgram {
             n_scalars,
             n_regs,
             n_outputs,
-            row_dims: row_dims.into(),
+            row_dims,
             name: None,
         }
     }
 
     /// Set the name which this operator reports, for programs which implement
     /// another operator.
-    pub fn with_name(mut self, name: &'static str) -> TileProgram {
+    pub const fn with_name(mut self, name: &'static str) -> TileProgram {
         self.name = Some(name);
         self
     }
-
-    /// Return a program which implements the ONNX `Mish` operator.
-    ///
-    /// This computes `x * tanh(softplus(x))`.
-    pub fn mish() -> TileProgram {
-        let x = Src::Input(0);
-        let reg = RegId(0);
-        let ops = vec![
-            TileOp::Softplus {
-                dst: Dst::Reg(reg),
-                src: x,
-            },
-            TileOp::Tanh {
-                dst: Dst::Reg(reg),
-                src: Src::Reg(reg),
-            },
-            TileOp::Mul {
-                dst: Dst::Output(0),
-                a: x,
-                b: Src::Reg(reg),
-            },
-        ];
-        TileProgram::new(vec![ops.into()], 1, 0, RowDims::All).with_name("Mish")
-    }
 }
+
+/// Program which implements the ONNX `Mish` operator.
+///
+/// This computes `x * tanh(softplus(x))`.
+pub static MISH_PROGRAM: TileProgram = {
+    const X: Src = Src::Input(0);
+    const REG: RegId = RegId(0);
+    static TILE_OPS: [TileOp; 3] = [
+        TileOp::Softplus {
+            dst: Dst::Reg(REG),
+            src: X,
+        },
+        TileOp::Tanh {
+            dst: Dst::Reg(REG),
+            src: Src::Reg(REG),
+        },
+        TileOp::Mul {
+            dst: Dst::Output(0),
+            a: X,
+            b: Src::Reg(REG),
+        },
+    ];
+    static PASSES: [Pass; 1] = [Pass {
+        scalar_ops: Cow::Borrowed(&[]),
+        tile_ops: Cow::Borrowed(&TILE_OPS),
+    }];
+    TileProgram::from_parts(Cow::Borrowed(&PASSES), 1, 0, RowDims::All).with_name("Mish")
+};
 
 /// Computes `addend + src * scale` and writes the result to `dst`.
 ///
@@ -708,8 +772,8 @@ impl TileProgram {
             computed_scalars.fill(0.);
 
             let len = segment[0].len();
-            for pass in passes {
-                for op in &pass.scalar_ops {
+            for pass in passes.iter() {
+                for op in pass.scalar_ops.iter() {
                     op.run(scalars, len);
                 }
                 let mut tile_start = 0;
@@ -734,7 +798,7 @@ impl TileProgram {
         // With a single pass, each part of a row can be computed separately,
         // so divide long rows between tasks. Otherwise each row is computed
         // by one task, and short rows are grouped together.
-        let (chunk_len, min_chunks) = match passes.as_slice() {
+        let (chunk_len, min_chunks) = match &passes[..] {
             [_] => (TASK_LEN, 1),
             _ => (row_len, (TASK_LEN / row_len.max(1)).max(1)),
         };
@@ -859,7 +923,9 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
-    use super::{Dst, Pass, RegId, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram};
+    use super::{
+        Dst, MISH_PROGRAM, Pass, RegId, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram,
+    };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask};
 
@@ -1095,7 +1161,7 @@ mod tests {
             vec![
                 vec![TileOp::Sum { src: x, scalar: 3 }].into(),
                 Pass {
-                    scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }],
+                    scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }].into(),
                     tile_ops: vec![
                         TileOp::SubScalar {
                             dst: reg,
@@ -1110,7 +1176,8 @@ mod tests {
                             src: reg_src,
                             scalar: 4,
                         },
-                    ],
+                    ]
+                    .into(),
                 },
                 Pass {
                     scalar_ops: vec![
@@ -1118,7 +1185,8 @@ mod tests {
                         ScalarOp::Add { dst: 5, a: 4, b: 0 },
                         ScalarOp::Sqrt { dst: 6, src: 5 },
                         ScalarOp::Reciprocal { dst: 7, src: 6 },
-                    ],
+                    ]
+                    .into(),
                     tile_ops: vec![
                         TileOp::SubScalar {
                             dst: reg,
@@ -1140,7 +1208,8 @@ mod tests {
                             src: reg_src,
                             scalar: 2,
                         },
-                    ],
+                    ]
+                    .into(),
                 },
             ],
             1,
@@ -1303,7 +1372,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let op = TileProgram::mish();
+            let op = MISH_PROGRAM.clone();
             assert_eq!(op.name(), "Mish");
 
             // Scale the input to cover large positive and negative values.

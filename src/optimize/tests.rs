@@ -602,7 +602,7 @@ fn test_fuse_tile_program_instance_norm() {
         vec![
             vec![TileOp::Sum { src: x, scalar: 3 }].into(),
             Pass {
-                scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }],
+                scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }].into(),
                 tile_ops: vec![
                     TileOp::SubScalar {
                         dst: reg,
@@ -617,7 +617,8 @@ fn test_fuse_tile_program_instance_norm() {
                         src: reg_src,
                         scalar: 4,
                     },
-                ],
+                ]
+                .into(),
             },
             Pass {
                 scalar_ops: vec![
@@ -625,7 +626,8 @@ fn test_fuse_tile_program_instance_norm() {
                     ScalarOp::Add { dst: 5, a: 4, b: 0 },
                     ScalarOp::Sqrt { dst: 6, src: 5 },
                     ScalarOp::Reciprocal { dst: 7, src: 6 },
-                ],
+                ]
+                .into(),
                 tile_ops: vec![
                     TileOp::SubScalar {
                         dst: reg,
@@ -647,7 +649,8 @@ fn test_fuse_tile_program_instance_norm() {
                         src: reg_src,
                         scalar: 2,
                     },
-                ],
+                ]
+                .into(),
             },
         ],
         1,

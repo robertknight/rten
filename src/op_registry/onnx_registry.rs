@@ -46,12 +46,9 @@ impl OnnxOpRegistry {
 
     /// Register the `Mish` operator, which is implemented as a tile program.
     pub(crate) fn register_mish(&mut self) {
-        fn read_mish(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> ReadOpResult {
-            let attrs = Attrs::new(&op.attribute, ctx.opset_version());
-            let op = ParsedOp::new(ops::TileProgram::mish());
-            Ok(op.with_unused_attrs(attrs.unused_attrs()).into())
-        }
-        self.register_op_with_factory(OpId::new("Mish"), &read_mish);
+        self.register_op_with_factory(OpId::new("Mish"), &|op, ctx| {
+            read_program_op(&ops::MISH_PROGRAM, op, ctx)
+        });
     }
 
     /// Register an operator with a custom factory to deserialize it from a
@@ -454,6 +451,17 @@ impl<Op: Operator + Send + Sync> From<ParsedOp<Op>> for DynParsedOp {
 type ReadOpResult = Result<DynParsedOp, ReadOpError>;
 
 type ReadOpFunction = dyn Fn(&onnx::NodeProto, &dyn OpLoadContext) -> ReadOpResult;
+
+/// Deserialize an operator which is implemented by a tile program.
+fn read_program_op(
+    program: &'static ops::TileProgram,
+    op: &onnx::NodeProto,
+    ctx: &dyn OpLoadContext,
+) -> ReadOpResult {
+    let attrs = Attrs::new(&op.attribute, ctx.opset_version());
+    let op = ParsedOp::new(program.clone());
+    Ok(op.with_unused_attrs(attrs.unused_attrs()).into())
+}
 
 pub trait ReadOp: Operator + Sized + Send + Sync {
     /// Return the operator domain and op type.
@@ -2179,8 +2187,8 @@ mod tests {
     #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding,
-        TileProgram, Upsample,
+        ArgMax, ConstantOfShape, Conv, GridSample, MISH_PROGRAM, Padding, ResizeMode,
+        RotaryEmbedding, TileProgram, Upsample,
     };
     #[cfg(feature = "contrib")]
     use crate::ops::{
@@ -2244,7 +2252,7 @@ mod tests {
             .op;
 
         assert_eq!(op.name(), "Mish");
-        assert_eq!(op.downcast_ref::<TileProgram>(), Some(&TileProgram::mish()));
+        assert_eq!(op.downcast_ref::<TileProgram>(), Some(&MISH_PROGRAM));
     }
 
     #[cfg(feature = "contrib")]
