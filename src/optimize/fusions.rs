@@ -13,17 +13,17 @@ use rten_tensor::{ArcTensor, AsView, Layout, NdTensorView, SliceRange, Tensor, T
 use crate::buffer_pool::BufferPool;
 use crate::graph::{
     Constant, ConstantNode, ConstantNodeData, Dimension, Graph, Node, NodeId, OperatorNode,
-    TypedConstant,
+    PlanOptions, TypedConstant,
 };
 use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
-    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, Div, Dst,
+    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, Cos, DequantizeLinear, Div, Dst,
     FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul, MatMulDynamicQuant,
     MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean,
-    RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src, Sub, Swish, SymbolInfo,
-    TileOp, TileProgram, Transpose, dequantize_linear,
+    RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Softplus, Sqrt, Src, Sub, Swish,
+    SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -2800,9 +2800,16 @@ enum ProgramStep {
         src: NodeId,
         scalar: NodeId,
     },
+    Cos {
+        src: NodeId,
+    },
     DivScalar {
         src: NodeId,
         scalar: NodeId,
+    },
+    Mul {
+        a: NodeId,
+        b: NodeId,
     },
     MulScalar {
         src: NodeId,
@@ -2819,6 +2826,9 @@ enum ProgramStep {
     SinSquared {
         src: NodeId,
         exponent: NodeId,
+    },
+    Softplus {
+        src: NodeId,
     },
     Square {
         src: NodeId,
@@ -2880,6 +2890,7 @@ impl ProgramStep {
         } else if op.downcast_ref::<Mul>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
             match (kind(a)?, kind(b)?) {
+                (Tensor, Tensor) => ProgramStep::Mul { a, b },
                 (Tensor, Scalar { .. }) => ProgramStep::MulScalar { src: a, scalar: b },
                 (Scalar { .. }, Tensor) => ProgramStep::MulScalar { src: b, scalar: a },
                 _ => return None,
@@ -2902,6 +2913,18 @@ impl ProgramStep {
                 return None;
             }
             ProgramStep::Sin { src }
+        } else if op.downcast_ref::<Cos>().is_some() {
+            let src = input(0)?;
+            if !is_tensor(src) {
+                return None;
+            }
+            ProgramStep::Cos { src }
+        } else if op.downcast_ref::<Softplus>().is_some() {
+            let src = input(0)?;
+            if !is_tensor(src) {
+                return None;
+            }
+            ProgramStep::Softplus { src }
         } else if op.downcast_ref::<Sqrt>().is_some() {
             let src = input(0)?;
             if is_tensor(src) {
@@ -2953,14 +2976,16 @@ impl ProgramStep {
     /// subgraph's output.
     fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
         let inputs = match *self {
-            ProgramStep::Add { a, b } => [Some(a), Some(b)],
+            ProgramStep::Add { a, b } | ProgramStep::Mul { a, b } => [Some(a), Some(b)],
             ProgramStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
             ProgramStep::AddScalar { src, .. }
+            | ProgramStep::Cos { src }
             | ProgramStep::DivScalar { src, .. }
             | ProgramStep::MulScalar { src, .. }
             | ProgramStep::ReduceMean { src, .. }
             | ProgramStep::Sin { src }
             | ProgramStep::SinSquared { src, .. }
+            | ProgramStep::Softplus { src }
             | ProgramStep::Square { src, .. }
             | ProgramStep::SubScalar { src, .. } => [Some(src), None],
             ProgramStep::ScalarAdd { .. } | ProgramStep::ScalarSqrt { .. } => [None, None],
@@ -2979,9 +3004,12 @@ impl ProgramStep {
             | ProgramStep::SubScalar { scalar, .. } => [Some(scalar), None],
             ProgramStep::ScalarSqrt { src } => [Some(src), None],
             ProgramStep::Add { .. }
+            | ProgramStep::Cos { .. }
+            | ProgramStep::Mul { .. }
             | ProgramStep::ReduceMean { .. }
             | ProgramStep::Sin { .. }
             | ProgramStep::SinSquared { .. }
+            | ProgramStep::Softplus { .. }
             | ProgramStep::Square { .. } => [None, None],
         };
         inputs.into_iter().flatten()
@@ -2997,14 +3025,18 @@ impl ProgramStep {
 /// dimensions of their inputs, into a [`TileProgram`]. This evaluates all of
 /// the operators on one small tile of the inputs at a time.
 ///
-/// A subgraph is formed from the visited operator and the supported operators
-/// which it depends on. Shape inference must show that every value in the
-/// subgraph is either a float tensor with the same shape as the output, or a
-/// _scalar_ which is constant along one or more trailing dimensions of the
-/// output (eg. a scalar, or per-channel values of shape `[1, C, 1]` for an
+/// Shape inference must show that every value in the subgraph is either a
+/// float tensor with the same shape as the visited operator's output, or a
+/// _scalar_ which is constant along one or more trailing dimensions of that
+/// shape (eg. a scalar, or per-channel values of shape `[1, C, 1]` for an
 /// `[N, C, T]` output). Scalars may be inputs of the subgraph or be computed
-/// by it, by reducing those trailing dimensions of a tensor. Values which are
-/// used outside the subgraph become inputs to it.
+/// by it, by reducing those trailing dimensions of a tensor.
+///
+/// A subgraph is formed from the visited operator and the supported operators
+/// which are connected to it. Tensors in the subgraph which are used outside
+/// it become outputs of the program. Operators are left out of the subgraph if
+/// they produce scalars which are used outside it, or if the fused operator
+/// would otherwise depend on its own outputs via other operators.
 pub struct TileProgramFusion {}
 
 impl FusionVisitor for TileProgramFusion {
@@ -3034,22 +3066,36 @@ impl FusionVisitor for TileProgramFusion {
         let root_step =
             ProgramStep::from_operator(graph, op_node, &out_shape).ok_or(FusionError::NoMatch)?;
 
-        // Find the supported operators which the visited operator depends on,
-        // directly or via other supported operators. This maps operator IDs
-        // to the operator's output and the step which evaluates it.
+        // Find the supported operators which are connected to the visited
+        // operator, via their inputs or outputs and other supported
+        // operators. This maps operator IDs to the operator's output and the
+        // step which evaluates it.
+        let consumers_of = |value_id: NodeId| graph.get_consumers(value_id).unwrap_or(&[]);
         let mut steps = HashMap::new();
         let mut pending = vec![(op_node_id, output_id, root_step)];
         while let Some((op_id, op_output, step)) = pending.pop() {
             if steps.insert(op_id, (op_output, step)).is_some() {
                 continue;
             }
-            for input in step.inputs() {
-                let Some((src_id, src_op)) = graph.get_source_node(input) else {
+            let producers = step
+                .inputs()
+                .filter_map(|input| graph.get_source_node(input).map(|(src_id, _)| src_id));
+            let consumers = consumers_of(op_output).iter().copied();
+            for neighbor_id in producers.chain(consumers) {
+                if steps.contains_key(&neighbor_id) {
+                    continue;
+                }
+                let Some(neighbor) = graph.get_node(neighbor_id).and_then(|n| n.as_operator())
+                else {
                     continue;
                 };
-                if let Some(src_step) = ProgramStep::from_operator(graph, src_op, &out_shape) {
-                    pending.push((src_id, input, src_step));
-                }
+                let (Some(neighbor_step), [Some(neighbor_output)]) = (
+                    ProgramStep::from_operator(graph, neighbor, &out_shape),
+                    neighbor.output_ids(),
+                ) else {
+                    continue;
+                };
+                pending.push((neighbor_id, *neighbor_output, neighbor_step));
             }
         }
         let source_step = |value_id: NodeId, steps: &HashMap<NodeId, _>| {
@@ -3059,45 +3105,148 @@ impl FusionVisitor for TileProgramFusion {
                 .filter(|src_id| steps.contains_key(src_id))
         };
 
-        // Remove operators whose outputs are used outside the subgraph, which
-        // may in turn disconnect other operators from the subgraph's output.
-        // Repeat until the subgraph has no such operators. This leaves the
-        // subgraph's operators sorted so that each comes after its inputs.
-        let mut order = loop {
-            let mut order = Vec::new();
-            let mut visited = FxHashSet::default();
-            let mut stack = vec![(op_node_id, false)];
-            while let Some((op_id, inputs_visited)) = stack.pop() {
-                if inputs_visited {
-                    order.push(op_id);
-                } else if visited.insert(op_id) {
-                    stack.push((op_id, true));
-                    let (_, step) = steps[&op_id];
-                    stack.extend(
-                        step.inputs()
-                            .filter_map(|input| source_step(input, &steps))
-                            .map(|src_id| (src_id, false)),
-                    );
+        // Remove operators until the remaining ones can be replaced by a
+        // single operator.
+        loop {
+            // Keep only the operators which are still connected to the
+            // visited operator.
+            let mut connected = FxHashSet::default();
+            let mut stack = vec![op_node_id];
+            while let Some(op_id) = stack.pop() {
+                if !connected.insert(op_id) {
+                    continue;
                 }
+                let (op_output, step) = steps[&op_id];
+                stack.extend(step.inputs().filter_map(|input| source_step(input, &steps)));
+                stack.extend(
+                    consumers_of(op_output)
+                        .iter()
+                        .filter(|consumer| steps.contains_key(consumer)),
+                );
+            }
+            steps.retain(|op_id, _| connected.contains(op_id));
+
+            let mut op_ids: Vec<NodeId> = steps.keys().copied().collect();
+            op_ids.sort();
+
+            // Remove operators whose outputs are not used, other than the
+            // visited operator.
+            let unused = op_ids.iter().find(|op_id| {
+                let (op_output, _) = steps[*op_id];
+                **op_id != op_node_id
+                    && consumers_of(op_output).is_empty()
+                    && !graph.output_ids().contains(&op_output)
+            });
+            if let Some(op_id) = unused {
+                steps.remove(op_id);
+                continue;
             }
 
-            let used_outside = order.iter().copied().find(|op_id| {
-                let (op_output, _) = steps[op_id];
-                *op_id != op_node_id
+            // Remove operators which produce scalars that are used outside
+            // the subgraph, as programs can only output tensors.
+            let scalar_output = op_ids.iter().find(|op_id| {
+                let (op_output, step) = steps[*op_id];
+                step.is_scalar()
                     && (graph.output_ids().contains(&op_output)
-                        || graph.get_consumers(op_output).is_some_and(|consumers| {
-                            consumers.iter().any(|consumer| !visited.contains(consumer))
-                        }))
+                        || consumers_of(op_output)
+                            .iter()
+                            .any(|consumer| !steps.contains_key(consumer)))
             });
-            match used_outside {
-                Some(op_id) => {
-                    steps.remove(&op_id);
-                }
-                None => break order,
+            if let Some(op_id) = scalar_output {
+                steps.remove(op_id);
+                continue;
             }
-        };
-        if order.len() < 2 {
+
+            // Find an operator in the subgraph (the consumer) which depends
+            // on another (the producer) via operators outside the subgraph.
+            // The fused operator would then depend on its own output.
+            let mut dependency = None;
+            'search: for producer in &op_ids {
+                let (op_output, _) = steps[producer];
+                let mut visited = FxHashSet::default();
+                let mut stack: Vec<NodeId> = consumers_of(op_output)
+                    .iter()
+                    .copied()
+                    .filter(|consumer| !steps.contains_key(consumer))
+                    .collect();
+                while let Some(op_id) = stack.pop() {
+                    if !visited.insert(op_id) {
+                        continue;
+                    }
+                    let Some(op) = graph.get_node(op_id).and_then(|n| n.as_operator()) else {
+                        continue;
+                    };
+                    for output in op.output_ids().iter().flatten() {
+                        for consumer in consumers_of(*output) {
+                            if steps.contains_key(consumer) {
+                                dependency = Some((*producer, *consumer));
+                                break 'search;
+                            }
+                            stack.push(*consumer);
+                        }
+                    }
+                }
+            }
+            let Some((producer, consumer)) = dependency else {
+                break;
+            };
+
+            // Remove the consumer, unless the visited operator depends on
+            // it, in which case remove the producer.
+            let mut ancestors = FxHashSet::default();
+            let mut stack = vec![op_node_id];
+            while let Some(op_id) = stack.pop() {
+                if ancestors.insert(op_id) {
+                    let (_, step) = steps[&op_id];
+                    stack.extend(step.inputs().filter_map(|input| source_step(input, &steps)));
+                }
+            }
+            if ancestors.contains(&consumer) {
+                steps.remove(&producer);
+            } else {
+                steps.remove(&consumer);
+            }
+        }
+        let n_ops = steps.len();
+        if n_ops < 2 {
             return Err(FusionError::NoMatch);
+        }
+
+        // Sort the operators so that each comes after its inputs. The last
+        // operator is then one which no other operator depends on.
+        let mut order = Vec::new();
+        let mut visited = FxHashSet::default();
+        let mut op_ids: Vec<NodeId> = steps.keys().copied().collect();
+        op_ids.sort();
+        let mut stack: Vec<_> = op_ids.into_iter().rev().map(|id| (id, false)).collect();
+        while let Some((op_id, inputs_visited)) = stack.pop() {
+            if inputs_visited {
+                order.push(op_id);
+            } else if visited.insert(op_id) {
+                stack.push((op_id, true));
+                let (_, step) = steps[&op_id];
+                stack.extend(
+                    step.inputs()
+                        .filter_map(|input| source_step(input, &steps))
+                        .map(|src_id| (src_id, false)),
+                );
+            }
+        }
+
+        // Find the values which are used outside the subgraph. These are the
+        // outputs of the program. The first is the output of the last
+        // operator, as programs write their first output last.
+        let (last_output, _) = steps[order.last().unwrap()];
+        let mut outputs = vec![last_output];
+        for op_id in &order {
+            let (op_output, _) = steps[op_id];
+            let used_outside = graph.output_ids().contains(&op_output)
+                || consumers_of(op_output)
+                    .iter()
+                    .any(|consumer| !steps.contains_key(consumer));
+            if used_outside && op_output != last_output {
+                outputs.push(op_output);
+            }
         }
 
         // Count the uses of each tensor within the subgraph.
@@ -3121,7 +3270,7 @@ impl FusionVisitor for TileProgramFusion {
             let (_, ProgramStep::Sin { src: sin_src }) = steps[&sin_id] else {
                 continue;
             };
-            if uses[&src] != 1 {
+            if uses[&src] != 1 || outputs.contains(&src) {
                 continue;
             }
             let step = ProgramStep::SinSquared {
@@ -3141,14 +3290,18 @@ impl FusionVisitor for TileProgramFusion {
             let combined = [(b, a), (a, b)].into_iter().find_map(|(product, addend)| {
                 let mul_id = source_step(product, &steps)?;
                 match steps[&mul_id] {
-                    (_, ProgramStep::MulScalar { src, scalar }) if uses[&product] == 1 => Some((
-                        mul_id,
-                        ProgramStep::MulScalarAdd {
-                            src,
-                            scalar,
-                            addend,
-                        },
-                    )),
+                    (_, ProgramStep::MulScalar { src, scalar })
+                        if uses[&product] == 1 && !outputs.contains(&product) =>
+                    {
+                        Some((
+                            mul_id,
+                            ProgramStep::MulScalarAdd {
+                                src,
+                                scalar,
+                                addend,
+                            },
+                        ))
+                    }
                     _ => None,
                 }
             });
@@ -3252,7 +3405,8 @@ impl FusionVisitor for TileProgramFusion {
             };
             value_pass.insert(value_id, pass);
         }
-        let n_passes = value_pass[&output_id] + 1;
+        // Outputs are all written in the last pass.
+        let n_passes = outputs.iter().map(|id| value_pass[id]).max().unwrap() + 1;
 
         let mut inputs = Vec::new();
         let mut passes = Vec::new();
@@ -3307,7 +3461,8 @@ impl FusionVisitor for TileProgramFusion {
                 .collect();
             let mut targets: Vec<NodeId> = reductions.iter().map(|(src, _)| *src).collect();
             if pass == n_passes - 1 {
-                targets.push(output_id);
+                // The first output is computed last.
+                targets.extend(outputs[1..].iter().chain(&outputs[..1]));
             }
 
             // Find the steps needed to compute those tensors, sorted so that
@@ -3336,24 +3491,26 @@ impl FusionVisitor for TileProgramFusion {
                 *uses.entry(input).or_default() += 1;
             }
 
-            // Map of value ID to the register which holds the value, for
-            // values computed in this pass.
-            let mut value_regs: HashMap<NodeId, usize> = HashMap::new();
+            // Map of value ID to the register or output which holds the
+            // value, for values computed in this pass.
+            let mut value_srcs: HashMap<NodeId, Src> = HashMap::new();
             let mut free_regs = Vec::new();
             let mut n_regs = 0;
 
             // Get the source of a tensor and release its register after the
             // last use, so that it can be reused as a destination.
             let mut src = |value_id: NodeId,
-                           value_regs: &HashMap<NodeId, usize>,
+                           value_srcs: &HashMap<NodeId, Src>,
                            free_regs: &mut Vec<usize>| {
-                if let Some(&reg) = value_regs.get(&value_id) {
-                    let remaining = uses.get_mut(&value_id).unwrap();
-                    *remaining -= 1;
-                    if *remaining == 0 {
-                        free_regs.push(reg);
+                if let Some(&value_src) = value_srcs.get(&value_id) {
+                    if let Src::Reg(reg) = value_src {
+                        let remaining = uses.get_mut(&value_id).unwrap();
+                        *remaining -= 1;
+                        if *remaining == 0 {
+                            free_regs.push(reg);
+                        }
                     }
-                    Src::Reg(reg)
+                    value_src
                 } else {
                     let index = inputs
                         .iter()
@@ -3370,12 +3527,17 @@ impl FusionVisitor for TileProgramFusion {
             for (value_id, step) in pass_steps {
                 let srcs: Vec<Src> = step
                     .tensor_inputs()
-                    .map(|input| src(input, &value_regs, &mut free_regs))
+                    .map(|input| src(input, &value_srcs, &mut free_regs))
                     .collect();
                 let a = srcs[0];
 
-                let dst = if value_id == output_id {
-                    Dst::Output
+                let output_index = outputs
+                    .iter()
+                    .position(|id| *id == value_id)
+                    .filter(|_| pass == n_passes - 1);
+                let dst = if let Some(index) = output_index {
+                    value_srcs.insert(value_id, Src::Output(index));
+                    Dst::Output(index)
                 } else {
                     // Use the lowest free register.
                     free_regs.sort_by(|a, b| b.cmp(a));
@@ -3383,7 +3545,7 @@ impl FusionVisitor for TileProgramFusion {
                         n_regs += 1;
                         n_regs - 1
                     });
-                    value_regs.insert(value_id, reg);
+                    value_srcs.insert(value_id, Src::Reg(reg));
                     Dst::Reg(reg)
                 };
 
@@ -3410,8 +3572,11 @@ impl FusionVisitor for TileProgramFusion {
                         scalar: scalar_ids[&scalar],
                         addend: srcs[1],
                     },
+                    ProgramStep::Cos { .. } => TileOp::Cos { dst, src: a },
+                    ProgramStep::Mul { .. } => TileOp::Mul { dst, a, b: srcs[1] },
                     ProgramStep::Sin { .. } => TileOp::Sin { dst, src: a },
                     ProgramStep::SinSquared { .. } => TileOp::SinSquared { dst, src: a },
+                    ProgramStep::Softplus { .. } => TileOp::Softplus { dst, src: a },
                     ProgramStep::Square { .. } => TileOp::Square { dst, src: a },
                     ProgramStep::SubScalar { scalar, .. } => TileOp::SubScalar {
                         dst,
@@ -3427,7 +3592,7 @@ impl FusionVisitor for TileProgramFusion {
             }
             for (value_id, scalar) in reductions {
                 tile_ops.push(TileOp::Sum {
-                    src: src(value_id, &value_regs, &mut free_regs),
+                    src: src(value_id, &value_srcs, &mut free_regs),
                     scalar,
                 });
             }
@@ -3449,11 +3614,32 @@ impl FusionVisitor for TileProgramFusion {
 
         let program = TileProgram::new(passes, inputs.len(), scalar_inputs.len(), inner_dims);
         let input_ids: Vec<_> = inputs.into_iter().chain(scalar_inputs).map(Some).collect();
+
+        // Check that the outputs can be computed from the inputs using only
+        // the operators in the subgraph.
+        let mut plan_inputs: Vec<NodeId> = input_ids
+            .iter()
+            .chain(&unused_inputs)
+            .copied()
+            .flatten()
+            .collect();
+        plan_inputs.sort();
+        plan_inputs.dedup();
+        let plan = graph
+            .execution_plan(&plan_inputs, &outputs, PlanOptions::default())
+            .map_err(|_| FusionError::CheckFailed("subgraph has other inputs"))?;
+        if plan.len() != n_ops {
+            return Err(FusionError::CheckFailed(
+                "subgraph depends on other operators",
+            ));
+        }
+
+        let output_ids: Vec<_> = outputs.into_iter().map(Some).collect();
         Ok(Fusion::from_op(
             op_node.name(),
             Arc::new(program),
             &input_ids,
-            &[Some(output_id)],
+            &output_ids,
             &unused_inputs,
         ))
     }

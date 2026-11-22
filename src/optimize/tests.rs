@@ -19,12 +19,12 @@ use crate::graph::{
 };
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
-    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose,
+    Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose, Cos,
     DequantizeLinear, Dst, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
     GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
     Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, ScalarOp,
-    Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Src, Swish, Tanh, TileOp, TileProgram,
-    Transpose, Unsqueeze, Where,
+    Shape, Sigmoid, Sin, Slice, Softmax, Softplus, Split, Sqrt, Src, Swish, Tanh, TileOp,
+    TileProgram, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -425,7 +425,7 @@ fn test_fuse_tile_program() {
                 src: reg_src,
             },
             TileOp::MulScalarAdd {
-                dst: Dst::Output,
+                dst: Dst::Output(0),
                 src: reg_src,
                 scalar: 1,
                 addend: Src::Input(0),
@@ -489,8 +489,8 @@ fn test_fuse_tile_program() {
             sin_is_output: false,
             expected: None,
         },
-        // Sine which is used outside the subgraph. Only the operators after
-        // it are fused, and it is not combined with the squaring.
+        // Sine which is also a graph output. It becomes a second output of
+        // the program, and is not combined with the squaring.
         Case {
             param_shape: [1, 3, 1].into(),
             input_shape: Some(dims!("batch", 3, "time").into()),
@@ -498,21 +498,30 @@ fn test_fuse_tile_program() {
             expected: Some(TileProgram::new(
                 vec![
                     vec![
-                        TileOp::Square {
+                        TileOp::MulScalar {
                             dst: Dst::Reg(0),
                             src: Src::Input(0),
+                            scalar: 0,
+                        },
+                        TileOp::Sin {
+                            dst: Dst::Output(1),
+                            src: Src::Reg(0),
+                        },
+                        TileOp::Square {
+                            dst: Dst::Reg(0),
+                            src: Src::Output(1),
                         },
                         TileOp::MulScalarAdd {
-                            dst: Dst::Output,
+                            dst: Dst::Output(0),
                             src: Src::Reg(0),
-                            scalar: 0,
-                            addend: Src::Input(1),
+                            scalar: 1,
+                            addend: Src::Input(0),
                         },
                     ]
                     .into(),
                 ],
-                2,
                 1,
+                2,
                 1,
             )),
         },
@@ -634,7 +643,7 @@ fn test_fuse_tile_program_instance_norm() {
                         scalar: 1,
                     },
                     TileOp::AddScalar {
-                        dst: Dst::Output,
+                        dst: Dst::Output(0),
                         src: reg_src,
                         scalar: 2,
                     },
@@ -646,6 +655,109 @@ fn test_fuse_tile_program_instance_norm() {
         1,
     );
     assert_eq!(*op, expected);
+}
+
+#[test]
+fn test_fuse_tile_program_multiple_outputs() {
+    // Convert magnitudes and phases to real and imaginary parts.
+    let graph = {
+        let float = ValueType::Tensor(DataType::Float);
+        let shape = dims!("batch", 11, "time");
+        let mag_in = Expr::value_with_info("mag", float, &shape);
+        let phase_in = Expr::value_with_info("phase", float, &shape);
+        let mag = mag_in.unary(Softplus {});
+        let phase = phase_in.sin();
+        let real = mag.clone() * phase.unary(Cos {});
+        let imag = mag * phase.sin();
+        Expr::make_graph([mag_in, phase_in], [real, imag])
+    };
+
+    let graph = optimize_graph_infer_shapes(graph).unwrap();
+    let ops: Vec<_> = graph
+        .output_ids()
+        .iter()
+        .map(|id| graph.get_source_node(*id).unwrap())
+        .collect();
+    assert_eq!(ops[0].0, ops[1].0);
+    let op = ops[0]
+        .1
+        .operator()
+        .downcast_ref::<TileProgram>()
+        .expect("outputs should be fused");
+
+    // The phase is input 0 and the magnitude is input 1. The imaginary part
+    // is output 0, which is written last, and the real part is output 1.
+    let expected = TileProgram::new(
+        vec![
+            vec![
+                TileOp::Sin {
+                    dst: Dst::Reg(0),
+                    src: Src::Input(0),
+                },
+                TileOp::Cos {
+                    dst: Dst::Reg(1),
+                    src: Src::Reg(0),
+                },
+                TileOp::Softplus {
+                    dst: Dst::Reg(2),
+                    src: Src::Input(1),
+                },
+                TileOp::Mul {
+                    dst: Dst::Output(1),
+                    a: Src::Reg(2),
+                    b: Src::Reg(1),
+                },
+                TileOp::Sin {
+                    dst: Dst::Reg(0),
+                    src: Src::Reg(0),
+                },
+                TileOp::Mul {
+                    dst: Dst::Output(0),
+                    a: Src::Reg(2),
+                    b: Src::Reg(0),
+                },
+            ]
+            .into(),
+        ],
+        2,
+        0,
+        3,
+    );
+    assert_eq!(*op, expected);
+
+    // Check that each graph output is produced by the expected program
+    // output.
+    let op_node = ops[0].1;
+    assert_eq!(
+        op_node.output_ids(),
+        [Some(graph.output_ids()[1]), Some(graph.output_ids()[0])]
+    );
+}
+
+#[test]
+fn test_fuse_tile_program_excludes_self_dependency() {
+    // `Add` depends on `Sin` both directly and via an operator which can't
+    // be part of a program. If both were fused, the program would depend on
+    // its own output.
+    let graph = {
+        let float = ValueType::Tensor(DataType::Float);
+        let x = Expr::value_with_info("x", float, &dims!("batch", 3, "time"));
+        let sin = (x * Expr::constant(2.0)).sin();
+        let expr = sin.clone() + sin.tanh();
+        expr.build_graph(["x"])
+    };
+
+    let graph = optimize_graph_infer_shapes(graph).unwrap();
+
+    let (_, add_op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
+    assert_eq!(add_op.operator().name(), "Add");
+    let add_inputs: Vec<_> = add_op.input_ids().iter().copied().flatten().collect();
+    let has_program_input = add_inputs.iter().any(|id| {
+        graph
+            .get_source_node(*id)
+            .is_some_and(|(_, op)| op.operator().name() == "TileProgram")
+    });
+    assert!(has_program_input);
 }
 
 #[test]
