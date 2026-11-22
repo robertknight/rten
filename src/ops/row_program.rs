@@ -1,5 +1,5 @@
-//! Fused elementwise operator which evaluates a sequence of primitive
-//! operations on one small tile of its inputs at a time.
+//! Fused operator which evaluates a sequence of elementwise operations, and
+//! reductions over rows, on one small tile of its inputs at a time.
 //!
 //! Evaluating an expression such as `x + beta * sin(alpha * x)^2` as separate
 //! graph operators makes one pass over the whole tensor per operator. Here
@@ -179,7 +179,7 @@ impl From<Vec<TileOp>> for Pass {
 ///
 /// Scalars computed by the program are zero at the start of each row.
 #[derive(Clone, Debug, PartialEq)]
-pub struct TileProgram {
+pub struct RowProgramCode {
     passes: Vec<Pass>,
     n_inputs: usize,
     n_scalar_inputs: usize,
@@ -188,14 +188,14 @@ pub struct TileProgram {
     n_regs: usize,
 }
 
-impl TileProgram {
+impl RowProgramCode {
     /// Create a program which reads `n_inputs` tensor inputs and
     /// `n_scalar_inputs` scalar inputs.
     ///
     /// Only the last operation of the last pass may write the output. Since
     /// the output shares a buffer with input 0, this means input 0 can be
     /// read by any operation.
-    pub fn new(passes: Vec<Pass>, n_inputs: usize, n_scalar_inputs: usize) -> TileProgram {
+    pub fn new(passes: Vec<Pass>, n_inputs: usize, n_scalar_inputs: usize) -> RowProgramCode {
         let tile_ops = || passes.iter().flat_map(|pass| &pass.tile_ops);
         let n_tile_ops = tile_ops().count();
         assert!(tile_ops().enumerate().all(|(index, op)| {
@@ -224,7 +224,7 @@ impl TileProgram {
             .unwrap_or(0)
             .max(n_scalar_inputs);
 
-        TileProgram {
+        RowProgramCode {
             passes,
             n_inputs,
             n_scalar_inputs,
@@ -299,7 +299,7 @@ impl SimdOp for MulScalarAdd<'_> {
     }
 }
 
-/// Buffers used while evaluating a [`TileProgram`] on one tile.
+/// Buffers used while evaluating a [`RowProgramCode`] on one tile.
 struct TileState<'a, 'r> {
     /// Tensor inputs after the first.
     inputs: &'a [&'a [f32]],
@@ -474,7 +474,7 @@ impl TileState<'_, '_> {
     }
 }
 
-/// Operator which evaluates a [`TileProgram`].
+/// Operator which evaluates a [`RowProgramCode`].
 ///
 /// The operator's inputs are the program's tensor inputs followed by its
 /// scalar inputs. Tensor inputs all have the shape of the output. Scalar
@@ -485,21 +485,21 @@ impl TileState<'_, '_> {
 /// This is not an ONNX operator. It is created by fusing subgraphs of
 /// elementwise operators and reductions over rows.
 #[derive(Debug)]
-pub struct ElementwiseProgram {
-    pub program: TileProgram,
+pub struct RowProgram {
+    pub program: RowProgramCode,
 
     /// Number of trailing dimensions which are flattened to form a row.
     pub inner_dims: usize,
 }
 
-impl ElementwiseProgram {
+impl RowProgram {
     /// Evaluate the program, where `output` initially holds input 0.
     fn run_in_place_impl(
         &self,
         ctx: &OpRunContext,
         mut output: Tensor<f32>,
     ) -> Result<Tensor<f32>, OpError> {
-        let TileProgram {
+        let RowProgramCode {
             passes,
             n_inputs,
             n_scalar_inputs,
@@ -619,9 +619,9 @@ impl ElementwiseProgram {
     }
 }
 
-impl Operator for ElementwiseProgram {
+impl Operator for RowProgram {
     fn name(&self) -> &str {
-        "ElementwiseProgram"
+        "RowProgram"
     }
 
     fn max_inputs(&self) -> Option<usize> {
@@ -663,17 +663,15 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
-    use super::{
-        Dst, ElementwiseProgram, Pass, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram,
-    };
+    use super::{Dst, Pass, RowProgram, RowProgramCode, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp};
     use crate::operator::{OpError, OperatorExt};
 
     /// Return a program which computes `x + beta * sin(alpha * x)^2`, where
     /// `alpha` and `beta` are the scalar inputs.
-    fn snake_program() -> TileProgram {
+    fn snake_program() -> RowProgramCode {
         let reg = Dst::Reg(0);
         let reg_src = Src::Reg(0);
-        TileProgram::new(
+        RowProgramCode::new(
             vec![Pass::from(vec![
                 TileOp::MulScalar {
                     dst: reg,
@@ -715,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elementwise_program() {
+    fn test_row_program() {
         #[derive(Debug)]
         struct Case {
             shape: Vec<usize>,
@@ -773,7 +771,7 @@ mod tests {
             );
             let beta = alpha.map(|a| 1. / a);
 
-            let op = ElementwiseProgram {
+            let op = RowProgram {
                 program: snake_program(),
                 inner_dims: case.inner_dims,
             };
@@ -796,9 +794,9 @@ mod tests {
     }
 
     #[test]
-    fn test_elementwise_program_multiple_inputs() {
+    fn test_row_program_multiple_inputs() {
         // Compute `sin(a) + b`.
-        let program = TileProgram::new(
+        let program = RowProgramCode::new(
             vec![Pass::from(vec![
                 TileOp::Sin {
                     dst: Dst::Reg(0),
@@ -813,7 +811,7 @@ mod tests {
             2,
             0,
         );
-        let op = ElementwiseProgram {
+        let op = RowProgram {
             program,
             inner_dims: 2,
         };
@@ -831,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elementwise_program_mul_scalar_add() {
+    fn test_row_program_mul_scalar_add() {
         #[derive(Debug)]
         struct Case {
             src: Src,
@@ -860,7 +858,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let program = TileProgram::new(
+            let program = RowProgramCode::new(
                 vec![Pass::from(vec![TileOp::MulScalarAdd {
                     dst: Dst::Output,
                     src: case.src,
@@ -870,7 +868,7 @@ mod tests {
                 2,
                 1,
             );
-            let op = ElementwiseProgram {
+            let op = RowProgram {
                 program,
                 inner_dims: 2,
             };
@@ -896,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elementwise_program_multiple_passes() {
+    fn test_row_program_multiple_passes() {
         // Normalize each row to have zero mean and unit variance, then
         // compute `normalized * gamma + beta`. Scalars are the inputs
         // (epsilon, gamma, beta) followed by the mean, variance, variance +
@@ -904,7 +902,7 @@ mod tests {
         let reg = Dst::Reg(0);
         let reg_src = Src::Reg(0);
         let x = Src::Input(0);
-        let program = TileProgram::new(
+        let program = RowProgramCode::new(
             vec![
                 vec![TileOp::Sum { src: x, scalar: 3 }].into(),
                 Pass {
@@ -959,7 +957,7 @@ mod tests {
             1,
             3,
         );
-        let op = ElementwiseProgram {
+        let op = RowProgram {
             program,
             inner_dims: 1,
         };
@@ -1017,7 +1015,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elementwise_program_invalid() {
+    fn test_row_program_invalid() {
         #[derive(Debug)]
         struct Case {
             scalar_shape: Vec<usize>,
@@ -1037,7 +1035,7 @@ mod tests {
         cases.test_each(|case| {
             let x = test_input(&[1, 2, 5]);
             let alpha = Tensor::<f32>::zeros(&case.scalar_shape);
-            let op = ElementwiseProgram {
+            let op = RowProgram {
                 program: snake_program(),
                 inner_dims: 1,
             };

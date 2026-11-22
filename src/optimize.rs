@@ -28,12 +28,12 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
     ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantAddFusion,
-    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, ConvTransposeDynamicQuantFusion,
-    ElementwiseProgramFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
-    GroupedQueryAttentionMatMulFusion, IdentityFusion, LayerNormalizationFusion, MatMulAddFusion,
-    MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion,
-    MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion,
-    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
+    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, ConvTransposeDynamicQuantFusion, Fusion,
+    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
+    LayerNormalizationFusion, MatMulAddFusion, MatMulDynamicQuantAddFusion,
+    MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion, MatMulScaleFusion,
+    MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion, ReciprocalFusion,
+    ReduceMeanAxesFusion, RepeatInterleaveFusion, RowProgramFusion, SafeSoftmaxFusion,
     ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
@@ -915,11 +915,12 @@ impl GraphOptimizer {
             }
         }
 
-        // Fuse the remaining chains of elementwise operators. This is done
-        // after the other fusions so that they take priority.
-        let mut elementwise_fusions = FusionList::new();
-        elementwise_fusions.push(ElementwiseProgramFusion {});
-        self.apply_fusions(&mut graph_mut, elementwise_fusions.visitors(), &diag)?;
+        // Fuse the remaining chains of elementwise operators and reductions
+        // over rows. This is done after the other fusions so that they take
+        // priority.
+        let mut row_program_fusions = FusionList::new();
+        row_program_fusions.push(RowProgramFusion {});
+        self.apply_fusions(&mut graph_mut, row_program_fusions.visitors(), &diag)?;
 
         // Remove nodes made unreachable by constant propagation and fusion.
         // This frees the memory used by eg. quantized weights that were

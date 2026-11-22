@@ -27,7 +27,6 @@ mod conv;
 mod conv_transpose;
 mod convert;
 mod einsum;
-mod elementwise_program;
 mod embedding;
 mod gather;
 mod generate;
@@ -41,6 +40,7 @@ mod norm;
 mod pad;
 mod pooling;
 mod quantize;
+mod row_program;
 
 #[cfg(feature = "fft")]
 mod fft;
@@ -83,7 +83,6 @@ pub(crate) use {
     conv_transpose::{ConvTranspose, ConvTransposeDynamicQuant},
     convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
-    elementwise_program::{Dst, ElementwiseProgram, Pass, ScalarOp, Src, TileOp, TileProgram},
     embedding::RotaryEmbedding,
     gather::{Gather, GatherElements, GatherND, ReverseSequence},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
@@ -106,6 +105,7 @@ pub(crate) use {
     },
     resize::{Resize, Upsample},
     rnn::{GRU, LSTM},
+    row_program::{Dst, Pass, RowProgram, RowProgramCode, ScalarOp, Src, TileOp},
     scatter::{Scatter, ScatterElements, ScatterND, ScatterReduction},
     sequence::{
         ConcatFromSequence, SequenceAt, SequenceConstruct, SequenceEmpty, SequenceErase,

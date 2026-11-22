@@ -20,10 +20,10 @@ use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
     ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, Div, Dst,
-    ElementwiseProgram, FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul,
-    MatMulDynamicQuant, MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal,
-    ReduceMean, RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src, Sub, Swish,
-    SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
+    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul, MatMulDynamicQuant,
+    MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean,
+    RepeatInterleave, RowProgram, RowProgramCode, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src,
+    Sub, Swish, SymbolInfo, TileOp, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -2746,10 +2746,10 @@ impl FusionVisitor for ConvBatchNormFusion {
     }
 }
 
-/// Describes how a value used by an elementwise subgraph relates to the
-/// subgraph's output.
+/// Describes how a value used by a subgraph which is fused into a
+/// [`RowProgram`] relates to the subgraph's output.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ElementwiseValue {
+enum RowValue {
     /// The value has the same shape as the output.
     Tensor,
     /// The value is broadcast against the output and has a size of one in
@@ -2757,22 +2757,17 @@ enum ElementwiseValue {
     Scalar { inner_dims: usize },
 }
 
-/// Classify a value used by an elementwise subgraph whose output has shape
-/// `out_shape`.
+/// Classify a value used by a subgraph whose output has shape `out_shape`.
 ///
 /// Returns `None` if the value's type or shape is unknown or unsupported.
-fn elementwise_value(
-    graph: &Graph,
-    value_id: NodeId,
-    out_shape: &[Dimension],
-) -> Option<ElementwiseValue> {
+fn row_value(graph: &Graph, value_id: NodeId, out_shape: &[Dimension]) -> Option<RowValue> {
     let node = graph.get_node(value_id)?;
     if node.dtype() != Some(ValueType::Tensor(DataType::Float)) {
         return None;
     }
     let shape = node.shape()?;
     if shape.as_ref() == out_shape {
-        return Some(ElementwiseValue::Tensor);
+        return Some(RowValue::Tensor);
     }
 
     // Align the value's dimensions with the output's, as broadcasting does.
@@ -2789,13 +2784,13 @@ fn elementwise_value(
     {
         return None;
     }
-    Some(ElementwiseValue::Scalar { inner_dims })
+    Some(RowValue::Scalar { inner_dims })
 }
 
-/// An operator which can be evaluated by an [`ElementwiseProgram`], with the
-/// IDs of its inputs.
+/// An operator which can be evaluated by a [`RowProgram`], with the IDs of
+/// its inputs.
 #[derive(Clone, Copy, Debug)]
-enum ElementwiseStep {
+enum RowStep {
     // Steps which produce a tensor.
     Add {
         a: NodeId,
@@ -2849,7 +2844,7 @@ enum ElementwiseStep {
     },
 }
 
-impl ElementwiseStep {
+impl RowStep {
     /// Return the step which evaluates `op_node`, if it is a supported
     /// operator whose inputs and output are tensors of shape `out_shape` or
     /// scalars.
@@ -2857,42 +2852,42 @@ impl ElementwiseStep {
         graph: &Graph,
         op_node: &OperatorNode,
         out_shape: &[Dimension],
-    ) -> Option<ElementwiseStep> {
-        use ElementwiseValue::{Scalar, Tensor};
+    ) -> Option<RowStep> {
+        use RowValue::{Scalar, Tensor};
 
         let [Some(output_id)] = op_node.output_ids() else {
             return None;
         };
         let input = |index: usize| op_node.input_ids().get(index).copied().flatten();
-        let kind = |value_id: NodeId| elementwise_value(graph, value_id, out_shape);
+        let kind = |value_id: NodeId| row_value(graph, value_id, out_shape);
         let is_tensor = |value_id: NodeId| kind(value_id) == Some(Tensor);
 
         let op = op_node.operator();
         let step = if op.downcast_ref::<Add>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
             match (kind(a)?, kind(b)?) {
-                (Tensor, Tensor) => ElementwiseStep::Add { a, b },
-                (Tensor, Scalar { .. }) => ElementwiseStep::AddScalar { src: a, scalar: b },
-                (Scalar { .. }, Tensor) => ElementwiseStep::AddScalar { src: b, scalar: a },
-                (Scalar { .. }, Scalar { .. }) => ElementwiseStep::ScalarAdd { a, b },
+                (Tensor, Tensor) => RowStep::Add { a, b },
+                (Tensor, Scalar { .. }) => RowStep::AddScalar { src: a, scalar: b },
+                (Scalar { .. }, Tensor) => RowStep::AddScalar { src: b, scalar: a },
+                (Scalar { .. }, Scalar { .. }) => RowStep::ScalarAdd { a, b },
             }
         } else if op.downcast_ref::<Sub>().is_some() {
             let (src, scalar) = (input(0)?, input(1)?);
             match (kind(src)?, kind(scalar)?) {
-                (Tensor, Scalar { .. }) => ElementwiseStep::SubScalar { src, scalar },
+                (Tensor, Scalar { .. }) => RowStep::SubScalar { src, scalar },
                 _ => return None,
             }
         } else if op.downcast_ref::<Mul>().is_some() {
             let (a, b) = (input(0)?, input(1)?);
             match (kind(a)?, kind(b)?) {
-                (Tensor, Scalar { .. }) => ElementwiseStep::MulScalar { src: a, scalar: b },
-                (Scalar { .. }, Tensor) => ElementwiseStep::MulScalar { src: b, scalar: a },
+                (Tensor, Scalar { .. }) => RowStep::MulScalar { src: a, scalar: b },
+                (Scalar { .. }, Tensor) => RowStep::MulScalar { src: b, scalar: a },
                 _ => return None,
             }
         } else if op.downcast_ref::<Div>().is_some() {
             let (src, scalar) = (input(0)?, input(1)?);
             match (kind(src)?, kind(scalar)?) {
-                (Tensor, Scalar { .. }) => ElementwiseStep::DivScalar { src, scalar },
+                (Tensor, Scalar { .. }) => RowStep::DivScalar { src, scalar },
                 _ => return None,
             }
         } else if op.downcast_ref::<Pow>().is_some() {
@@ -2900,20 +2895,20 @@ impl ElementwiseStep {
             if !is_tensor(src) || graph.get_scalar::<f32>(exponent) != Some(2.) {
                 return None;
             }
-            ElementwiseStep::Square { src, exponent }
+            RowStep::Square { src, exponent }
         } else if op.downcast_ref::<Sin>().is_some() {
             let src = input(0)?;
             if !is_tensor(src) {
                 return None;
             }
-            ElementwiseStep::Sin { src }
+            RowStep::Sin { src }
         } else if op.downcast_ref::<Sqrt>().is_some() {
             let src = input(0)?;
             if is_tensor(src) {
                 return None;
             }
             kind(src)?;
-            ElementwiseStep::ScalarSqrt { src }
+            RowStep::ScalarSqrt { src }
         } else if let Some(reduce) = op.downcast_ref::<ReduceMean>() {
             let src = input(0)?;
             if !is_tensor(src) || input(1).is_some() || !reduce.keep_dims {
@@ -2933,7 +2928,7 @@ impl ElementwiseStep {
             if inner_dims == 0 || !axes.into_iter().eq(rank - inner_dims as i32..rank) {
                 return None;
             }
-            ElementwiseStep::ReduceMean { src, inner_dims }
+            RowStep::ReduceMean { src, inner_dims }
         } else {
             return None;
         };
@@ -2948,9 +2943,7 @@ impl ElementwiseStep {
     fn is_scalar(&self) -> bool {
         matches!(
             self,
-            ElementwiseStep::ReduceMean { .. }
-                | ElementwiseStep::ScalarAdd { .. }
-                | ElementwiseStep::ScalarSqrt { .. }
+            RowStep::ReduceMean { .. } | RowStep::ScalarAdd { .. } | RowStep::ScalarSqrt { .. }
         )
     }
 
@@ -2958,17 +2951,17 @@ impl ElementwiseStep {
     /// subgraph's output.
     fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
         let inputs = match *self {
-            ElementwiseStep::Add { a, b } => [Some(a), Some(b)],
-            ElementwiseStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
-            ElementwiseStep::AddScalar { src, .. }
-            | ElementwiseStep::DivScalar { src, .. }
-            | ElementwiseStep::MulScalar { src, .. }
-            | ElementwiseStep::ReduceMean { src, .. }
-            | ElementwiseStep::Sin { src }
-            | ElementwiseStep::SinSquared { src, .. }
-            | ElementwiseStep::Square { src, .. }
-            | ElementwiseStep::SubScalar { src, .. } => [Some(src), None],
-            ElementwiseStep::ScalarAdd { .. } | ElementwiseStep::ScalarSqrt { .. } => [None, None],
+            RowStep::Add { a, b } => [Some(a), Some(b)],
+            RowStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
+            RowStep::AddScalar { src, .. }
+            | RowStep::DivScalar { src, .. }
+            | RowStep::MulScalar { src, .. }
+            | RowStep::ReduceMean { src, .. }
+            | RowStep::Sin { src }
+            | RowStep::SinSquared { src, .. }
+            | RowStep::Square { src, .. }
+            | RowStep::SubScalar { src, .. } => [Some(src), None],
+            RowStep::ScalarAdd { .. } | RowStep::ScalarSqrt { .. } => [None, None],
         };
         inputs.into_iter().flatten()
     }
@@ -2976,18 +2969,18 @@ impl ElementwiseStep {
     /// Return the IDs of the inputs which are scalars.
     fn scalar_inputs(&self) -> impl Iterator<Item = NodeId> + use<> {
         let inputs = match *self {
-            ElementwiseStep::ScalarAdd { a, b } => [Some(a), Some(b)],
-            ElementwiseStep::AddScalar { scalar, .. }
-            | ElementwiseStep::DivScalar { scalar, .. }
-            | ElementwiseStep::MulScalar { scalar, .. }
-            | ElementwiseStep::MulScalarAdd { scalar, .. }
-            | ElementwiseStep::SubScalar { scalar, .. } => [Some(scalar), None],
-            ElementwiseStep::ScalarSqrt { src } => [Some(src), None],
-            ElementwiseStep::Add { .. }
-            | ElementwiseStep::ReduceMean { .. }
-            | ElementwiseStep::Sin { .. }
-            | ElementwiseStep::SinSquared { .. }
-            | ElementwiseStep::Square { .. } => [None, None],
+            RowStep::ScalarAdd { a, b } => [Some(a), Some(b)],
+            RowStep::AddScalar { scalar, .. }
+            | RowStep::DivScalar { scalar, .. }
+            | RowStep::MulScalar { scalar, .. }
+            | RowStep::MulScalarAdd { scalar, .. }
+            | RowStep::SubScalar { scalar, .. } => [Some(scalar), None],
+            RowStep::ScalarSqrt { src } => [Some(src), None],
+            RowStep::Add { .. }
+            | RowStep::ReduceMean { .. }
+            | RowStep::Sin { .. }
+            | RowStep::SinSquared { .. }
+            | RowStep::Square { .. } => [None, None],
         };
         inputs.into_iter().flatten()
     }
@@ -2999,8 +2992,8 @@ impl ElementwiseStep {
 }
 
 /// Fuse subgraphs of elementwise operators, and reductions over the trailing
-/// dimensions of their inputs, into an [`ElementwiseProgram`]. This evaluates
-/// all of the operators on one small tile of the inputs at a time.
+/// dimensions of their inputs, into a [`RowProgram`]. This evaluates all of
+/// the operators on one small tile of the inputs at a time.
 ///
 /// A subgraph is formed from the visited operator and the supported operators
 /// which it depends on. Shape inference must show that every value in the
@@ -3010,13 +3003,13 @@ impl ElementwiseStep {
 /// `[N, C, T]` output). Scalars may be inputs of the subgraph or be computed
 /// by it, by reducing those trailing dimensions of a tensor. Values which are
 /// used outside the subgraph become inputs to it.
-pub struct ElementwiseProgramFusion {}
+pub struct RowProgramFusion {}
 
-impl FusionVisitor for ElementwiseProgramFusion {
+impl FusionVisitor for RowProgramFusion {
     type State = ();
 
     fn name(&self) -> &str {
-        "ElementwiseProgramFusion"
+        "RowProgramFusion"
     }
 
     fn prepare(&self, _: &Graph) {}
@@ -3036,8 +3029,8 @@ impl FusionVisitor for ElementwiseProgramFusion {
             .get_node(output_id)
             .and_then(|node| node.shape())
             .ok_or(FusionError::NoMatch)?;
-        let root_step = ElementwiseStep::from_operator(graph, op_node, &out_shape)
-            .ok_or(FusionError::NoMatch)?;
+        let root_step =
+            RowStep::from_operator(graph, op_node, &out_shape).ok_or(FusionError::NoMatch)?;
 
         // Find the supported operators which the visited operator depends on,
         // directly or via other supported operators. This maps operator IDs
@@ -3052,7 +3045,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
                 let Some((src_id, src_op)) = graph.get_source_node(input) else {
                     continue;
                 };
-                if let Some(src_step) = ElementwiseStep::from_operator(graph, src_op, &out_shape) {
+                if let Some(src_step) = RowStep::from_operator(graph, src_op, &out_shape) {
                     pending.push((src_id, input, src_step));
                 }
             }
@@ -3117,19 +3110,19 @@ impl FusionVisitor for ElementwiseProgramFusion {
         // Combine `Sin` and `Square` steps, if the sine is not used by any
         // other operator.
         for op_id in order.clone() {
-            let (op_output, ElementwiseStep::Square { src, exponent }) = steps[&op_id] else {
+            let (op_output, RowStep::Square { src, exponent }) = steps[&op_id] else {
                 continue;
             };
             let Some(sin_id) = source_step(src, &steps) else {
                 continue;
             };
-            let (_, ElementwiseStep::Sin { src: sin_src }) = steps[&sin_id] else {
+            let (_, RowStep::Sin { src: sin_src }) = steps[&sin_id] else {
                 continue;
             };
             if uses[&src] != 1 {
                 continue;
             }
-            let step = ElementwiseStep::SinSquared {
+            let step = RowStep::SinSquared {
                 src: sin_src,
                 exponent,
             };
@@ -3140,22 +3133,20 @@ impl FusionVisitor for ElementwiseProgramFusion {
         // Combine `MulScalar` and `Add` steps, if the product is not used by
         // any other operator.
         for op_id in order.clone() {
-            let (op_output, ElementwiseStep::Add { a, b }) = steps[&op_id] else {
+            let (op_output, RowStep::Add { a, b }) = steps[&op_id] else {
                 continue;
             };
             let combined = [(b, a), (a, b)].into_iter().find_map(|(product, addend)| {
                 let mul_id = source_step(product, &steps)?;
                 match steps[&mul_id] {
-                    (_, ElementwiseStep::MulScalar { src, scalar }) if uses[&product] == 1 => {
-                        Some((
-                            mul_id,
-                            ElementwiseStep::MulScalarAdd {
-                                src,
-                                scalar,
-                                addend,
-                            },
-                        ))
-                    }
+                    (_, RowStep::MulScalar { src, scalar }) if uses[&product] == 1 => Some((
+                        mul_id,
+                        RowStep::MulScalarAdd {
+                            src,
+                            scalar,
+                            addend,
+                        },
+                    )),
                     _ => None,
                 }
             });
@@ -3166,7 +3157,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
         }
 
         // Map of value ID to the step which computes it.
-        let value_steps: HashMap<NodeId, ElementwiseStep> =
+        let value_steps: HashMap<NodeId, RowStep> =
             order.iter().map(|op_id| steps[op_id]).collect();
         let steps = || order.iter().map(|op_id| steps[op_id]);
 
@@ -3192,7 +3183,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
         }
         let mut reciprocal_ids: HashMap<NodeId, usize> = HashMap::new();
         for (_, step) in steps() {
-            if let ElementwiseStep::DivScalar { scalar, .. } = step {
+            if let RowStep::DivScalar { scalar, .. } = step {
                 let next_id = scalar_ids.len() + reciprocal_ids.len();
                 reciprocal_ids.entry(scalar).or_insert(next_id);
             }
@@ -3202,16 +3193,16 @@ impl FusionVisitor for ElementwiseProgramFusion {
         // must all be over the same dimensions, and every scalar input must
         // be constant within a row.
         let mut reduce_dims = steps().filter_map(|(_, step)| match step {
-            ElementwiseStep::ReduceMean { inner_dims, .. } => Some(inner_dims),
+            RowStep::ReduceMean { inner_dims, .. } => Some(inner_dims),
             _ => None,
         });
         let scalar_input_dims = || {
-            scalar_inputs.iter().filter_map(|scalar| {
-                match elementwise_value(graph, *scalar, &out_shape) {
-                    Some(ElementwiseValue::Scalar { inner_dims }) => Some(inner_dims),
+            scalar_inputs
+                .iter()
+                .filter_map(|scalar| match row_value(graph, *scalar, &out_shape) {
+                    Some(RowValue::Scalar { inner_dims }) => Some(inner_dims),
                     _ => None,
-                }
-            })
+                })
         };
         let inner_dims = if let Some(inner_dims) = reduce_dims.next() {
             if reduce_dims.any(|dims| dims != inner_dims) {
@@ -3254,7 +3245,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
                 .max()
                 .unwrap_or(0);
             let pass = match step {
-                ElementwiseStep::ReduceMean { .. } => inputs_pass + 1,
+                RowStep::ReduceMean { .. } => inputs_pass + 1,
                 _ => inputs_pass,
             };
             value_pass.insert(value_id, pass);
@@ -3272,15 +3263,15 @@ impl FusionVisitor for ElementwiseProgramFusion {
                 }
                 let dst = || scalar_ids[&value_id];
                 match step {
-                    ElementwiseStep::ReduceMean { .. } => {
+                    RowStep::ReduceMean { .. } => {
                         scalar_ops.push(ScalarOp::DivRowLen { scalar: dst() })
                     }
-                    ElementwiseStep::ScalarAdd { a, b } => scalar_ops.push(ScalarOp::Add {
+                    RowStep::ScalarAdd { a, b } => scalar_ops.push(ScalarOp::Add {
                         dst: dst(),
                         a: scalar_ids[&a],
                         b: scalar_ids[&b],
                     }),
-                    ElementwiseStep::ScalarSqrt { src } => scalar_ops.push(ScalarOp::Sqrt {
+                    RowStep::ScalarSqrt { src } => scalar_ops.push(ScalarOp::Sqrt {
                         dst: dst(),
                         src: scalar_ids[&src],
                     }),
@@ -3306,9 +3297,7 @@ impl FusionVisitor for ElementwiseProgramFusion {
             // or the output in the last pass.
             let reductions: Vec<(NodeId, usize)> = steps()
                 .filter_map(|(value_id, step)| match step {
-                    ElementwiseStep::ReduceMean { src, .. }
-                        if value_pass[&value_id] == pass + 1 =>
-                    {
+                    RowStep::ReduceMean { src, .. } if value_pass[&value_id] == pass + 1 => {
                         Some((src, scalar_ids[&value_id]))
                     }
                     _ => None,
@@ -3397,39 +3386,39 @@ impl FusionVisitor for ElementwiseProgramFusion {
                 };
 
                 tile_ops.push(match step {
-                    ElementwiseStep::Add { .. } => TileOp::Add { dst, a, b: srcs[1] },
-                    ElementwiseStep::AddScalar { scalar, .. } => TileOp::AddScalar {
+                    RowStep::Add { .. } => TileOp::Add { dst, a, b: srcs[1] },
+                    RowStep::AddScalar { scalar, .. } => TileOp::AddScalar {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                     },
-                    ElementwiseStep::DivScalar { scalar, .. } => TileOp::MulScalar {
+                    RowStep::DivScalar { scalar, .. } => TileOp::MulScalar {
                         dst,
                         src: a,
                         scalar: reciprocal_ids[&scalar],
                     },
-                    ElementwiseStep::MulScalar { scalar, .. } => TileOp::MulScalar {
+                    RowStep::MulScalar { scalar, .. } => TileOp::MulScalar {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                     },
-                    ElementwiseStep::MulScalarAdd { scalar, .. } => TileOp::MulScalarAdd {
+                    RowStep::MulScalarAdd { scalar, .. } => TileOp::MulScalarAdd {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                         addend: srcs[1],
                     },
-                    ElementwiseStep::Sin { .. } => TileOp::Sin { dst, src: a },
-                    ElementwiseStep::SinSquared { .. } => TileOp::SinSquared { dst, src: a },
-                    ElementwiseStep::Square { .. } => TileOp::Square { dst, src: a },
-                    ElementwiseStep::SubScalar { scalar, .. } => TileOp::SubScalar {
+                    RowStep::Sin { .. } => TileOp::Sin { dst, src: a },
+                    RowStep::SinSquared { .. } => TileOp::SinSquared { dst, src: a },
+                    RowStep::Square { .. } => TileOp::Square { dst, src: a },
+                    RowStep::SubScalar { scalar, .. } => TileOp::SubScalar {
                         dst,
                         src: a,
                         scalar: scalar_ids[&scalar],
                     },
-                    ElementwiseStep::ReduceMean { .. }
-                    | ElementwiseStep::ScalarAdd { .. }
-                    | ElementwiseStep::ScalarSqrt { .. } => {
+                    RowStep::ReduceMean { .. }
+                    | RowStep::ScalarAdd { .. }
+                    | RowStep::ScalarSqrt { .. } => {
                         unreachable!("pass steps produce tensors")
                     }
                 });
@@ -3449,17 +3438,18 @@ impl FusionVisitor for ElementwiseProgramFusion {
 
         let unused_inputs: Vec<_> = steps()
             .filter_map(|(_, step)| match step {
-                ElementwiseStep::SinSquared { exponent, .. }
-                | ElementwiseStep::Square { exponent, .. } => Some(Some(exponent)),
+                RowStep::SinSquared { exponent, .. } | RowStep::Square { exponent, .. } => {
+                    Some(Some(exponent))
+                }
                 _ => None,
             })
             .collect();
 
-        let program = TileProgram::new(passes, inputs.len(), scalar_inputs.len());
+        let program = RowProgramCode::new(passes, inputs.len(), scalar_inputs.len());
         let input_ids: Vec<_> = inputs.into_iter().chain(scalar_inputs).map(Some).collect();
         Ok(Fusion::from_op(
             op_node.name(),
-            Arc::new(ElementwiseProgram {
+            Arc::new(RowProgram {
                 program,
                 inner_dims,
             }),
