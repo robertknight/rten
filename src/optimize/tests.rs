@@ -20,11 +20,11 @@ use crate::graph::{
 use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose,
-    DequantizeLinear, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
-    GroupedQueryAttentionMatMul, Identity, If, InstanceNormalization, IsNaN, LayerNormalization,
-    MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean, RepeatInterleave,
-    Reshape, Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Swish, Tanh, Transpose, Unsqueeze,
-    Where,
+    DequantizeLinear, Dst, DynamicQuantizeLinear, ElementwiseProgram, Erf, Expand, FusedMatMul,
+    Gather, Gelu, GroupedQueryAttentionMatMul, Identity, If, InstanceNormalization, IsNaN,
+    LayerNormalization, MatMul, MatMulInteger, Neg, Padding, Pow, RMSNormalization, ReduceMean,
+    RepeatInterleave, Reshape, Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Src, Swish, Tanh,
+    TileOp, TileProgram, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -408,40 +408,125 @@ fn test_fuse_silu() {
 }
 
 #[test]
-fn test_fuse_snake() {
+fn test_fuse_elementwise_program() {
+    // Operations which compute `x + beta * sin(alpha * x)^2` using one
+    // register.
+    let snake_program = || {
+        let reg = Dst::Reg(0);
+        let reg_src = Src::Reg(0);
+        let ops = vec![
+            TileOp::MulScalar {
+                dst: reg,
+                src: Src::Input(0),
+                scalar: 0,
+            },
+            TileOp::Sin {
+                dst: reg,
+                src: reg_src,
+            },
+            TileOp::Square {
+                dst: reg,
+                src: reg_src,
+            },
+            TileOp::MulScalar {
+                dst: reg,
+                src: reg_src,
+                scalar: 1,
+            },
+            TileOp::Add {
+                dst: Dst::Output,
+                a: Src::Input(0),
+                b: reg_src,
+            },
+        ];
+        TileProgram::new(ops, 1, 2)
+    };
+
     #[derive(Debug)]
     struct Case {
         // Shape of the `alpha` and `beta` constants.
         param_shape: Vec<usize>,
         // Shape of the input, if known.
         input_shape: Option<Vec<Dimension>>,
-        expect_fused: bool,
+        // True if `sin(alpha * x)` is also a graph output.
+        sin_is_output: bool,
+        // Expected program and `inner_dims`, or `None` if the output should
+        // not be fused.
+        expected: Option<(TileProgram, usize)>,
     }
 
     let cases = [
         // Per-channel parameters
         Case {
             param_shape: [1, 3, 1].into(),
-            input_shape: None,
-            expect_fused: true,
+            input_shape: Some(dims!("batch", 3, "time").into()),
+            sin_is_output: false,
+            expected: Some((snake_program(), 1)),
         },
-        // Single parameter, broadcast to a known channel count
+        // Per-channel parameters with fewer dimensions than the input
         Case {
-            param_shape: [1, 1, 1].into(),
-            input_shape: Some(dims!(1, 3, "time").into()),
-            expect_fused: true,
+            param_shape: [3, 1].into(),
+            input_shape: Some(dims!("batch", 3, "time").into()),
+            sin_is_output: false,
+            expected: Some((snake_program(), 1)),
         },
-        // Single parameter with unknown channel count
+        // Parameters which are the same for all channels
         Case {
-            param_shape: [1, 1, 1].into(),
+            param_shape: [].into(),
+            input_shape: Some(dims!("batch", 3, "time").into()),
+            sin_is_output: false,
+            expected: Some((snake_program(), 3)),
+        },
+        // Input with unknown shape
+        Case {
+            param_shape: [1, 3, 1].into(),
             input_shape: None,
-            expect_fused: false,
+            sin_is_output: false,
+            expected: None,
         },
         // Parameters which vary along the time axis
         Case {
             param_shape: [1, 1, 5].into(),
-            input_shape: None,
-            expect_fused: false,
+            input_shape: Some(dims!("batch", 3, 5).into()),
+            sin_is_output: false,
+            expected: None,
+        },
+        // Rows which are known to be short
+        Case {
+            param_shape: [1, 3, 1].into(),
+            input_shape: Some(dims!("batch", 3, 1).into()),
+            sin_is_output: false,
+            expected: None,
+        },
+        // Intermediate value which is used outside the subgraph. Only the
+        // operators after it are fused.
+        Case {
+            param_shape: [1, 3, 1].into(),
+            input_shape: Some(dims!("batch", 3, "time").into()),
+            sin_is_output: true,
+            expected: Some((
+                TileProgram::new(
+                    vec![
+                        TileOp::Square {
+                            dst: Dst::Reg(0),
+                            src: Src::Input(0),
+                        },
+                        TileOp::MulScalar {
+                            dst: Dst::Reg(0),
+                            src: Src::Reg(0),
+                            scalar: 0,
+                        },
+                        TileOp::Add {
+                            dst: Dst::Output,
+                            a: Src::Input(1),
+                            b: Src::Reg(0),
+                        },
+                    ],
+                    2,
+                    1,
+                ),
+                1,
+            )),
         },
     ];
 
@@ -458,23 +543,30 @@ fn test_fuse_snake() {
                 Some(shape) => {
                     Expr::value_with_info("x", ValueType::Tensor(DataType::Float), shape)
                 }
-                // The input rank is still needed to match per-channel
-                // parameters.
-                None => Expr::value_with_info(
-                    "x",
-                    ValueType::Tensor(DataType::Float),
-                    &dims!("batch", "chans", "time"),
-                ),
+                None => Expr::value("x"),
             };
-            let expr =
-                x.clone() + Expr::constant(beta) * (Expr::constant(alpha) * x).sin().square();
-            expr.build_graph(["x"])
+            let sin = (Expr::constant(alpha) * x.clone()).sin();
+            let expr = x.clone() + Expr::constant(beta) * sin.square();
+            if case.sin_is_output {
+                Expr::make_graph([x], [expr, sin])
+            } else {
+                Expr::make_graph([x], [expr])
+            }
         };
 
-        let graph = optimize_graph(graph).unwrap();
+        let graph = optimize_graph_infer_shapes(graph).unwrap();
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
-        let expected_op = if case.expect_fused { "Snake" } else { "Add" };
-        assert_eq!(op.operator().name(), expected_op);
+
+        if let Some((program, inner_dims)) = &case.expected {
+            let op = op
+                .operator()
+                .downcast_ref::<ElementwiseProgram>()
+                .expect("output should be fused");
+            assert_eq!(op.program, *program);
+            assert_eq!(op.inner_dims, *inner_dims);
+        } else {
+            assert_eq!(op.operator().name(), "Add");
+        }
     })
 }
 

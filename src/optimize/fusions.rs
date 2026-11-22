@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rayon::prelude::*;
+use rustc_hash::FxHashSet;
 
 use rten_shape_inference::{SymExpr, Symbol};
 use rten_tensor::{ArcTensor, AsView, Layout, NdTensorView, SliceRange, Tensor, TensorView};
@@ -18,10 +19,11 @@ use crate::operator::Operator;
 use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
-    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, FusedMatMul,
-    Gelu, GroupedQueryAttentionMatMul, InstanceNormalization, LayerNormalization, MatMul,
-    MatMulDynamicQuant, MatMulIntegerToFloat, RMSNormalization, Reciprocal, ReduceMean,
-    RepeatInterleave, Shape, Silu, Snake, Softmax, Swish, SymbolInfo, Transpose, dequantize_linear,
+    ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, DequantizeLinear, Dst,
+    ElementwiseProgram, FusedMatMul, Gelu, GroupedQueryAttentionMatMul, InstanceNormalization,
+    LayerNormalization, MatMul, MatMulDynamicQuant, MatMulIntegerToFloat, Mul, Pow,
+    RMSNormalization, Reciprocal, ReduceMean, RepeatInterleave, Shape, Silu, Sin, Softmax, Src,
+    Swish, SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -2687,79 +2689,6 @@ fn channel_vector(graph: &Graph, const_id: NodeId, rank: usize) -> Result<Vec<f3
     Ok(view.to_vec())
 }
 
-/// Fuse `x + beta * sin(alpha * x)^2` into `Snake(x, alpha, beta)`.
-///
-/// `x` must have shape `[N, C, ...]` and `alpha` and `beta` must be constants
-/// with one value per channel, broadcast to `x` (ie. shape `[1, C, 1, ...]`).
-/// This is the Snake activation used in neural vocoders such as BigVGAN and
-/// iSTFTNet. See <https://arxiv.org/abs/2006.08195>.
-pub struct SnakeFusion {}
-
-impl SnakeFusion {
-    fn pattern() -> Pattern {
-        let x = Pattern::symbol("x");
-        let alpha = Pattern::const_symbol("alpha");
-        let beta = Pattern::const_symbol("beta");
-        x.clone()
-            + beta * Pattern::binary_op("Pow", Pattern::unary_op("Sin", alpha * x.clone()), 2.0)
-    }
-}
-
-impl FusionVisitor for SnakeFusion {
-    type State = Pattern;
-
-    fn name(&self) -> &str {
-        "SnakeFusion"
-    }
-
-    fn prepare(&self, _: &Graph) -> Pattern {
-        Self::pattern()
-    }
-
-    fn maybe_fuse(
-        &self,
-        pattern: &Pattern,
-        graph: &Graph,
-        op_node_id: NodeId,
-        op_node: &OperatorNode,
-    ) -> Result<Fusion, FusionError> {
-        let pat_match = pattern
-            .test(op_node_id, graph)
-            .ok_or(FusionError::NoMatch)?;
-        let x = pat_match.node_id("x").unwrap();
-        let rank = graph
-            .get_rank(x)
-            .ok_or(FusionError::CheckFailed("unknown input rank"))?;
-
-        let alpha = channel_vector(graph, pat_match.node_id("alpha").unwrap(), rank)?;
-        let beta = channel_vector(graph, pat_match.node_id("beta").unwrap(), rank)?;
-        if alpha.len() != beta.len() {
-            return Err(FusionError::CheckFailed("alpha and beta lengths differ"));
-        }
-
-        // A single value broadcasts to all channels, so must be expanded to
-        // the channel count.
-        let (alpha, beta) = if alpha.len() == 1 {
-            let channels = match graph.get_node(x).and_then(|n| n.shape()).as_deref() {
-                Some([_, Dimension::Fixed(channels), ..]) => *channels,
-                _ => return Err(FusionError::CheckFailed("unknown channel count")),
-            };
-            (vec![alpha[0]; channels], vec![beta[0]; channels])
-        } else {
-            (alpha, beta)
-        };
-
-        Ok(Fusion::Op(FusedOp {
-            name: op_node.name().map(|s| s.to_string()),
-            fused_op: Arc::new(Snake {}),
-            input_ids: vec![Some(x), None, None],
-            new_constant_inputs: vec![(1, vector_constant(alpha)), (2, vector_constant(beta))],
-            output_ids: op_node.output_ids().to_vec(),
-            unused_input_ids: Vec::new(),
-        }))
-    }
-}
-
 /// Fuse `Add(Mul(X, scale), bias)` into `BatchNormalization(X, scale, bias, mean, var)`.
 pub struct BatchNormalizationFusion {}
 
@@ -3046,6 +2975,378 @@ impl FusionVisitor for ConvBatchNormFusion {
             output_ids: op_node.output_ids().to_vec(),
             unused_input_ids: Vec::new(),
         }))
+    }
+}
+
+/// Describes how an input of an elementwise subgraph relates to the
+/// subgraph's output.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ElementwiseInput {
+    /// The input has the same shape as the output.
+    Tensor,
+    /// The input is broadcast against the output and has a size of one in
+    /// the last `inner_dims` dimensions of the output.
+    Scalar { inner_dims: usize },
+}
+
+/// Classify an input of an elementwise subgraph whose output has shape
+/// `out_shape`.
+///
+/// Returns `None` if the input's type or shape is unknown or unsupported.
+fn elementwise_input(
+    graph: &Graph,
+    input_id: NodeId,
+    out_shape: &[Dimension],
+) -> Option<ElementwiseInput> {
+    let node = graph.get_node(input_id)?;
+    if node.dtype() != Some(ValueType::Tensor(DataType::Float)) {
+        return None;
+    }
+    let shape = node.shape()?;
+    if shape.as_ref() == out_shape {
+        return Some(ElementwiseInput::Tensor);
+    }
+
+    // Align the input's dimensions with the output's, as broadcasting does.
+    let pad = out_shape.len().checked_sub(shape.len())?;
+    let is_one = |dim: usize| dim < pad || shape[dim - pad] == Dimension::Fixed(1);
+
+    let inner_dims = (0..out_shape.len())
+        .rev()
+        .take_while(|dim| is_one(*dim))
+        .count();
+    let outer_dims = out_shape.len() - inner_dims;
+    if inner_dims == 0
+        || !(0..outer_dims).all(|dim| is_one(dim) || shape[dim - pad] == out_shape[dim])
+    {
+        return None;
+    }
+    Some(ElementwiseInput::Scalar { inner_dims })
+}
+
+/// An operator which can be evaluated by a [`TileOp`], with the IDs of its
+/// inputs.
+#[derive(Clone, Copy, Debug)]
+enum ElementwiseStep {
+    Add {
+        a: NodeId,
+        b: NodeId,
+    },
+    MulScalar {
+        src: NodeId,
+        scalar: NodeId,
+        inner_dims: usize,
+    },
+    Sin {
+        src: NodeId,
+    },
+    Square {
+        src: NodeId,
+        exponent: NodeId,
+    },
+}
+
+impl ElementwiseStep {
+    /// Return the step which evaluates `op_node`, if it is a supported
+    /// operator that produces a float tensor of shape `out_shape` from inputs
+    /// of supported shapes.
+    fn from_operator(
+        graph: &Graph,
+        op_node: &OperatorNode,
+        out_shape: &[Dimension],
+    ) -> Option<ElementwiseStep> {
+        let [Some(output_id)] = op_node.output_ids() else {
+            return None;
+        };
+        let output = graph.get_node(*output_id)?;
+        if output.dtype() != Some(ValueType::Tensor(DataType::Float))
+            || output.shape()?.as_ref() != out_shape
+        {
+            return None;
+        }
+
+        let input = |index: usize| op_node.input_ids().get(index).copied().flatten();
+        let kind = |input_id: NodeId| elementwise_input(graph, input_id, out_shape);
+        let is_tensor = |input_id: NodeId| kind(input_id) == Some(ElementwiseInput::Tensor);
+
+        let op = op_node.operator();
+        if op.downcast_ref::<Add>().is_some() {
+            let (a, b) = (input(0)?, input(1)?);
+            (is_tensor(a) && is_tensor(b)).then_some(ElementwiseStep::Add { a, b })
+        } else if op.downcast_ref::<Mul>().is_some() {
+            let (a, b) = (input(0)?, input(1)?);
+            match (kind(a)?, kind(b)?) {
+                (ElementwiseInput::Tensor, ElementwiseInput::Scalar { inner_dims }) => {
+                    Some(ElementwiseStep::MulScalar {
+                        src: a,
+                        scalar: b,
+                        inner_dims,
+                    })
+                }
+                (ElementwiseInput::Scalar { inner_dims }, ElementwiseInput::Tensor) => {
+                    Some(ElementwiseStep::MulScalar {
+                        src: b,
+                        scalar: a,
+                        inner_dims,
+                    })
+                }
+                _ => None,
+            }
+        } else if op.downcast_ref::<Pow>().is_some() {
+            let (src, exponent) = (input(0)?, input(1)?);
+            (is_tensor(src) && graph.get_scalar::<f32>(exponent) == Some(2.))
+                .then_some(ElementwiseStep::Square { src, exponent })
+        } else if op.downcast_ref::<Sin>().is_some() {
+            let src = input(0)?;
+            is_tensor(src).then_some(ElementwiseStep::Sin { src })
+        } else {
+            None
+        }
+    }
+
+    /// Return the IDs of the inputs which have the same shape as the output.
+    fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> {
+        let inputs = match *self {
+            ElementwiseStep::Add { a, b } => [Some(a), Some(b)],
+            ElementwiseStep::MulScalar { src, .. }
+            | ElementwiseStep::Sin { src }
+            | ElementwiseStep::Square { src, .. } => [Some(src), None],
+        };
+        inputs.into_iter().flatten()
+    }
+}
+
+/// Fuse subgraphs of elementwise operators into an [`ElementwiseProgram`],
+/// which evaluates all of the operators on one small tile of the inputs at a
+/// time.
+///
+/// A subgraph is formed from the visited operator and the supported operators
+/// which it depends on. Shape inference must show that every operator in the
+/// subgraph produces a float tensor of the same shape, and that each input of
+/// the subgraph either has this shape or is constant along one or more
+/// trailing dimensions (eg. a scalar, or per-channel values of shape
+/// `[1, C, 1]` for an `[N, C, T]` output). Values which are used outside the
+/// subgraph become inputs to it.
+pub struct ElementwiseProgramFusion {}
+
+impl FusionVisitor for ElementwiseProgramFusion {
+    type State = ();
+
+    fn name(&self) -> &str {
+        "ElementwiseProgramFusion"
+    }
+
+    fn prepare(&self, _: &Graph) {}
+
+    fn maybe_fuse(
+        &self,
+        _: &(),
+        graph: &Graph,
+        op_node_id: NodeId,
+        op_node: &OperatorNode,
+    ) -> Result<Fusion, FusionError> {
+        let [Some(output_id)] = op_node.output_ids() else {
+            return Err(FusionError::NoMatch);
+        };
+        let out_shape = graph
+            .get_node(*output_id)
+            .and_then(|node| node.shape())
+            .ok_or(FusionError::NoMatch)?;
+        let root_step = ElementwiseStep::from_operator(graph, op_node, &out_shape)
+            .ok_or(FusionError::NoMatch)?;
+
+        // Find the supported operators which the visited operator depends on,
+        // directly or via other supported operators. This maps operator IDs
+        // to the operator's output and the step which evaluates it.
+        let mut steps = HashMap::new();
+        let mut pending = vec![(op_node_id, *output_id, root_step)];
+        while let Some((op_id, op_output, step)) = pending.pop() {
+            if steps.insert(op_id, (op_output, step)).is_some() {
+                continue;
+            }
+            for input in step.tensor_inputs() {
+                let Some((src_id, src_op)) = graph.get_source_node(input) else {
+                    continue;
+                };
+                if let Some(src_step) = ElementwiseStep::from_operator(graph, src_op, &out_shape) {
+                    pending.push((src_id, input, src_step));
+                }
+            }
+        }
+        let source_step = |value_id: NodeId, steps: &HashMap<NodeId, _>| {
+            graph
+                .get_source_node(value_id)
+                .map(|(src_id, _)| src_id)
+                .filter(|src_id| steps.contains_key(src_id))
+        };
+
+        // Remove operators whose outputs are used outside the subgraph, which
+        // may in turn disconnect other operators from the subgraph's output.
+        // Repeat until the subgraph has no such operators. This leaves the
+        // subgraph's operators sorted so that each comes after its inputs.
+        let order = loop {
+            let mut order = Vec::new();
+            let mut visited = FxHashSet::default();
+            let mut stack = vec![(op_node_id, false)];
+            while let Some((op_id, inputs_visited)) = stack.pop() {
+                if inputs_visited {
+                    order.push(op_id);
+                } else if visited.insert(op_id) {
+                    stack.push((op_id, true));
+                    let (_, step) = steps[&op_id];
+                    stack.extend(
+                        step.tensor_inputs()
+                            .filter_map(|input| source_step(input, &steps))
+                            .map(|src_id| (src_id, false)),
+                    );
+                }
+            }
+
+            let used_outside = order.iter().copied().find(|op_id| {
+                let (op_output, _) = steps[op_id];
+                *op_id != op_node_id
+                    && (graph.output_ids().contains(&op_output)
+                        || graph.get_consumers(op_output).is_some_and(|consumers| {
+                            consumers.iter().any(|consumer| !visited.contains(consumer))
+                        }))
+            });
+            match used_outside {
+                Some(op_id) => {
+                    steps.remove(&op_id);
+                }
+                None => break order,
+            }
+        };
+        if order.len() < 2 {
+            return Err(FusionError::NoMatch);
+        }
+
+        // Count the uses of each value within the subgraph.
+        let mut uses: HashMap<NodeId, usize> = HashMap::new();
+        for op_id in &order {
+            let (_, step) = steps[op_id];
+            for input in step.tensor_inputs() {
+                *uses.entry(input).or_default() += 1;
+            }
+        }
+
+        // Convert each operator into a tile operation.
+        let mut inputs = Vec::new();
+        let mut scalars = Vec::new();
+        let mut unused_inputs = Vec::new();
+        let mut inner_dims = out_shape.len();
+        let mut ops = Vec::new();
+
+        // Map of value ID to the register which holds the value, for values
+        // computed by the subgraph.
+        let mut value_regs: HashMap<NodeId, usize> = HashMap::new();
+        let mut free_regs = Vec::new();
+        let mut n_regs = 0;
+
+        for op_id in order {
+            let (op_output, step) = steps[&op_id];
+
+            // Get the source of an input and release its register after the
+            // last use, so that it can be reused as the destination.
+            let mut src = |value_id: NodeId| {
+                if let Some(&reg) = value_regs.get(&value_id) {
+                    let remaining = uses.get_mut(&value_id).unwrap();
+                    *remaining -= 1;
+                    if *remaining == 0 {
+                        free_regs.push(reg);
+                    }
+                    Src::Reg(reg)
+                } else {
+                    let index = inputs
+                        .iter()
+                        .position(|id| *id == value_id)
+                        .unwrap_or_else(|| {
+                            inputs.push(value_id);
+                            inputs.len() - 1
+                        });
+                    Src::Input(index)
+                }
+            };
+            let srcs: [Src; 2] = match step {
+                ElementwiseStep::Add { a, b } => [src(a), src(b)],
+                ElementwiseStep::MulScalar { src: value, .. }
+                | ElementwiseStep::Sin { src: value }
+                | ElementwiseStep::Square { src: value, .. } => {
+                    let value = src(value);
+                    [value, value]
+                }
+            };
+
+            let dst = if op_id == op_node_id {
+                Dst::Output
+            } else {
+                // Use the lowest free register.
+                free_regs.sort_by(|a, b| b.cmp(a));
+                let reg = free_regs.pop().unwrap_or_else(|| {
+                    n_regs += 1;
+                    n_regs - 1
+                });
+                value_regs.insert(op_output, reg);
+                Dst::Reg(reg)
+            };
+
+            let [a, b] = srcs;
+            ops.push(match step {
+                ElementwiseStep::Add { .. } => TileOp::Add { dst, a, b },
+                ElementwiseStep::MulScalar {
+                    scalar,
+                    inner_dims: scalar_inner_dims,
+                    ..
+                } => {
+                    inner_dims = inner_dims.min(scalar_inner_dims);
+                    let scalar = scalars
+                        .iter()
+                        .position(|id| *id == scalar)
+                        .unwrap_or_else(|| {
+                            scalars.push(scalar);
+                            scalars.len() - 1
+                        });
+                    TileOp::MulScalar {
+                        dst,
+                        src: a,
+                        scalar,
+                    }
+                }
+                ElementwiseStep::Sin { .. } => TileOp::Sin { dst, src: a },
+                ElementwiseStep::Square { exponent, .. } => {
+                    unused_inputs.push(Some(exponent));
+                    TileOp::Square { dst, src: a }
+                }
+            });
+        }
+
+        // Skip subgraphs whose rows are known to be short. A tile never spans
+        // more than one row, so the cost of evaluating the program would then
+        // be dominated by the overhead for each tile.
+        const MIN_ROW_LEN: usize = 256;
+        let row_len: Option<usize> = out_shape[out_shape.len() - inner_dims..]
+            .iter()
+            .map(|dim| match dim {
+                Dimension::Fixed(size) => Some(*size),
+                Dimension::Symbolic(_) => None,
+            })
+            .product();
+        if row_len.is_some_and(|len| len < MIN_ROW_LEN) {
+            return Err(FusionError::CheckFailed("rows are too short"));
+        }
+
+        let program = TileProgram::new(ops, inputs.len(), scalars.len());
+        let input_ids: Vec<_> = inputs.into_iter().chain(scalars).map(Some).collect();
+        Ok(Fusion::from_op(
+            op_node.name(),
+            Arc::new(ElementwiseProgram {
+                program,
+                inner_dims,
+            }),
+            &input_ids,
+            &[Some(*output_id)],
+            &unused_inputs,
+        ))
     }
 }
 

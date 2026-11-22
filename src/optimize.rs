@@ -28,13 +28,14 @@ use diagnostics::{DiagnosticLevel, Diagnostics};
 use fusions::{
     AddSoftmaxFusion, ApproxGeluFusion, BatchNormalizationFusion, CastElimination,
     ComputeShapeFusion, ConvAddFusion, ConvBatchNormFusion, ConvDynamicQuantAddFusion,
-    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, ConvTransposeDynamicQuantFusion, Fusion,
-    FusionError, FusionVisitor, GeluFusion, GroupedQueryAttentionMatMulFusion, IdentityFusion,
-    InstanceNormalizationAffineFusion, InstanceNormalizationFusion, LayerNormalizationFusion,
-    MatMulAddFusion, MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion,
-    MatMulIntegerToFloatFusion, MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion,
-    RMSNormalizationFusion, ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion,
-    SafeSoftmaxFusion, ShapeSliceToConstant, SiluFusion, SnakeFusion, SwishFusion, TransposeFusion,
+    ConvDynamicQuantFusion, ConvIntegerToFloatFusion, ConvTransposeDynamicQuantFusion,
+    ElementwiseProgramFusion, Fusion, FusionError, FusionVisitor, GeluFusion,
+    GroupedQueryAttentionMatMulFusion, IdentityFusion, InstanceNormalizationAffineFusion,
+    InstanceNormalizationFusion, LayerNormalizationFusion, MatMulAddFusion,
+    MatMulDynamicQuantAddFusion, MatMulDynamicQuantFusion, MatMulIntegerToFloatFusion,
+    MatMulScaleFusion, MatMulWeightRequantizeFusion, PatternFusion, RMSNormalizationFusion,
+    ReciprocalFusion, ReduceMeanAxesFusion, RepeatInterleaveFusion, SafeSoftmaxFusion,
+    ShapeSliceToConstant, SiluFusion, SwishFusion, TransposeFusion,
 };
 
 /// Errors that occur while applying graph optimizations.
@@ -874,7 +875,6 @@ impl GraphOptimizer {
 
         // Activation fusions
         fusions.push(SiluFusion {}.into_visitor());
-        fusions.push(SnakeFusion {});
         fusions.push(SwishFusion {}.into_visitor());
         fusions.push(GeluFusion {}.into_visitor());
         fusions.push(ApproxGeluFusion {}.into_visitor());
@@ -917,6 +917,12 @@ impl GraphOptimizer {
                 break;
             }
         }
+
+        // Fuse the remaining chains of elementwise operators. This is done
+        // after the other fusions so that they take priority.
+        let mut elementwise_fusions = FusionList::new();
+        elementwise_fusions.push(ElementwiseProgramFusion {});
+        self.apply_fusions(&mut graph_mut, elementwise_fusions.visitors(), &diag)?;
 
         // Remove nodes made unreachable by constant propagation and fusion.
         // This frees the memory used by eg. quantized weights that were

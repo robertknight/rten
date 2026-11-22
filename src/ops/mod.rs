@@ -27,6 +27,7 @@ mod conv;
 mod conv_transpose;
 mod convert;
 mod einsum;
+mod elementwise_program;
 mod embedding;
 mod gather;
 mod generate;
@@ -53,7 +54,6 @@ mod rnn;
 mod scatter;
 mod sequence;
 mod slice;
-mod snake;
 mod split;
 mod trilu;
 mod unary_elementwise;
@@ -83,6 +83,7 @@ pub(crate) use {
     conv_transpose::{ConvTranspose, ConvTransposeDynamicQuant},
     convert::{BitCast, Cast, CastLike},
     einsum::Einsum,
+    elementwise_program::{Dst, ElementwiseProgram, Src, TileOp, TileProgram},
     embedding::RotaryEmbedding,
     gather::{Gather, GatherElements, GatherND, ReverseSequence},
     generate::{ConstantOfShape, EyeLike, OneHot, Range},
@@ -111,7 +112,6 @@ pub(crate) use {
         SequenceInsert, SequenceLength, SplitToSequence,
     },
     slice::Slice,
-    snake::Snake,
     split::Split,
     trilu::Trilu,
     unary_elementwise::{

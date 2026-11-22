@@ -54,59 +54,6 @@ impl SimdUnaryOp<f32> for Cos {
     }
 }
 
-/// Computes the Snake activation function.
-///
-/// This evaluates `x + beta * sin(alpha * x)^2`. In the original formulation
-/// `beta` is `1 / alpha`. See <https://arxiv.org/abs/2006.08195>.
-pub struct Snake {
-    pub alpha: f32,
-    pub beta: f32,
-}
-
-impl SimdUnaryOp<f32> for Snake {
-    #[inline(always)]
-    fn eval<I: Isa>(&self, isa: I, x: I::F32) -> I::F32 {
-        let ops = isa.f32();
-        let mask_ops = isa.m32();
-        let y = ops.mul(x, ops.splat(self.alpha));
-
-        // Fall back to scalar evaluation for large inputs, as in `SinCos`.
-        let large = ops.ge(ops.abs(y), ops.splat(LARGE_THRESHOLD));
-        if unlikely(mask_ops.any(large)) {
-            let mut out = x.to_array();
-            for i in 0..ops.len() {
-                let sin = (out[i] * self.alpha).sin();
-                out[i] += self.beta * sin * sin;
-            }
-            return ops.load(out.as_ref());
-        }
-
-        // `sin(y)^2` has period π, so reduce `y` to `r ∈ [-π/2, π/2]` with
-        // `sin(r)^2 = sin(y)^2`. This needs less work than the reduction
-        // to `[-π, π]` in `SinCos`. `PI_HI` has few significant bits, so
-        // `k * PI_HI` is exact.
-        const INV_PI: f32 = 0.31830987;
-        const PI_HI: f32 = 3.140625;
-        const PI_LO: f32 = 9.676536e-4;
-        let k = ops.round_ties_even(ops.mul(y, ops.splat(INV_PI)));
-        let r = ops.mul_sub_from(k, ops.splat(PI_HI), y);
-        let r = ops.mul_sub_from(k, ops.splat(PI_LO), r);
-
-        // Approximate `sin(r)` with an odd polynomial, fitted to minimize the
-        // maximum error on `[-π/2, π/2]`. This avoids the division in the
-        // rational approximation used by `SinCos`.
-        let r_sq = ops.mul(r, r);
-        let p = ops.splat(-2.3845514e-8);
-        let p = ops.mul_add(p, r_sq, ops.splat(2.752255e-6));
-        let p = ops.mul_add(p, r_sq, ops.splat(-1.984080e-4));
-        let p = ops.mul_add(p, r_sq, ops.splat(8.33333e-3));
-        let p = ops.mul_add(p, r_sq, ops.splat(-0.16666667));
-        let sin = ops.mul_add(ops.mul(r, r_sq), p, r);
-
-        ops.mul_add(ops.mul(sin, sin), ops.splat(self.beta), x)
-    }
-}
-
 /// Computes the sine or cosine function.
 #[derive(Default)]
 struct SinCos<const COS: bool> {}
@@ -182,7 +129,7 @@ impl<const COS: bool> SimdUnaryOp<f32> for SinCos<COS> {
 mod tests {
     use super::LARGE_THRESHOLD;
     use crate::testing::{ARange, Tolerance, UnaryOpTester, arange};
-    use crate::{Cos, Sin, Snake};
+    use crate::{Cos, Sin};
 
     // Maximum error of `SinCos` compared to `f32::sin` and `f32::cos` in the
     // `SMALL_X` range.
@@ -210,25 +157,6 @@ mod tests {
             tolerance: Tolerance::Absolute(MAX_ERROR_FOR_SMALL_X),
         };
         test.run();
-    }
-
-    #[test]
-    fn test_snake() {
-        for (alpha, beta) in [(1., 1.), (0.5, 2.), (3., 1. / 3.)] {
-            let test = UnaryOpTester {
-                reference: |x: f32| x + beta * (alpha * x).sin().powi(2),
-                simd: Snake { alpha, beta },
-                // Include multiples of π / 2, which are the worst cases for
-                // range reduction, and inputs which use the scalar fallback.
-                range: SMALL_X
-                    .chain(multiples_of_pi().map(|x| x / (2. * alpha)))
-                    .chain([LARGE_THRESHOLD / alpha, -2. * LARGE_THRESHOLD / alpha]),
-                // Allow for the error in `sin`, scaled by `beta`, plus rounding
-                // of results with magnitude up to ~10 (the max of `SMALL_X`).
-                tolerance: Tolerance::Absolute(f32::EPSILON * (4. * beta + 2. * 10.)),
-            };
-            test.run();
-        }
     }
 
     #[test]
