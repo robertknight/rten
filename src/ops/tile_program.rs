@@ -114,6 +114,8 @@ pub enum TileOp {
     Square { dst: Dst, src: Src },
     /// Compute `src - scalar`.
     SubScalar { dst: Dst, src: Src, scalar: usize },
+    /// Compute `tanh(src)`.
+    Tanh { dst: Dst, src: Src },
     /// Add the sum of the elements of `src` to a scalar.
     Sum { src: Src, scalar: usize },
 }
@@ -132,7 +134,8 @@ impl TileOp {
             | TileOp::SinSquared { dst, .. }
             | TileOp::Softplus { dst, .. }
             | TileOp::Square { dst, .. }
-            | TileOp::SubScalar { dst, .. } => Some(dst),
+            | TileOp::SubScalar { dst, .. }
+            | TileOp::Tanh { dst, .. } => Some(dst),
             TileOp::Sum { .. } => None,
         }
     }
@@ -151,7 +154,8 @@ impl TileOp {
             | TileOp::Sin { .. }
             | TileOp::SinSquared { .. }
             | TileOp::Softplus { .. }
-            | TileOp::Square { .. } => None,
+            | TileOp::Square { .. }
+            | TileOp::Tanh { .. } => None,
         }
     }
 }
@@ -209,14 +213,30 @@ impl From<Vec<TileOp>> for Pass {
     }
 }
 
+/// Specifies which dimensions of a [`TileProgram`]'s output form a row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RowDims {
+    /// All dimensions, so the whole tensor is one row. This can be used by
+    /// programs which have no reductions and whose scalar inputs each have a
+    /// single element.
+    All,
+    /// The given number of trailing dimensions.
+    Trailing(usize),
+}
+
+impl From<usize> for RowDims {
+    fn from(inner_dims: usize) -> RowDims {
+        RowDims::Trailing(inner_dims)
+    }
+}
+
 /// Operator which evaluates a sequence of passes over each row of its inputs.
 ///
 /// The operator's inputs are the program's tensor inputs followed by its
 /// scalar inputs. Tensor inputs and outputs all have the same shape. Scalar
-/// inputs are broadcast against the output and have a size of one in the last
-/// `inner_dims` dimensions, so that their value is constant within each _row_
-/// formed by flattening those dimensions. Scalars computed by the program are
-/// zero at the start of each row.
+/// inputs are broadcast against the output and have a size of one in the
+/// dimensions which form a row, so that their value is constant within each
+/// row. Scalars computed by the program are zero at the start of each row.
 ///
 /// This is not an ONNX operator. It is created by fusing subgraphs of
 /// elementwise operators and reductions over rows.
@@ -229,17 +249,17 @@ pub struct TileProgram {
     n_scalars: usize,
     n_regs: usize,
     n_outputs: usize,
-    inner_dims: usize,
+    row_dims: RowDims,
+    /// Name of the operator which this program implements.
+    name: Option<&'static str>,
 }
 
 impl TileProgram {
     /// Create a program which reads `n_inputs` tensor inputs and
     /// `n_scalar_inputs` scalar inputs.
     ///
-    /// `inner_dims` is the number of trailing dimensions which are flattened
-    /// to form a row. This is the rank of the output if the program has no
-    /// reductions and its scalar inputs each have a single element. The whole
-    /// tensor is then one row.
+    /// `row_dims` specifies the dimensions which are flattened to form a row.
+    /// A number is the count of trailing dimensions.
     ///
     /// Each output is written once, in the last pass. The last operation of
     /// that pass writes output 0. Since this shares a buffer with input 0, this
@@ -248,7 +268,7 @@ impl TileProgram {
         passes: Vec<Pass>,
         n_inputs: usize,
         n_scalar_inputs: usize,
-        inner_dims: usize,
+        row_dims: impl Into<RowDims>,
     ) -> TileProgram {
         let tile_ops = || passes.iter().flat_map(|pass| &pass.tile_ops);
         let output_of = |op: &TileOp| match op.dst() {
@@ -297,8 +317,16 @@ impl TileProgram {
             n_scalars,
             n_regs,
             n_outputs,
-            inner_dims,
+            row_dims: row_dims.into(),
+            name: None,
         }
+    }
+
+    /// Set the name which this operator reports, for programs which implement
+    /// another operator.
+    pub fn with_name(mut self, name: &'static str) -> TileProgram {
+        self.name = Some(name);
+        self
     }
 }
 
@@ -452,6 +480,9 @@ impl TileState<'_, '_, '_> {
                 TileOp::Softplus { dst, src } => self.apply_unary(dst, src, |dst| {
                     vecmath::Softplus {}.map_mut(dst);
                 }),
+                TileOp::Tanh { dst, src } => self.apply_unary(dst, src, |dst| {
+                    vecmath::Tanh {}.map_mut(dst);
+                }),
                 TileOp::Mul { dst, a, b } => self.apply(dst, [a, b], |dst, srcs| match srcs {
                     [Some(a), Some(b)] => {
                         for ((y, a), b) in dst.iter_mut().zip(a).zip(b) {
@@ -588,13 +619,18 @@ impl TileProgram {
             n_scalars,
             n_regs,
             n_outputs,
-            inner_dims,
+            row_dims,
+            ..
         } = *self;
         let pool = ctx.pool();
         let inputs = ctx.inputs();
 
-        let Some(outer_dims) = output.ndim().checked_sub(inner_dims) else {
-            return Err(OpError::invalid_value("input has too few dims"));
+        let outer_dims = match row_dims {
+            RowDims::All => 0,
+            RowDims::Trailing(inner_dims) => output
+                .ndim()
+                .checked_sub(inner_dims)
+                .ok_or(OpError::invalid_value("input has too few dims"))?,
         };
         let row_len: usize = output.shape()[outer_dims..].iter().product();
 
@@ -749,7 +785,7 @@ impl InferShapes for TileProgram {
 
 impl Operator for TileProgram {
     fn name(&self) -> &str {
-        "TileProgram"
+        self.name.unwrap_or("TileProgram")
     }
 
     fn max_inputs(&self) -> Option<usize> {
