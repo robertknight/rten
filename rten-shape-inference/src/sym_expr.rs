@@ -345,7 +345,19 @@ impl SymExpr {
     ///
     /// This simplifies expressions such as identities (eg. `x + 0` becomes `x`).
     pub fn simplify(&self) -> SymExpr {
-        self.canonicalize().simplify_canonical()
+        let mut expr = self.canonicalize().simplify_canonical();
+
+        // Simplifying a term can turn it into a constant (eg. `2 * 5` in
+        // `x + 10 - 2 * 5`), which canonicalization then needs to move next
+        // to the other constants so that they can be combined. Repeat until
+        // there are no further changes.
+        loop {
+            let next = expr.canonicalize().simplify_canonical();
+            if next == expr {
+                return expr;
+            }
+            expr = next;
+        }
     }
 
     /// Return true of the depth of the expression exceeds `depth`.
@@ -1062,6 +1074,23 @@ mod tests {
     }
 
     #[test]
+    fn test_simplify_combines_constants_from_simplified_terms() {
+        let x = SymExpr::pos_var("x");
+
+        // Terms which only become constants after simplification.
+        let expr = x.clone() + SymExpr::from(10) - SymExpr::from(5) * SymExpr::from(2);
+        assert_eq!(expr.simplify(), x);
+
+        // Output size of a convolution with a padding of 5, dilation of 5,
+        // kernel size of 3 and stride of 1.
+        let padded = x.clone() + SymExpr::from(5) + SymExpr::from(5);
+        let windowed =
+            padded - SymExpr::from(5) * (SymExpr::from(3) - SymExpr::from(1)) - SymExpr::from(1);
+        let expr = windowed / SymExpr::from(1) + SymExpr::from(1);
+        assert_eq!(expr.simplify(), x);
+    }
+
+    #[test]
     fn test_simplify_add() {
         let x = SymExpr::pos_var("x");
         let zero = SymExpr::from(0);
@@ -1196,14 +1225,15 @@ mod tests {
         let expr = x.clone() / two.clone() / two.clone();
         assert_eq!(expr.simplify(), x.clone() / SymExpr::from(4));
 
-        // x / 0 / 2 => not simplified (divisor is zero)
+        // x / 0 / 2 => x / 0. The divisors are combined, but the division is
+        // not evaluated as the divisor is zero.
         let zero = SymExpr::from(0);
         let expr = x.clone() / zero.clone() / two.clone();
-        assert_eq!(expr.simplify(), x.clone() / (zero.clone() * two.clone()));
+        assert_eq!(expr.simplify(), x.clone() / zero.clone());
 
-        // x / 2 / 0 => not simplified (divisor is zero)
+        // x / 2 / 0 => x / 0
         let expr = x.clone() / two.clone() / zero.clone();
-        assert_eq!(expr.simplify(), x.clone() / (two.clone() * zero));
+        assert_eq!(expr.simplify(), x.clone() / zero);
 
         // (x * y) / (x * z) => y / z
         let y = SymExpr::from("y");
@@ -1268,18 +1298,16 @@ mod tests {
         let expr = x.clone().div_ceil(&two).div_ceil(&two);
         assert_eq!(expr.simplify(), x.clone().div_ceil(&SymExpr::from(4)));
 
-        // x.div_ceil(0).div_ceil(2) => not simplified (divisor is zero)
+        // x.div_ceil(0).div_ceil(2) => x.div_ceil(0). The divisors are
+        // combined, but the division is not evaluated as the divisor is zero.
         let zero = SymExpr::from(0);
         let expr = x.clone().div_ceil(&zero).div_ceil(&two);
-        assert_eq!(
-            expr.simplify(),
-            x.clone().div_ceil(&(zero.clone() * two.clone()))
-        );
+        assert_eq!(expr.simplify(), x.clone().div_ceil(&zero));
 
-        // x.div_ceil(-1).div_ceil(2) => not simplified (divisor is negative)
+        // x.div_ceil(-1).div_ceil(2) => x.div_ceil(-2)
         let neg_one = SymExpr::from(-1);
         let expr = x.clone().div_ceil(&neg_one).div_ceil(&two);
-        assert_eq!(expr.simplify(), x.div_ceil(&(neg_one.clone() * two)));
+        assert_eq!(expr.simplify(), x.div_ceil(&SymExpr::from(-2)));
     }
 
     // Check `C * X * D` is simplified to `CD * X` where C and D are
