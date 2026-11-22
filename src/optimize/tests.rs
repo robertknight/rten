@@ -24,7 +24,7 @@ use crate::ops::{
     GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
     Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RepeatInterleave, Reshape, ScalarOp,
     Shape, Sigmoid, Sin, Slice, Softmax, Split, Sqrt, Src, Swish, Tanh, TileOp, TileProgram,
-    TileProgramCode, Transpose, Unsqueeze, Where,
+    Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -411,7 +411,7 @@ fn test_fuse_silu() {
 fn test_fuse_tile_program() {
     // Operations which compute `x + beta * sin(alpha * x)^2` using one
     // register.
-    let snake_program = || {
+    let snake_program = |inner_dims: usize| {
         let reg = Dst::Reg(0);
         let reg_src = Src::Reg(0);
         let ops = vec![
@@ -431,7 +431,7 @@ fn test_fuse_tile_program() {
                 addend: Src::Input(0),
             },
         ];
-        TileProgramCode::new(vec![ops.into()], 1, 2)
+        TileProgram::new(vec![ops.into()], 1, 2, inner_dims)
     };
 
     #[derive(Debug)]
@@ -442,9 +442,8 @@ fn test_fuse_tile_program() {
         input_shape: Option<Vec<Dimension>>,
         // True if `sin(alpha * x)` is also a graph output.
         sin_is_output: bool,
-        // Expected program and `inner_dims`, or `None` if the output should
-        // not be fused.
-        expected: Option<(TileProgramCode, usize)>,
+        // Expected program, or `None` if the output should not be fused.
+        expected: Option<TileProgram>,
     }
 
     let cases = [
@@ -453,21 +452,21 @@ fn test_fuse_tile_program() {
             param_shape: [1, 3, 1].into(),
             input_shape: Some(dims!("batch", 3, "time").into()),
             sin_is_output: false,
-            expected: Some((snake_program(), 1)),
+            expected: Some(snake_program(1)),
         },
         // Per-channel parameters with fewer dimensions than the input
         Case {
             param_shape: [3, 1].into(),
             input_shape: Some(dims!("batch", 3, "time").into()),
             sin_is_output: false,
-            expected: Some((snake_program(), 1)),
+            expected: Some(snake_program(1)),
         },
         // Parameters which are the same for all channels
         Case {
             param_shape: [].into(),
             input_shape: Some(dims!("batch", 3, "time").into()),
             sin_is_output: false,
-            expected: Some((snake_program(), 3)),
+            expected: Some(snake_program(3)),
         },
         // Input with unknown shape
         Case {
@@ -496,26 +495,24 @@ fn test_fuse_tile_program() {
             param_shape: [1, 3, 1].into(),
             input_shape: Some(dims!("batch", 3, "time").into()),
             sin_is_output: true,
-            expected: Some((
-                TileProgramCode::new(
+            expected: Some(TileProgram::new(
+                vec![
                     vec![
-                        vec![
-                            TileOp::Square {
-                                dst: Dst::Reg(0),
-                                src: Src::Input(0),
-                            },
-                            TileOp::MulScalarAdd {
-                                dst: Dst::Output,
-                                src: Src::Reg(0),
-                                scalar: 0,
-                                addend: Src::Input(1),
-                            },
-                        ]
-                        .into(),
-                    ],
-                    2,
-                    1,
-                ),
+                        TileOp::Square {
+                            dst: Dst::Reg(0),
+                            src: Src::Input(0),
+                        },
+                        TileOp::MulScalarAdd {
+                            dst: Dst::Output,
+                            src: Src::Reg(0),
+                            scalar: 0,
+                            addend: Src::Input(1),
+                        },
+                    ]
+                    .into(),
+                ],
+                2,
+                1,
                 1,
             )),
         },
@@ -548,13 +545,12 @@ fn test_fuse_tile_program() {
         let graph = optimize_graph_infer_shapes(graph).unwrap();
         let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
 
-        if let Some((program, inner_dims)) = &case.expected {
+        if let Some(expected) = &case.expected {
             let op = op
                 .operator()
                 .downcast_ref::<TileProgram>()
                 .expect("output should be fused");
-            assert_eq!(op.program, *program);
-            assert_eq!(op.inner_dims, *inner_dims);
+            assert_eq!(op, expected);
         } else {
             assert_eq!(op.operator().name(), "Add");
         }
@@ -587,14 +583,13 @@ fn test_fuse_tile_program_instance_norm() {
         .operator()
         .downcast_ref::<TileProgram>()
         .expect("output should be fused");
-    assert_eq!(op.inner_dims, 1);
 
     // Scalars are the inputs (epsilon, gamma, beta) followed by the mean,
     // variance, variance + epsilon, standard deviation and its reciprocal.
     let reg = Dst::Reg(0);
     let reg_src = Src::Reg(0);
     let x = Src::Input(0);
-    let expected = TileProgramCode::new(
+    let expected = TileProgram::new(
         vec![
             vec![TileOp::Sum { src: x, scalar: 3 }].into(),
             Pass {
@@ -648,8 +643,9 @@ fn test_fuse_tile_program_instance_norm() {
         ],
         1,
         3,
+        1,
     );
-    assert_eq!(op.program, expected);
+    assert_eq!(*op, expected);
 }
 
 #[test]

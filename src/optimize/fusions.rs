@@ -23,7 +23,7 @@ use crate::ops::{
     FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul, MatMulDynamicQuant,
     MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean,
     RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Sqrt, Src, Sub, Swish, SymbolInfo,
-    TileOp, TileProgram, TileProgramCode, Transpose, dequantize_linear,
+    TileOp, TileProgram, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -3447,14 +3447,11 @@ impl FusionVisitor for TileProgramFusion {
             })
             .collect();
 
-        let program = TileProgramCode::new(passes, inputs.len(), scalar_inputs.len());
+        let program = TileProgram::new(passes, inputs.len(), scalar_inputs.len(), inner_dims);
         let input_ids: Vec<_> = inputs.into_iter().chain(scalar_inputs).map(Some).collect();
         Ok(Fusion::from_op(
             op_node.name(),
-            Arc::new(TileProgram {
-                program,
-                inner_dims,
-            }),
+            Arc::new(program),
             &input_ids,
             &[Some(output_id)],
             &unused_inputs,

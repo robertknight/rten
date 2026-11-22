@@ -174,28 +174,46 @@ impl From<Vec<TileOp>> for Pass {
     }
 }
 
-/// A sequence of passes which compute one row of an operator's output from
-/// the corresponding rows of its inputs.
+/// Operator which evaluates a sequence of passes over each row of its inputs.
 ///
-/// Scalars computed by the program are zero at the start of each row.
+/// The operator's inputs are the program's tensor inputs followed by its
+/// scalar inputs. Tensor inputs all have the shape of the output. Scalar
+/// inputs are broadcast against the output and have a size of one in the last
+/// `inner_dims` dimensions, so that their value is constant within each _row_
+/// formed by flattening those dimensions. Scalars computed by the program are
+/// zero at the start of each row.
+///
+/// This is not an ONNX operator. It is created by fusing subgraphs of
+/// elementwise operators and reductions over rows.
 #[derive(Clone, Debug, PartialEq)]
-pub struct TileProgramCode {
+pub struct TileProgram {
     passes: Vec<Pass>,
     n_inputs: usize,
     n_scalar_inputs: usize,
     /// Number of scalars, including scalar inputs.
     n_scalars: usize,
     n_regs: usize,
+    inner_dims: usize,
 }
 
-impl TileProgramCode {
+impl TileProgram {
     /// Create a program which reads `n_inputs` tensor inputs and
     /// `n_scalar_inputs` scalar inputs.
+    ///
+    /// `inner_dims` is the number of trailing dimensions which are flattened
+    /// to form a row. This is the rank of the output if the program has no
+    /// reductions and its scalar inputs each have a single element. The whole
+    /// tensor is then one row.
     ///
     /// Only the last operation of the last pass may write the output. Since
     /// the output shares a buffer with input 0, this means input 0 can be
     /// read by any operation.
-    pub fn new(passes: Vec<Pass>, n_inputs: usize, n_scalar_inputs: usize) -> TileProgramCode {
+    pub fn new(
+        passes: Vec<Pass>,
+        n_inputs: usize,
+        n_scalar_inputs: usize,
+        inner_dims: usize,
+    ) -> TileProgram {
         let tile_ops = || passes.iter().flat_map(|pass| &pass.tile_ops);
         let n_tile_ops = tile_ops().count();
         assert!(tile_ops().enumerate().all(|(index, op)| {
@@ -224,12 +242,13 @@ impl TileProgramCode {
             .unwrap_or(0)
             .max(n_scalar_inputs);
 
-        TileProgramCode {
+        TileProgram {
             passes,
             n_inputs,
             n_scalar_inputs,
             n_scalars,
             n_regs,
+            inner_dims,
         }
     }
 }
@@ -299,7 +318,7 @@ impl SimdOp for MulScalarAdd<'_> {
     }
 }
 
-/// Buffers used while evaluating a [`TileProgramCode`] on one tile.
+/// Buffers used while evaluating a [`TileProgram`] on one tile.
 struct TileState<'a, 'r> {
     /// Tensor inputs after the first.
     inputs: &'a [&'a [f32]],
@@ -474,28 +493,6 @@ impl TileState<'_, '_> {
     }
 }
 
-/// Operator which evaluates a [`TileProgramCode`].
-///
-/// The operator's inputs are the program's tensor inputs followed by its
-/// scalar inputs. Tensor inputs all have the shape of the output. Scalar
-/// inputs are broadcast against the output and have a size of one in the last
-/// `inner_dims` dimensions, so that their value is constant within each _row_
-/// formed by flattening those dimensions.
-///
-/// This is not an ONNX operator. It is created by fusing subgraphs of
-/// elementwise operators and reductions over rows.
-#[derive(Debug)]
-pub struct TileProgram {
-    pub program: TileProgramCode,
-
-    /// Number of trailing dimensions which are flattened to form a row.
-    ///
-    /// This is the rank of the output if the program has no reductions and
-    /// its scalar inputs each have a single element. The whole tensor is then
-    /// one row.
-    pub inner_dims: usize,
-}
-
 impl TileProgram {
     /// Evaluate the program, where `output` initially holds input 0.
     fn run_in_place_impl(
@@ -503,19 +500,18 @@ impl TileProgram {
         ctx: &OpRunContext,
         mut output: Tensor<f32>,
     ) -> Result<Tensor<f32>, OpError> {
-        let TileProgramCode {
-            passes,
+        let TileProgram {
+            ref passes,
             n_inputs,
             n_scalar_inputs,
             n_scalars,
             n_regs,
-        } = &self.program;
-        let (n_inputs, n_scalar_inputs, n_scalars, n_regs) =
-            (*n_inputs, *n_scalar_inputs, *n_scalars, *n_regs);
+            inner_dims,
+        } = *self;
         let pool = ctx.pool();
         let inputs = ctx.inputs();
 
-        let Some(outer_dims) = output.ndim().checked_sub(self.inner_dims) else {
+        let Some(outer_dims) = output.ndim().checked_sub(inner_dims) else {
             return Err(OpError::invalid_value("input has too few dims"));
         };
         let row_len: usize = output.shape()[outer_dims..].iter().product();
@@ -629,7 +625,7 @@ impl Operator for TileProgram {
     }
 
     fn max_inputs(&self) -> Option<usize> {
-        Some(self.program.n_inputs + self.program.n_scalar_inputs)
+        Some(self.n_inputs + self.n_scalar_inputs)
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
@@ -667,17 +663,15 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_testing::TestCases;
 
-    use super::{
-        Dst, Pass, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram, TileProgramCode,
-    };
+    use super::{Dst, Pass, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram};
     use crate::operator::{OpError, OperatorExt};
 
     /// Return a program which computes `x + beta * sin(alpha * x)^2`, where
     /// `alpha` and `beta` are the scalar inputs.
-    fn snake_program() -> TileProgramCode {
+    fn snake_program(inner_dims: usize) -> TileProgram {
         let reg = Dst::Reg(0);
         let reg_src = Src::Reg(0);
-        TileProgramCode::new(
+        TileProgram::new(
             vec![Pass::from(vec![
                 TileOp::MulScalar {
                     dst: reg,
@@ -705,6 +699,7 @@ mod tests {
             ])],
             1,
             2,
+            inner_dims,
         )
     }
 
@@ -777,10 +772,7 @@ mod tests {
             );
             let beta = alpha.map(|a| 1. / a);
 
-            let op = TileProgram {
-                program: snake_program(),
-                inner_dims: case.inner_dims,
-            };
+            let op = snake_program(case.inner_dims);
             let result: Tensor<f32> = op
                 .run_simple((x.view(), alpha.view(), beta.view()))
                 .unwrap();
@@ -802,7 +794,7 @@ mod tests {
     #[test]
     fn test_tile_program_multiple_inputs() {
         // Compute `sin(a) + b`.
-        let program = TileProgramCode::new(
+        let op = TileProgram::new(
             vec![Pass::from(vec![
                 TileOp::Sin {
                     dst: Dst::Reg(0),
@@ -816,11 +808,8 @@ mod tests {
             ])],
             2,
             0,
+            2,
         );
-        let op = TileProgram {
-            program,
-            inner_dims: 2,
-        };
         let a = test_input(&[3, TILE_LEN + 5]);
         let b = a.map(|x| x * 0.5);
 
@@ -864,7 +853,7 @@ mod tests {
         ];
 
         cases.test_each(|case| {
-            let program = TileProgramCode::new(
+            let op = TileProgram::new(
                 vec![Pass::from(vec![TileOp::MulScalarAdd {
                     dst: Dst::Output,
                     src: case.src,
@@ -873,11 +862,8 @@ mod tests {
                 }])],
                 2,
                 1,
+                2,
             );
-            let op = TileProgram {
-                program,
-                inner_dims: 2,
-            };
             let inputs = [
                 test_input(&[3, TILE_LEN + 5]),
                 test_input(&[3, TILE_LEN + 5]),
@@ -908,7 +894,7 @@ mod tests {
         let reg = Dst::Reg(0);
         let reg_src = Src::Reg(0);
         let x = Src::Input(0);
-        let program = TileProgramCode::new(
+        let op = TileProgram::new(
             vec![
                 vec![TileOp::Sum { src: x, scalar: 3 }].into(),
                 Pass {
@@ -962,11 +948,8 @@ mod tests {
             ],
             1,
             3,
+            1,
         );
-        let op = TileProgram {
-            program,
-            inner_dims: 1,
-        };
 
         #[derive(Debug)]
         struct Case {
@@ -1041,10 +1024,7 @@ mod tests {
         cases.test_each(|case| {
             let x = test_input(&[1, 2, 5]);
             let alpha = Tensor::<f32>::zeros(&case.scalar_shape);
-            let op = TileProgram {
-                program: snake_program(),
-                inner_dims: 1,
-            };
+            let op = snake_program(1);
             let result: Result<Tensor<f32>, _> =
                 op.run_simple((x.view(), alpha.view(), alpha.view()));
             assert_eq!(
