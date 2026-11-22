@@ -238,8 +238,9 @@ impl From<usize> for RowDims {
 /// dimensions which form a row, so that their value is constant within each
 /// row. Scalars computed by the program are zero at the start of each row.
 ///
-/// This is not an ONNX operator. It is created by fusing subgraphs of
-/// elementwise operators and reductions over rows.
+/// Programs are created by fusing subgraphs of elementwise operators and
+/// reductions over rows. They are also used to implement some ONNX operators,
+/// such as [`TileProgram::mish`], without dedicated code for each.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TileProgram {
     passes: Vec<Pass>,
@@ -327,6 +328,30 @@ impl TileProgram {
     pub fn with_name(mut self, name: &'static str) -> TileProgram {
         self.name = Some(name);
         self
+    }
+
+    /// Return a program which implements the ONNX `Mish` operator.
+    ///
+    /// This computes `x * tanh(softplus(x))`.
+    pub fn mish() -> TileProgram {
+        let x = Src::Input(0);
+        let reg = RegId(0);
+        let ops = vec![
+            TileOp::Softplus {
+                dst: Dst::Reg(reg),
+                src: x,
+            },
+            TileOp::Tanh {
+                dst: Dst::Reg(reg),
+                src: Src::Reg(reg),
+            },
+            TileOp::Mul {
+                dst: Dst::Output(0),
+                a: x,
+                b: Src::Reg(reg),
+            },
+        ];
+        TileProgram::new(vec![ops.into()], 1, 0, RowDims::All).with_name("Mish")
     }
 }
 
@@ -1256,6 +1281,40 @@ mod tests {
             });
             expect_equal_with_tolerance(&outputs[0], &expected_imag, 1e-5, 1e-5).unwrap();
             expect_equal_with_tolerance(&outputs[1], &expected_real, 1e-5, 1e-5).unwrap();
+        })
+    }
+
+    #[test]
+    fn test_mish() {
+        #[derive(Debug)]
+        struct Case {
+            shape: Vec<usize>,
+        }
+
+        let cases = [
+            Case { shape: [].into() },
+            Case { shape: [5].into() },
+            Case {
+                shape: [2, 3, TILE_LEN + 5].into(),
+            },
+            Case {
+                shape: [1, 2, 3, 0].into(),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let op = TileProgram::mish();
+            assert_eq!(op.name(), "Mish");
+
+            // Scale the input to cover large positive and negative values.
+            let x = test_input(&case.shape).map(|x| x * 20.);
+            let expected = x.map(|x: &f32| x * x.exp().ln_1p().tanh());
+
+            let result: Tensor<f32> = op.run_simple(x.view()).unwrap();
+            expect_equal_with_tolerance(&result, &expected, 1e-5, 1e-5).unwrap();
+
+            let result: Tensor<f32> = op.run_simple_in_place(x.clone(), ()).unwrap();
+            expect_equal_with_tolerance(&result, &expected, 1e-5, 1e-5).unwrap();
         })
     }
 

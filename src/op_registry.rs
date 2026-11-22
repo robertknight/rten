@@ -321,6 +321,18 @@ pub mod op_types {
     declare_op!(MaxPool);
     declare_op!(Mean);
     declare_op!(Min);
+
+    /// The `Mish` operator, which is implemented as a tile program.
+    #[cfg(feature = "onnx_format")]
+    pub struct Mish;
+
+    #[cfg(feature = "onnx_format")]
+    impl RegisterOp for Mish {
+        fn register(&self, registry: &mut OpRegistry) {
+            registry.onnx_registry.register_mish();
+        }
+    }
+
     declare_op!(Mod);
     declare_op!(Mul);
     declare_op!(Multinomial, feature = "random");

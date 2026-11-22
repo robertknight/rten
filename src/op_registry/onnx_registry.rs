@@ -44,6 +44,16 @@ impl OnnxOpRegistry {
         self.register_op_with_factory(Op::id(), &Op::read_boxed);
     }
 
+    /// Register the `Mish` operator, which is implemented as a tile program.
+    pub(crate) fn register_mish(&mut self) {
+        fn read_mish(op: &onnx::NodeProto, ctx: &dyn OpLoadContext) -> ReadOpResult {
+            let attrs = Attrs::new(&op.attribute, ctx.opset_version());
+            let op = ParsedOp::new(ops::TileProgram::mish());
+            Ok(op.with_unused_attrs(attrs.unused_attrs()).into())
+        }
+        self.register_op_with_factory(OpId::new("Mish"), &read_mish);
+    }
+
     /// Register an operator with a custom factory to deserialize it from a
     /// model file.
     fn register_op_with_factory(&mut self, id: OpId<'static>, factory: &'static ReadOpFunction) {
@@ -199,6 +209,7 @@ impl OnnxOpRegistry {
         register_op!(MaxPool);
         register_op!(Mean);
         register_op!(Min);
+        reg.register_mish();
         register_op!(Mod);
         register_op!(Mul);
         register_op!(Multinomial, feature = "random");
@@ -2168,7 +2179,8 @@ mod tests {
     #[cfg(feature = "contrib")]
     use crate::operator::Operator;
     use crate::ops::{
-        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding, Upsample,
+        ArgMax, ConstantOfShape, Conv, GridSample, Padding, ResizeMode, RotaryEmbedding,
+        TileProgram, Upsample,
     };
     #[cfg(feature = "contrib")]
     use crate::ops::{
@@ -2219,6 +2231,20 @@ mod tests {
             .unwrap()
             .op;
         assert_eq!(op.name(), "MatMul");
+    }
+
+    #[test]
+    fn test_read_mish() {
+        let reg = OnnxOpRegistry::with_all_ops();
+        let node = create_node("Mish");
+
+        let op = reg
+            .read_op(&node, &FakeOpLoadContext::default())
+            .unwrap()
+            .op;
+
+        assert_eq!(op.name(), "Mish");
+        assert_eq!(op.downcast_ref::<TileProgram>(), Some(&TileProgram::mish()));
     }
 
     #[cfg(feature = "contrib")]
