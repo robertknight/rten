@@ -21,10 +21,10 @@ use crate::infer_shapes::InferShapeOptions;
 use crate::ops::{
     Add, BatchNormalization, Cast, ComputeShape, Conv, ConvInteger, ConvTranspose, Cos,
     DequantizeLinear, Dst, DynamicQuantizeLinear, Erf, Expand, FusedMatMul, Gather, Gelu,
-    GroupedQueryAttentionMatMul, Identity, If, IsNaN, LayerNormalization, MatMul, MatMulInteger,
-    Neg, Padding, Pass, Pow, RMSNormalization, ReduceMean, RegId, RepeatInterleave, Reshape,
-    ScalarOp, Shape, Sigmoid, Sin, Slice, Softmax, Softplus, Split, Sqrt, Src, Swish, Tanh, TileOp,
-    TileProgram, Transpose, Unsqueeze, Where,
+    GroupedQueryAttentionMatMul, Identity, If, InputId, IsNaN, LayerNormalization, MatMul,
+    MatMulInteger, Neg, OutputId, Padding, Pass, Pow, RMSNormalization, ReduceMean, RegId,
+    RepeatInterleave, Reshape, ScalarId, ScalarOp, Shape, Sigmoid, Sin, Slice, Softmax, Softplus,
+    Split, Sqrt, Src, Swish, Tanh, TileOp, TileProgram, Transpose, Unsqueeze, Where,
 };
 use crate::value::{DataType, Value, ValueType};
 
@@ -417,18 +417,18 @@ fn test_fuse_tile_program() {
         let ops = vec![
             TileOp::MulScalar {
                 dst: reg,
-                src: Src::Input(0),
-                scalar: 0,
+                src: Src::Input(InputId(0)),
+                scalar: ScalarId(0),
             },
             TileOp::SinSquared {
                 dst: reg,
                 src: reg_src,
             },
             TileOp::MulScalarAdd {
-                dst: Dst::Output(0),
+                dst: Dst::Output(OutputId(0)),
                 src: reg_src,
-                scalar: 1,
-                addend: Src::Input(0),
+                scalar: ScalarId(1),
+                addend: Src::Input(InputId(0)),
             },
         ];
         TileProgram::new(vec![ops.into()], 1, 2, inner_dims)
@@ -500,22 +500,22 @@ fn test_fuse_tile_program() {
                     vec![
                         TileOp::MulScalar {
                             dst: Dst::Reg(RegId(0)),
-                            src: Src::Input(0),
-                            scalar: 0,
+                            src: Src::Input(InputId(0)),
+                            scalar: ScalarId(0),
                         },
                         TileOp::Sin {
-                            dst: Dst::Output(1),
+                            dst: Dst::Output(OutputId(1)),
                             src: Src::Reg(RegId(0)),
                         },
                         TileOp::Square {
                             dst: Dst::Reg(RegId(0)),
-                            src: Src::Output(1),
+                            src: Src::Output(OutputId(1)),
                         },
                         TileOp::MulScalarAdd {
-                            dst: Dst::Output(0),
+                            dst: Dst::Output(OutputId(0)),
                             src: Src::Reg(RegId(0)),
-                            scalar: 1,
-                            addend: Src::Input(0),
+                            scalar: ScalarId(1),
+                            addend: Src::Input(InputId(0)),
                         },
                     ]
                     .into(),
@@ -597,17 +597,24 @@ fn test_fuse_tile_program_instance_norm() {
     // variance, variance + epsilon, standard deviation and its reciprocal.
     let reg = Dst::Reg(RegId(0));
     let reg_src = Src::Reg(RegId(0));
-    let x = Src::Input(0);
+    let x = Src::Input(InputId(0));
     let expected = TileProgram::new(
         vec![
-            vec![TileOp::Sum { src: x, scalar: 3 }].into(),
+            vec![TileOp::Sum {
+                src: x,
+                scalar: ScalarId(3),
+            }]
+            .into(),
             Pass {
-                scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }].into(),
+                scalar_ops: vec![ScalarOp::DivRowLen {
+                    scalar: ScalarId(3),
+                }]
+                .into(),
                 tile_ops: vec![
                     TileOp::SubScalar {
                         dst: reg,
                         src: x,
-                        scalar: 3,
+                        scalar: ScalarId(3),
                     },
                     TileOp::Square {
                         dst: reg,
@@ -615,39 +622,51 @@ fn test_fuse_tile_program_instance_norm() {
                     },
                     TileOp::Sum {
                         src: reg_src,
-                        scalar: 4,
+                        scalar: ScalarId(4),
                     },
                 ]
                 .into(),
             },
             Pass {
                 scalar_ops: vec![
-                    ScalarOp::DivRowLen { scalar: 4 },
-                    ScalarOp::Add { dst: 5, a: 4, b: 0 },
-                    ScalarOp::Sqrt { dst: 6, src: 5 },
-                    ScalarOp::Reciprocal { dst: 7, src: 6 },
+                    ScalarOp::DivRowLen {
+                        scalar: ScalarId(4),
+                    },
+                    ScalarOp::Add {
+                        dst: ScalarId(5),
+                        a: ScalarId(4),
+                        b: ScalarId(0),
+                    },
+                    ScalarOp::Sqrt {
+                        dst: ScalarId(6),
+                        src: ScalarId(5),
+                    },
+                    ScalarOp::Reciprocal {
+                        dst: ScalarId(7),
+                        src: ScalarId(6),
+                    },
                 ]
                 .into(),
                 tile_ops: vec![
                     TileOp::SubScalar {
                         dst: reg,
                         src: x,
-                        scalar: 3,
+                        scalar: ScalarId(3),
                     },
                     TileOp::MulScalar {
                         dst: reg,
                         src: reg_src,
-                        scalar: 7,
+                        scalar: ScalarId(7),
                     },
                     TileOp::MulScalar {
                         dst: reg,
                         src: reg_src,
-                        scalar: 1,
+                        scalar: ScalarId(1),
                     },
                     TileOp::AddScalar {
-                        dst: Dst::Output(0),
+                        dst: Dst::Output(OutputId(0)),
                         src: reg_src,
-                        scalar: 2,
+                        scalar: ScalarId(2),
                     },
                 ]
                 .into(),
@@ -695,7 +714,7 @@ fn test_fuse_tile_program_multiple_outputs() {
             vec![
                 TileOp::Sin {
                     dst: Dst::Reg(RegId(0)),
-                    src: Src::Input(0),
+                    src: Src::Input(InputId(0)),
                 },
                 TileOp::Cos {
                     dst: Dst::Reg(RegId(1)),
@@ -703,10 +722,10 @@ fn test_fuse_tile_program_multiple_outputs() {
                 },
                 TileOp::Softplus {
                     dst: Dst::Reg(RegId(2)),
-                    src: Src::Input(1),
+                    src: Src::Input(InputId(1)),
                 },
                 TileOp::Mul {
-                    dst: Dst::Output(1),
+                    dst: Dst::Output(OutputId(1)),
                     a: Src::Reg(RegId(2)),
                     b: Src::Reg(RegId(1)),
                 },
@@ -715,7 +734,7 @@ fn test_fuse_tile_program_multiple_outputs() {
                     src: Src::Reg(RegId(0)),
                 },
                 TileOp::Mul {
-                    dst: Dst::Output(0),
+                    dst: Dst::Output(OutputId(0)),
                     a: Src::Reg(RegId(2)),
                     b: Src::Reg(RegId(0)),
                 },

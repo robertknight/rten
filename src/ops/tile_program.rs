@@ -43,32 +43,59 @@ const TILE_LEN: usize = 1024;
 /// Number of elements processed by one task when running in parallel.
 const TASK_LEN: usize = 32 * TILE_LEN;
 
-/// Identifies a register, which holds one tile of an intermediate value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RegId(pub u8);
+/// Define a type which identifies one of the values used by a program.
+///
+/// IDs are small so that programs which are stored as static data are
+/// compact.
+macro_rules! id_type {
+    ($(#[$doc:meta])* $name:ident) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        pub struct $name(pub u8);
 
-impl RegId {
-    /// Return the ID of the register with a given index, or `None` if there
-    /// are too many registers.
-    pub fn new(index: usize) -> Option<RegId> {
-        index.try_into().ok().map(RegId)
-    }
+        impl $name {
+            /// Return the ID for a given index, or `None` if the index is
+            /// too large.
+            pub fn new(index: usize) -> Option<$name> {
+                index.try_into().ok().map($name)
+            }
 
-    const fn index(self) -> usize {
-        self.0 as usize
-    }
+            const fn index(self) -> usize {
+                self.0 as usize
+            }
+        }
+    };
 }
+
+id_type!(
+    /// Identifies a register, which holds one tile of an intermediate value.
+    RegId
+);
+id_type!(
+    /// Identifies a tensor input of a program.
+    InputId
+);
+id_type!(
+    /// Identifies an output of a program.
+    OutputId
+);
+id_type!(
+    /// Identifies a scalar, which has one value for each row. Scalars are
+    /// the operator's scalar inputs followed by the scalars computed by the
+    /// program.
+    ScalarId
+);
 
 /// Source of a tile read by a [`TileOp`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Src {
     /// A tile of one of the operator's tensor inputs.
-    Input(usize),
+    Input(InputId),
     /// A register holding the result of an earlier operation.
     Reg(RegId),
     /// A tile of one of the operator's outputs, which was written by an
     /// earlier operation. Output 0 cannot be read.
-    Output(usize),
+    Output(OutputId),
 }
 
 /// Destination of a tile written by a [`TileOp`].
@@ -77,32 +104,38 @@ pub enum Dst {
     Reg(RegId),
     /// A tile of one of the operator's outputs. Output 0 shares a buffer with
     /// input 0.
-    Output(usize),
+    Output(OutputId),
 }
 
 /// An operation on one tile.
 ///
-/// The destination may be the same register as a source. Scalar operands
-/// are indices of scalars, which are the operator's scalar inputs followed by
-/// the scalars computed by the program.
+/// The destination may be the same register as a source.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TileOp {
     /// Compute `a + b`.
     Add { dst: Dst, a: Src, b: Src },
     /// Compute `src + scalar`.
-    AddScalar { dst: Dst, src: Src, scalar: usize },
+    AddScalar {
+        dst: Dst,
+        src: Src,
+        scalar: ScalarId,
+    },
     /// Compute `cos(src)`.
     Cos { dst: Dst, src: Src },
     /// Compute `a * b`.
     Mul { dst: Dst, a: Src, b: Src },
     /// Compute `src * scalar`.
-    MulScalar { dst: Dst, src: Src, scalar: usize },
+    MulScalar {
+        dst: Dst,
+        src: Src,
+        scalar: ScalarId,
+    },
     /// Compute `addend + src * scalar`. This uses a fused multiply-add if
     /// available.
     MulScalarAdd {
         dst: Dst,
         src: Src,
-        scalar: usize,
+        scalar: ScalarId,
         addend: Src,
     },
     /// Compute `sin(src)`.
@@ -114,11 +147,15 @@ pub enum TileOp {
     /// Compute `src * src`.
     Square { dst: Dst, src: Src },
     /// Compute `src - scalar`.
-    SubScalar { dst: Dst, src: Src, scalar: usize },
+    SubScalar {
+        dst: Dst,
+        src: Src,
+        scalar: ScalarId,
+    },
     /// Compute `tanh(src)`.
     Tanh { dst: Dst, src: Src },
     /// Add the sum of the elements of `src` to a scalar.
-    Sum { src: Src, scalar: usize },
+    Sum { src: Src, scalar: ScalarId },
 }
 
 impl TileOp {
@@ -142,7 +179,7 @@ impl TileOp {
     }
 
     /// Return the scalar read or updated by this operation, if any.
-    const fn scalar(&self) -> Option<usize> {
+    const fn scalar(&self) -> Option<ScalarId> {
         match *self {
             TileOp::AddScalar { scalar, .. }
             | TileOp::MulScalar { scalar, .. }
@@ -165,18 +202,22 @@ impl TileOp {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScalarOp {
     /// Compute `a + b`.
-    Add { dst: usize, a: usize, b: usize },
+    Add {
+        dst: ScalarId,
+        a: ScalarId,
+        b: ScalarId,
+    },
     /// Divide a scalar by the number of elements in the row.
-    DivRowLen { scalar: usize },
+    DivRowLen { scalar: ScalarId },
     /// Compute `1 / src`.
-    Reciprocal { dst: usize, src: usize },
+    Reciprocal { dst: ScalarId, src: ScalarId },
     /// Compute `sqrt(src)`.
-    Sqrt { dst: usize, src: usize },
+    Sqrt { dst: ScalarId, src: ScalarId },
 }
 
 impl ScalarOp {
     /// Return the scalar written by this operation.
-    const fn dst(&self) -> usize {
+    const fn dst(&self) -> ScalarId {
         match *self {
             ScalarOp::Add { dst, .. }
             | ScalarOp::Reciprocal { dst, .. }
@@ -187,10 +228,12 @@ impl ScalarOp {
 
     fn run(&self, scalars: &mut [f32], row_len: usize) {
         match *self {
-            ScalarOp::Add { dst, a, b } => scalars[dst] = scalars[a] + scalars[b],
-            ScalarOp::DivRowLen { scalar } => scalars[scalar] /= row_len as f32,
-            ScalarOp::Reciprocal { dst, src } => scalars[dst] = 1. / scalars[src],
-            ScalarOp::Sqrt { dst, src } => scalars[dst] = scalars[src].sqrt(),
+            ScalarOp::Add { dst, a, b } => {
+                scalars[dst.index()] = scalars[a.index()] + scalars[b.index()]
+            }
+            ScalarOp::DivRowLen { scalar } => scalars[scalar.index()] /= row_len as f32,
+            ScalarOp::Reciprocal { dst, src } => scalars[dst.index()] = 1. / scalars[src.index()],
+            ScalarOp::Sqrt { dst, src } => scalars[dst.index()] = scalars[src.index()].sqrt(),
         }
     }
 }
@@ -329,9 +372,9 @@ impl TileProgram {
                     _ => {}
                 }
                 if let Some(scalar) = tile_ops[i].scalar()
-                    && scalar >= n_scalars
+                    && scalar.index() >= n_scalars
                 {
-                    n_scalars = scalar + 1;
+                    n_scalars = scalar.index() + 1;
                 }
                 i += 1;
             }
@@ -339,8 +382,8 @@ impl TileProgram {
             let scalar_ops = cow_slice(&pass.scalar_ops);
             let mut i = 0;
             while i < scalar_ops.len() {
-                if scalar_ops[i].dst() >= n_scalars {
-                    n_scalars = scalar_ops[i].dst() + 1;
+                if scalar_ops[i].dst().index() >= n_scalars {
+                    n_scalars = scalar_ops[i].dst().index() + 1;
                 }
                 i += 1;
             }
@@ -356,7 +399,7 @@ impl TileProgram {
             let mut i = 0;
             while i < last_ops.len() {
                 if let Some(Dst::Output(index)) = last_ops[i].dst()
-                    && index == output
+                    && index.index() == output
                 {
                     writes += 1;
                 }
@@ -367,7 +410,10 @@ impl TileProgram {
         }
         assert!(
             !last_ops.is_empty()
-                && matches!(last_ops[last_ops.len() - 1].dst(), Some(Dst::Output(0))),
+                && matches!(
+                    last_ops[last_ops.len() - 1].dst(),
+                    Some(Dst::Output(OutputId(0)))
+                ),
             "the last operation must write output 0"
         );
 
@@ -395,7 +441,7 @@ impl TileProgram {
 ///
 /// This computes `x * tanh(softplus(x))`.
 pub static MISH_PROGRAM: TileProgram = {
-    const X: Src = Src::Input(0);
+    const X: Src = Src::Input(InputId(0));
     const REG: RegId = RegId(0);
     static TILE_OPS: [TileOp; 3] = [
         TileOp::Softplus {
@@ -407,7 +453,7 @@ pub static MISH_PROGRAM: TileProgram = {
             src: Src::Reg(REG),
         },
         TileOp::Mul {
-            dst: Dst::Output(0),
+            dst: Dst::Output(OutputId(0)),
             a: X,
             b: Src::Reg(REG),
         },
@@ -501,24 +547,24 @@ impl TileState<'_, '_, '_> {
     /// same buffer as `dst`.
     fn sources<const N: usize>(&self, dst: Dst, srcs: [Src; N]) -> [Option<&[f32]>; N] {
         srcs.map(|src| match (src, dst) {
-            (Src::Input(0), Dst::Output(0)) => None,
-            (Src::Input(0), _) => Some(&self.outputs[0][..]),
-            (Src::Input(index), _) => Some(&self.inputs[index - 1][self.range.clone()]),
+            (Src::Input(InputId(0)), Dst::Output(OutputId(0))) => None,
+            (Src::Input(InputId(0)), _) => Some(&self.outputs[0][..]),
+            (Src::Input(index), _) => Some(&self.inputs[index.index() - 1][self.range.clone()]),
             (Src::Reg(src_reg), Dst::Reg(dst_reg)) if src_reg == dst_reg => None,
             (Src::Reg(reg), _) => Some(&self.regs[reg.index()][..self.range.len()]),
             // An output is written once, so it is never both a source and
             // the destination.
-            (Src::Output(index), _) => Some(&self.outputs[index][..]),
+            (Src::Output(index), _) => Some(&self.outputs[index.index()][..]),
         })
     }
 
     /// Return the buffer for `src`.
     fn source(&self, src: Src) -> &[f32] {
         match src {
-            Src::Input(0) => self.outputs[0],
-            Src::Input(index) => &self.inputs[index - 1][self.range.clone()],
+            Src::Input(InputId(0)) => self.outputs[0],
+            Src::Input(index) => &self.inputs[index.index() - 1][self.range.clone()],
             Src::Reg(reg) => &self.regs[reg.index()][..self.range.len()],
-            Src::Output(index) => self.outputs[index],
+            Src::Output(index) => self.outputs[index.index()],
         }
     }
 
@@ -543,9 +589,9 @@ impl TileState<'_, '_, '_> {
                 self.regs[reg.index()] = dst_buf;
             }
             Dst::Output(index) => {
-                let dst_buf = std::mem::take(&mut self.outputs[index]);
+                let dst_buf = std::mem::take(&mut self.outputs[index.index()]);
                 kernel(dst_buf, self.sources(dst, srcs));
-                self.outputs[index] = dst_buf;
+                self.outputs[index.index()] = dst_buf;
             }
         }
     }
@@ -590,7 +636,7 @@ impl TileState<'_, '_, '_> {
                     }
                 }),
                 TileOp::AddScalar { dst, src, scalar } => {
-                    let scalar = scalars[scalar];
+                    let scalar = scalars[scalar.index()];
                     self.apply(dst, [src], |dst, [src]| match src {
                         Some(src) => {
                             for (y, x) in dst.iter_mut().zip(src) {
@@ -605,7 +651,7 @@ impl TileState<'_, '_, '_> {
                     })
                 }
                 TileOp::SubScalar { dst, src, scalar } => {
-                    let scalar = scalars[scalar];
+                    let scalar = scalars[scalar.index()];
                     self.apply(dst, [src], |dst, [src]| match src {
                         Some(src) => {
                             for (y, x) in dst.iter_mut().zip(src) {
@@ -620,7 +666,7 @@ impl TileState<'_, '_, '_> {
                     })
                 }
                 TileOp::Sum { src, scalar } => {
-                    scalars[scalar] += vecmath::Sum::new(self.source(src)).dispatch();
+                    scalars[scalar.index()] += vecmath::Sum::new(self.source(src)).dispatch();
                 }
                 TileOp::Add { dst, a, b } => self.apply(dst, [a, b], |dst, srcs| match srcs {
                     [Some(a), Some(b)] => {
@@ -640,7 +686,7 @@ impl TileState<'_, '_, '_> {
                     }
                 }),
                 TileOp::MulScalar { dst, src, scalar } => {
-                    let scale = scalars[scalar];
+                    let scale = scalars[scalar.index()];
                     self.apply(dst, [src], |dst, [src]| match src {
                         Some(src) => {
                             for (y, x) in dst.iter_mut().zip(src) {
@@ -660,7 +706,7 @@ impl TileState<'_, '_, '_> {
                     scalar,
                     addend,
                 } => {
-                    let scale = scalars[scalar];
+                    let scale = scalars[scalar.index()];
                     self.apply(dst, [src, addend], |dst, [src, addend]| {
                         MulScalarAdd {
                             dst,
@@ -924,7 +970,8 @@ mod tests {
     use rten_testing::TestCases;
 
     use super::{
-        Dst, MISH_PROGRAM, Pass, RegId, ScalarOp, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram,
+        Dst, InputId, MISH_PROGRAM, OutputId, Pass, RegId, ScalarId, ScalarOp, Src, TASK_LEN,
+        TILE_LEN, TileOp, TileProgram,
     };
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask};
@@ -938,8 +985,8 @@ mod tests {
             vec![Pass::from(vec![
                 TileOp::MulScalar {
                     dst: reg,
-                    src: Src::Input(0),
-                    scalar: 0,
+                    src: Src::Input(InputId(0)),
+                    scalar: ScalarId(0),
                 },
                 TileOp::Sin {
                     dst: reg,
@@ -952,11 +999,11 @@ mod tests {
                 TileOp::MulScalar {
                     dst: reg,
                     src: reg_src,
-                    scalar: 1,
+                    scalar: ScalarId(1),
                 },
                 TileOp::Add {
-                    dst: Dst::Output(0),
-                    a: Src::Input(0),
+                    dst: Dst::Output(OutputId(0)),
+                    a: Src::Input(InputId(0)),
                     b: reg_src,
                 },
             ])],
@@ -1061,12 +1108,12 @@ mod tests {
             vec![Pass::from(vec![
                 TileOp::Sin {
                     dst: Dst::Reg(RegId(0)),
-                    src: Src::Input(1),
+                    src: Src::Input(InputId(1)),
                 },
                 TileOp::Add {
-                    dst: Dst::Output(0),
+                    dst: Dst::Output(OutputId(0)),
                     a: Src::Reg(RegId(0)),
-                    b: Src::Input(0),
+                    b: Src::Input(InputId(0)),
                 },
             ])],
             2,
@@ -1098,29 +1145,29 @@ mod tests {
         // as sources.
         let cases = [
             Case {
-                src: Src::Input(1),
-                addend: Src::Input(0),
+                src: Src::Input(InputId(1)),
+                addend: Src::Input(InputId(0)),
             },
             Case {
-                src: Src::Input(0),
-                addend: Src::Input(1),
+                src: Src::Input(InputId(0)),
+                addend: Src::Input(InputId(1)),
             },
             Case {
-                src: Src::Input(0),
-                addend: Src::Input(0),
+                src: Src::Input(InputId(0)),
+                addend: Src::Input(InputId(0)),
             },
             Case {
-                src: Src::Input(1),
-                addend: Src::Input(1),
+                src: Src::Input(InputId(1)),
+                addend: Src::Input(InputId(1)),
             },
         ];
 
         cases.test_each(|case| {
             let op = TileProgram::new(
                 vec![Pass::from(vec![TileOp::MulScalarAdd {
-                    dst: Dst::Output(0),
+                    dst: Dst::Output(OutputId(0)),
                     src: case.src,
-                    scalar: 0,
+                    scalar: ScalarId(0),
                     addend: case.addend,
                 }])],
                 2,
@@ -1139,7 +1186,7 @@ mod tests {
                 .unwrap();
 
             let input = |src: Src| match src {
-                Src::Input(index) => &inputs[index],
+                Src::Input(index) => &inputs[index.index()],
                 Src::Reg(_) | Src::Output(_) => unreachable!(),
             };
             let (src, addend) = (input(case.src), input(case.addend));
@@ -1156,17 +1203,24 @@ mod tests {
         // epsilon, standard deviation and its reciprocal.
         let reg = Dst::Reg(RegId(0));
         let reg_src = Src::Reg(RegId(0));
-        let x = Src::Input(0);
+        let x = Src::Input(InputId(0));
         let op = TileProgram::new(
             vec![
-                vec![TileOp::Sum { src: x, scalar: 3 }].into(),
+                vec![TileOp::Sum {
+                    src: x,
+                    scalar: ScalarId(3),
+                }]
+                .into(),
                 Pass {
-                    scalar_ops: vec![ScalarOp::DivRowLen { scalar: 3 }].into(),
+                    scalar_ops: vec![ScalarOp::DivRowLen {
+                        scalar: ScalarId(3),
+                    }]
+                    .into(),
                     tile_ops: vec![
                         TileOp::SubScalar {
                             dst: reg,
                             src: x,
-                            scalar: 3,
+                            scalar: ScalarId(3),
                         },
                         TileOp::Square {
                             dst: reg,
@@ -1174,39 +1228,51 @@ mod tests {
                         },
                         TileOp::Sum {
                             src: reg_src,
-                            scalar: 4,
+                            scalar: ScalarId(4),
                         },
                     ]
                     .into(),
                 },
                 Pass {
                     scalar_ops: vec![
-                        ScalarOp::DivRowLen { scalar: 4 },
-                        ScalarOp::Add { dst: 5, a: 4, b: 0 },
-                        ScalarOp::Sqrt { dst: 6, src: 5 },
-                        ScalarOp::Reciprocal { dst: 7, src: 6 },
+                        ScalarOp::DivRowLen {
+                            scalar: ScalarId(4),
+                        },
+                        ScalarOp::Add {
+                            dst: ScalarId(5),
+                            a: ScalarId(4),
+                            b: ScalarId(0),
+                        },
+                        ScalarOp::Sqrt {
+                            dst: ScalarId(6),
+                            src: ScalarId(5),
+                        },
+                        ScalarOp::Reciprocal {
+                            dst: ScalarId(7),
+                            src: ScalarId(6),
+                        },
                     ]
                     .into(),
                     tile_ops: vec![
                         TileOp::SubScalar {
                             dst: reg,
                             src: x,
-                            scalar: 3,
+                            scalar: ScalarId(3),
                         },
                         TileOp::MulScalar {
                             dst: reg,
                             src: reg_src,
-                            scalar: 7,
+                            scalar: ScalarId(7),
                         },
                         TileOp::MulScalar {
                             dst: reg,
                             src: reg_src,
-                            scalar: 1,
+                            scalar: ScalarId(1),
                         },
                         TileOp::AddScalar {
-                            dst: Dst::Output(0),
+                            dst: Dst::Output(OutputId(0)),
                             src: reg_src,
-                            scalar: 2,
+                            scalar: ScalarId(2),
                         },
                     ]
                     .into(),
@@ -1277,7 +1343,7 @@ mod tests {
             vec![Pass::from(vec![
                 TileOp::Sin {
                     dst: Dst::Reg(RegId(0)),
-                    src: Src::Input(0),
+                    src: Src::Input(InputId(0)),
                 },
                 TileOp::Cos {
                     dst: Dst::Reg(RegId(1)),
@@ -1285,10 +1351,10 @@ mod tests {
                 },
                 TileOp::Softplus {
                     dst: Dst::Reg(RegId(2)),
-                    src: Src::Input(1),
+                    src: Src::Input(InputId(1)),
                 },
                 TileOp::Mul {
-                    dst: Dst::Output(1),
+                    dst: Dst::Output(OutputId(1)),
                     a: Src::Reg(RegId(2)),
                     b: Src::Reg(RegId(1)),
                 },
@@ -1297,7 +1363,7 @@ mod tests {
                     src: Src::Reg(RegId(0)),
                 },
                 TileOp::Mul {
-                    dst: Dst::Output(0),
+                    dst: Dst::Output(OutputId(0)),
                     a: Src::Reg(RegId(2)),
                     b: Src::Reg(RegId(0)),
                 },

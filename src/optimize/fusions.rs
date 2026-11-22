@@ -20,10 +20,10 @@ use crate::ops::transform_inputs::TransformInputsBuilder;
 use crate::ops::{
     Add, AddSoftmax, BatchNormalization, Cast, ComputeShape, Conv, ConvDynamicQuant, ConvInteger,
     ConvIntegerToFloat, ConvTranspose, ConvTransposeDynamicQuant, Cos, DequantizeLinear, Div, Dst,
-    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, LayerNormalization, MatMul, MatMulDynamicQuant,
-    MatMulIntegerToFloat, Mul, Pass, Pow, RMSNormalization, Reciprocal, ReduceMean, RegId,
-    RepeatInterleave, ScalarOp, Shape, Silu, Sin, Softmax, Softplus, Sqrt, Src, Sub, Swish,
-    SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
+    FusedMatMul, Gelu, GroupedQueryAttentionMatMul, InputId, LayerNormalization, MatMul,
+    MatMulDynamicQuant, MatMulIntegerToFloat, Mul, OutputId, Pass, Pow, RMSNormalization,
+    Reciprocal, ReduceMean, RegId, RepeatInterleave, ScalarId, ScalarOp, Shape, Silu, Sin, Softmax,
+    Softplus, Sqrt, Src, Sub, Swish, SymbolInfo, TileOp, TileProgram, Transpose, dequantize_linear,
 };
 use crate::optimize::pattern_matcher::{Match, Pattern};
 use crate::optimize::{DynamicQuantOp, DynamicQuantOptions};
@@ -3326,21 +3326,25 @@ impl FusionVisitor for TileProgramFusion {
                 }
             }
         }
-        let mut scalar_ids: HashMap<NodeId, usize> = scalar_inputs
-            .iter()
-            .enumerate()
-            .map(|(index, id)| (*id, index))
-            .collect();
+        let new_scalar_id = |index: usize| {
+            ScalarId::new(index).ok_or(FusionError::CheckFailed("program needs too many scalars"))
+        };
+        let mut scalar_ids: HashMap<NodeId, ScalarId> = HashMap::new();
+        for scalar in &scalar_inputs {
+            scalar_ids.insert(*scalar, new_scalar_id(scalar_ids.len())?);
+        }
         for (value_id, step) in steps() {
             if step.is_scalar() {
-                scalar_ids.insert(value_id, scalar_ids.len());
+                scalar_ids.insert(value_id, new_scalar_id(scalar_ids.len())?);
             }
         }
-        let mut reciprocal_ids: HashMap<NodeId, usize> = HashMap::new();
+        let mut reciprocal_ids: HashMap<NodeId, ScalarId> = HashMap::new();
         for (_, step) in steps() {
-            if let ProgramStep::DivScalar { scalar, .. } = step {
-                let next_id = scalar_ids.len() + reciprocal_ids.len();
-                reciprocal_ids.entry(scalar).or_insert(next_id);
+            if let ProgramStep::DivScalar { scalar, .. } = step
+                && !reciprocal_ids.contains_key(&scalar)
+            {
+                let id = new_scalar_id(scalar_ids.len() + reciprocal_ids.len())?;
+                reciprocal_ids.insert(scalar, id);
             }
         }
 
@@ -3408,6 +3412,8 @@ impl FusionVisitor for TileProgramFusion {
         // Outputs are all written in the last pass.
         let n_passes = outputs.iter().map(|id| value_pass[id]).max().unwrap() + 1;
 
+        const TOO_MANY_INPUTS: FusionError =
+            FusionError::CheckFailed("program has too many inputs");
         let mut inputs = Vec::new();
         let mut passes = Vec::new();
         for pass in 0..n_passes {
@@ -3434,24 +3440,22 @@ impl FusionVisitor for TileProgramFusion {
                     _ => {}
                 }
             }
-            let mut reciprocals: Vec<_> = reciprocal_ids
+            let mut reciprocals: Vec<(ScalarId, ScalarId)> = reciprocal_ids
                 .iter()
                 .filter(|(scalar, _)| value_pass.get(*scalar).copied().unwrap_or(0) == pass)
-                .map(|(scalar, dst)| ScalarOp::Reciprocal {
-                    dst: *dst,
-                    src: scalar_ids[scalar],
-                })
+                .map(|(scalar, dst)| (*dst, scalar_ids[scalar]))
                 .collect();
-            reciprocals.sort_by_key(|op| match op {
-                ScalarOp::Reciprocal { dst, .. } => *dst,
-                _ => 0,
-            });
-            scalar_ops.extend(reciprocals);
+            reciprocals.sort();
+            scalar_ops.extend(
+                reciprocals
+                    .into_iter()
+                    .map(|(dst, src)| ScalarOp::Reciprocal { dst, src }),
+            );
 
             // Find the tensors which this pass must produce: those which are
             // reduced to a scalar that becomes available in the next pass,
             // or the output in the last pass.
-            let reductions: Vec<(NodeId, usize)> = steps()
+            let reductions: Vec<(NodeId, ScalarId)> = steps()
                 .filter_map(|(value_id, step)| match step {
                     ProgramStep::ReduceMean { src, .. } if value_pass[&value_id] == pass + 1 => {
                         Some((src, scalar_ids[&value_id]))
@@ -3498,7 +3502,8 @@ impl FusionVisitor for TileProgramFusion {
             let mut n_regs = 0;
 
             // Get the source of a tensor and release its register after the
-            // last use, so that it can be reused as a destination.
+            // last use, so that it can be reused as a destination. Returns
+            // `None` if the program has too many inputs.
             let mut src = |value_id: NodeId,
                            value_srcs: &HashMap<NodeId, Src>,
                            free_regs: &mut Vec<RegId>| {
@@ -3510,7 +3515,7 @@ impl FusionVisitor for TileProgramFusion {
                             free_regs.push(reg);
                         }
                     }
-                    value_src
+                    Some(value_src)
                 } else {
                     let index = inputs
                         .iter()
@@ -3519,7 +3524,7 @@ impl FusionVisitor for TileProgramFusion {
                             inputs.push(value_id);
                             inputs.len() - 1
                         });
-                    Src::Input(index)
+                    InputId::new(index).map(Src::Input)
                 }
             };
 
@@ -3528,7 +3533,8 @@ impl FusionVisitor for TileProgramFusion {
                 let srcs: Vec<Src> = step
                     .tensor_inputs()
                     .map(|input| src(input, &value_srcs, &mut free_regs))
-                    .collect();
+                    .collect::<Option<_>>()
+                    .ok_or(TOO_MANY_INPUTS)?;
                 let a = srcs[0];
 
                 let output_index = outputs
@@ -3536,8 +3542,10 @@ impl FusionVisitor for TileProgramFusion {
                     .position(|id| *id == value_id)
                     .filter(|_| pass == n_passes - 1);
                 let dst = if let Some(index) = output_index {
-                    value_srcs.insert(value_id, Src::Output(index));
-                    Dst::Output(index)
+                    let output = OutputId::new(index)
+                        .ok_or(FusionError::CheckFailed("program has too many outputs"))?;
+                    value_srcs.insert(value_id, Src::Output(output));
+                    Dst::Output(output)
                 } else {
                     // Use the lowest free register.
                     free_regs.sort_by(|a, b| b.cmp(a));
@@ -3598,7 +3606,7 @@ impl FusionVisitor for TileProgramFusion {
             }
             for (value_id, scalar) in reductions {
                 tile_ops.push(TileOp::Sum {
-                    src: src(value_id, &value_srcs, &mut free_regs),
+                    src: src(value_id, &value_srcs, &mut free_regs).ok_or(TOO_MANY_INPUTS)?,
                     scalar,
                 });
             }

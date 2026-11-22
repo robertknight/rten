@@ -112,7 +112,10 @@ pub(crate) use {
     },
     slice::Slice,
     split::Split,
-    tile_program::{Dst, MISH_PROGRAM, Pass, RegId, ScalarOp, Src, TileOp, TileProgram},
+    tile_program::{
+        Dst, InputId, MISH_PROGRAM, OutputId, Pass, RegId, ScalarId, ScalarOp, Src, TileOp,
+        TileProgram,
+    },
     trilu::Trilu,
     unary_elementwise::{
         Abs, Acos, Acosh, Asin, Asinh, Atan, Atanh, Ceil, Clip, Cos, Cosh, Elu, Erf, Exp, Floor,
