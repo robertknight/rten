@@ -58,6 +58,14 @@ pub enum TileOp {
     Add { dst: Dst, a: Src, b: Src },
     /// Multiply `src` by the scalar input with index `scalar`.
     MulScalar { dst: Dst, src: Src, scalar: usize },
+    /// Compute `addend + src * scalar`, where `scalar` is the index of a
+    /// scalar input.
+    MulScalarAdd {
+        dst: Dst,
+        src: Src,
+        scalar: usize,
+        addend: Src,
+    },
     /// Compute `sin(src)`.
     Sin { dst: Dst, src: Src },
     /// Compute `sin(src)^2`.
@@ -71,6 +79,7 @@ impl TileOp {
         match *self {
             TileOp::Add { dst, .. }
             | TileOp::MulScalar { dst, .. }
+            | TileOp::MulScalarAdd { dst, .. }
             | TileOp::Sin { dst, .. }
             | TileOp::SinSquared { dst, .. }
             | TileOp::Square { dst, .. } => dst,
@@ -201,6 +210,36 @@ impl TileState<'_, '_> {
                         None => {
                             for y in dst {
                                 *y *= scale;
+                            }
+                        }
+                    })
+                }
+                TileOp::MulScalarAdd {
+                    dst,
+                    src,
+                    scalar,
+                    addend,
+                } => {
+                    let scale = scalars[scalar];
+                    self.apply(dst, [src, addend], |dst, srcs| match srcs {
+                        [Some(src), Some(addend)] => {
+                            for ((y, x), a) in dst.iter_mut().zip(src).zip(addend) {
+                                *y = a + x * scale;
+                            }
+                        }
+                        [Some(src), None] => {
+                            for (y, x) in dst.iter_mut().zip(src) {
+                                *y += x * scale;
+                            }
+                        }
+                        [None, Some(addend)] => {
+                            for (y, a) in dst.iter_mut().zip(addend) {
+                                *y = a + *y * scale;
+                            }
+                        }
+                        [None, None] => {
+                            for y in dst {
+                                *y += *y * scale;
                             }
                         }
                     })
@@ -554,6 +593,72 @@ mod tests {
             sin[0] + b[idx]
         });
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_elementwise_program_mul_scalar_add() {
+        #[derive(Debug)]
+        struct Case {
+            src: Src,
+            addend: Src,
+        }
+
+        // Test each combination of the output's buffer and another buffer
+        // as sources.
+        let cases = [
+            Case {
+                src: Src::Input(1),
+                addend: Src::Input(0),
+            },
+            Case {
+                src: Src::Input(0),
+                addend: Src::Input(1),
+            },
+            Case {
+                src: Src::Input(0),
+                addend: Src::Input(0),
+            },
+            Case {
+                src: Src::Input(1),
+                addend: Src::Input(1),
+            },
+        ];
+
+        cases.test_each(|case| {
+            let program = TileProgram::new(
+                [TileOp::MulScalarAdd {
+                    dst: Dst::Output,
+                    src: case.src,
+                    scalar: 0,
+                    addend: case.addend,
+                }]
+                .into(),
+                2,
+                1,
+            );
+            let op = ElementwiseProgram {
+                program,
+                inner_dims: 2,
+            };
+            let inputs = [
+                test_input(&[3, TILE_LEN + 5]),
+                test_input(&[3, TILE_LEN + 5]),
+            ];
+            let inputs = [inputs[0].clone(), inputs[1].map(|x| x * 0.5 + 1.)];
+            let scale = Tensor::from(1.5);
+
+            let result: Tensor<f32> = op
+                .run_simple((inputs[0].view(), inputs[1].view(), scale.view()))
+                .unwrap();
+
+            let input = |src: Src| match src {
+                Src::Input(index) => &inputs[index],
+                Src::Reg(_) => unreachable!(),
+            };
+            let (src, addend) = (input(case.src), input(case.addend));
+            let expected = Tensor::from_fn(src.shape(), |idx| addend[idx] + src[idx] * 1.5);
+            assert_eq!(result, expected);
+        })
     }
 
     #[test]

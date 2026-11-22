@@ -424,15 +424,11 @@ fn test_fuse_elementwise_program() {
                 dst: reg,
                 src: reg_src,
             },
-            TileOp::MulScalar {
-                dst: reg,
+            TileOp::MulScalarAdd {
+                dst: Dst::Output,
                 src: reg_src,
                 scalar: 1,
-            },
-            TileOp::Add {
-                dst: Dst::Output,
-                a: Src::Input(0),
-                b: reg_src,
+                addend: Src::Input(0),
             },
         ];
         TileProgram::new(ops, 1, 2)
@@ -507,15 +503,11 @@ fn test_fuse_elementwise_program() {
                             dst: Dst::Reg(0),
                             src: Src::Input(0),
                         },
-                        TileOp::MulScalar {
-                            dst: Dst::Reg(0),
+                        TileOp::MulScalarAdd {
+                            dst: Dst::Output,
                             src: Src::Reg(0),
                             scalar: 0,
-                        },
-                        TileOp::Add {
-                            dst: Dst::Output,
-                            a: Src::Input(1),
-                            b: Src::Reg(0),
+                            addend: Src::Input(1),
                         },
                     ],
                     2,

@@ -3037,6 +3037,12 @@ enum ElementwiseStep {
         scalar: NodeId,
         inner_dims: usize,
     },
+    MulScalarAdd {
+        src: NodeId,
+        scalar: NodeId,
+        inner_dims: usize,
+        addend: NodeId,
+    },
     Sin {
         src: NodeId,
     },
@@ -3112,6 +3118,7 @@ impl ElementwiseStep {
     fn tensor_inputs(&self) -> impl Iterator<Item = NodeId> {
         let inputs = match *self {
             ElementwiseStep::Add { a, b } => [Some(a), Some(b)],
+            ElementwiseStep::MulScalarAdd { src, addend, .. } => [Some(src), Some(addend)],
             ElementwiseStep::MulScalar { src, .. }
             | ElementwiseStep::Sin { src }
             | ElementwiseStep::SinSquared { src, .. }
@@ -3258,6 +3265,40 @@ impl FusionVisitor for ElementwiseProgramFusion {
             order.retain(|id| *id != sin_id);
         }
 
+        // Combine `MulScalar` and `Add` steps, if the product is not used by
+        // any other operator.
+        for op_id in order.clone() {
+            let (op_output, ElementwiseStep::Add { a, b }) = steps[&op_id] else {
+                continue;
+            };
+            let combined = [(b, a), (a, b)].into_iter().find_map(|(product, addend)| {
+                let mul_id = source_step(product, &steps)?;
+                match steps[&mul_id] {
+                    (
+                        _,
+                        ElementwiseStep::MulScalar {
+                            src,
+                            scalar,
+                            inner_dims,
+                        },
+                    ) if uses[&product] == 1 => Some((
+                        mul_id,
+                        ElementwiseStep::MulScalarAdd {
+                            src,
+                            scalar,
+                            inner_dims,
+                            addend,
+                        },
+                    )),
+                    _ => None,
+                }
+            });
+            if let Some((mul_id, step)) = combined {
+                steps.insert(op_id, (op_output, step));
+                order.retain(|id| *id != mul_id);
+            }
+        }
+
         // Convert each operator into a tile operation.
         let mut inputs = Vec::new();
         let mut scalars = Vec::new();
@@ -3297,6 +3338,9 @@ impl FusionVisitor for ElementwiseProgramFusion {
             };
             let srcs: [Src; 2] = match step {
                 ElementwiseStep::Add { a, b } => [src(a), src(b)],
+                ElementwiseStep::MulScalarAdd {
+                    src: value, addend, ..
+                } => [src(value), src(addend)],
                 ElementwiseStep::MulScalar { src: value, .. }
                 | ElementwiseStep::Sin { src: value }
                 | ElementwiseStep::SinSquared { src: value, .. }
@@ -3326,6 +3370,11 @@ impl FusionVisitor for ElementwiseProgramFusion {
                     scalar,
                     inner_dims: scalar_inner_dims,
                     ..
+                }
+                | ElementwiseStep::MulScalarAdd {
+                    scalar,
+                    inner_dims: scalar_inner_dims,
+                    ..
                 } => {
                     inner_dims = inner_dims.min(scalar_inner_dims);
                     let scalar = scalars
@@ -3335,10 +3384,19 @@ impl FusionVisitor for ElementwiseProgramFusion {
                             scalars.push(scalar);
                             scalars.len() - 1
                         });
-                    TileOp::MulScalar {
-                        dst,
-                        src: a,
-                        scalar,
+                    if matches!(step, ElementwiseStep::MulScalarAdd { .. }) {
+                        TileOp::MulScalarAdd {
+                            dst,
+                            src: a,
+                            scalar,
+                            addend: b,
+                        }
+                    } else {
+                        TileOp::MulScalar {
+                            dst,
+                            src: a,
+                            scalar,
+                        }
                     }
                 }
                 ElementwiseStep::Sin { .. } => TileOp::Sin { dst, src: a },
