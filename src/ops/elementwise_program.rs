@@ -11,7 +11,8 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 use rten_base::bit_set::BitSet;
-use rten_simd::SimdUnaryOp;
+use rten_simd::ops::{BitOps, NumOps};
+use rten_simd::{Isa, Simd, SimdOp, SimdUnaryOp};
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 use rten_vecmath as vecmath;
@@ -59,7 +60,7 @@ pub enum TileOp {
     /// Multiply `src` by the scalar input with index `scalar`.
     MulScalar { dst: Dst, src: Src, scalar: usize },
     /// Compute `addend + src * scalar`, where `scalar` is the index of a
-    /// scalar input.
+    /// scalar input. This uses a fused multiply-add if available.
     MulScalarAdd {
         dst: Dst,
         src: Src,
@@ -123,6 +124,71 @@ impl TileProgram {
             n_inputs,
             n_scalars,
             n_regs,
+        }
+    }
+}
+
+/// Computes `addend + src * scale` and writes the result to `dst`.
+///
+/// `src` and `addend` are `None` if they are the same buffer as `dst`.
+struct MulScalarAdd<'a> {
+    dst: &'a mut [f32],
+    src: Option<&'a [f32]>,
+    addend: Option<&'a [f32]>,
+    scale: f32,
+}
+
+impl SimdOp for MulScalarAdd<'_> {
+    type Output = ();
+
+    #[inline(always)]
+    fn eval<I: Isa>(self, isa: I) {
+        let MulScalarAdd {
+            dst,
+            src,
+            addend,
+            scale,
+        } = self;
+        let ops = isa.f32();
+        let scale = ops.splat(scale);
+        let v_len = ops.len();
+
+        // Process the whole vectors. There is a separate loop for each
+        // combination of sources, so that the chunks of each buffer can be
+        // iterated over together.
+        let fma = |x: &[f32], a: &[f32]| ops.mul_add(ops.load(x), scale, ops.load(a));
+        let pos = dst.len() - dst.len() % v_len;
+        let dst_chunks = dst[..pos].chunks_exact_mut(v_len);
+        match (src, addend) {
+            (Some(src), Some(addend)) => {
+                let srcs = src.chunks_exact(v_len).zip(addend.chunks_exact(v_len));
+                for (y, (x, a)) in dst_chunks.zip(srcs) {
+                    ops.store(fma(x, a), y);
+                }
+            }
+            (Some(src), None) => {
+                for (y, x) in dst_chunks.zip(src.chunks_exact(v_len)) {
+                    ops.store(fma(x, y), y);
+                }
+            }
+            (None, Some(addend)) => {
+                for (y, a) in dst_chunks.zip(addend.chunks_exact(v_len)) {
+                    ops.store(fma(y, a), y);
+                }
+            }
+            (None, None) => {
+                for y in dst_chunks {
+                    ops.store(fma(y, y), y);
+                }
+            }
+        }
+
+        if pos < dst.len() {
+            let (x, _) = ops.load_pad(&src.unwrap_or(dst)[pos..]);
+            let (a, _) = ops.load_pad(&addend.unwrap_or(dst)[pos..]);
+            let y = ops.mul_add(x, scale, a).to_array();
+            let tail = &mut dst[pos..];
+            tail.copy_from_slice(&y.as_ref()[..tail.len()]);
         }
     }
 }
@@ -221,27 +287,14 @@ impl TileState<'_, '_> {
                     addend,
                 } => {
                     let scale = scalars[scalar];
-                    self.apply(dst, [src, addend], |dst, srcs| match srcs {
-                        [Some(src), Some(addend)] => {
-                            for ((y, x), a) in dst.iter_mut().zip(src).zip(addend) {
-                                *y = a + x * scale;
-                            }
+                    self.apply(dst, [src, addend], |dst, [src, addend]| {
+                        MulScalarAdd {
+                            dst,
+                            src,
+                            addend,
+                            scale,
                         }
-                        [Some(src), None] => {
-                            for (y, x) in dst.iter_mut().zip(src) {
-                                *y += x * scale;
-                            }
-                        }
-                        [None, Some(addend)] => {
-                            for (y, a) in dst.iter_mut().zip(addend) {
-                                *y = a + *y * scale;
-                            }
-                        }
-                        [None, None] => {
-                            for y in dst {
-                                *y += *y * scale;
-                            }
-                        }
+                        .dispatch()
                     })
                 }
                 TileOp::Sin { dst, src } => self.apply(dst, [src], |dst, [src]| {
@@ -426,6 +479,7 @@ impl Operator for ElementwiseProgram {
 mod tests {
     use rten_tensor::Tensor;
     use rten_tensor::prelude::*;
+    use rten_tensor::test_util::expect_equal;
     use rten_testing::TestCases;
 
     use super::{Dst, ElementwiseProgram, Src, TASK_LEN, TILE_LEN, TileOp, TileProgram};
@@ -657,7 +711,7 @@ mod tests {
             };
             let (src, addend) = (input(case.src), input(case.addend));
             let expected = Tensor::from_fn(src.shape(), |idx| addend[idx] + src[idx] * 1.5);
-            assert_eq!(result, expected);
+            expect_equal(&result, &expected).unwrap();
         })
     }
 
