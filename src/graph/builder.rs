@@ -203,11 +203,13 @@ impl Expr {
         }
 
         let output_ids: Vec<NodeId> = match self.kind.as_ref() {
-            ExprKind::Value(value_info) => [graph.add_value(
-                Some(value_info.name.as_str()),
-                value_info.shape.clone(),
-                value_info.dtype,
-            )]
+            ExprKind::Value(value_info) => [graph
+                .add_value(
+                    Some(value_info.name.as_str()),
+                    value_info.shape.clone(),
+                    value_info.dtype,
+                )
+                .expect("value name should be unique")]
             .into(),
             ExprKind::Constant(value) => {
                 let name = name_gen.generate("const");
@@ -223,7 +225,7 @@ impl Expr {
                     }
                     _ => unimplemented!("constant type not supported"),
                 };
-                [const_id].into()
+                [const_id.expect("generated name should be unique")].into()
             }
             ExprKind::Operator(op_info) => {
                 let op_inputs: Vec<_> = op_info
@@ -244,23 +246,27 @@ impl Expr {
                             OutputMeta::NoMeta => (None, None),
                             OutputMeta::Meta((dtype, shape)) => (Some(*dtype), Some(shape.clone())),
                         };
-                        graph.add_value(
-                            Some(output_name.as_str()),
-                            output_shape,
-                            output_dtype.map(ValueType::Tensor),
-                        )
+                        graph
+                            .add_value(
+                                Some(output_name.as_str()),
+                                output_shape,
+                                output_dtype.map(ValueType::Tensor),
+                            )
+                            .expect("generated name should be unique")
                     })
                     .collect();
 
                 let op_outputs_opt: Vec<_> = op_outputs.iter().copied().map(Some).collect();
 
                 let op_name = name_gen.generate(op_info.op.name());
-                graph.add_op(
-                    Some(op_name.as_str()),
-                    op_info.op.clone(),
-                    &op_inputs,
-                    &op_outputs_opt,
-                );
+                graph
+                    .add_op(
+                        Some(op_name.as_str()),
+                        op_info.op.clone(),
+                        &op_inputs,
+                        &op_outputs_opt,
+                    )
+                    .expect("generated name should be unique");
 
                 op_outputs
             }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -49,6 +50,33 @@ pub use node_id::NodeId;
 
 mod value_map;
 use value_map::ValueMap;
+
+/// Error returned when adding a node to a [`Graph`] if another node in the
+/// graph has the same name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DuplicateNodeName {
+    name: String,
+}
+
+impl DuplicateNodeName {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn new(name: &str) -> Self {
+        DuplicateNodeName {
+            name: name.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for DuplicateNodeName {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "a node named \"{}\" already exists", self.name)
+    }
+}
+
+impl std::error::Error for DuplicateNodeName {}
 
 /// Counter that tracks the remaining usage count of a graph node value.
 ///
@@ -335,6 +363,28 @@ impl Graph {
         self.output_ids.retain(|id| !node_ids.contains(id));
         self.captures.retain(|id| !node_ids.contains(id));
 
+        // Mark operator outputs as unused if they produce a value that is
+        // being removed.
+        for node_id in &node_ids {
+            let Some(op_id) = self.source_ids.get(node_id) else {
+                continue;
+            };
+
+            // Skip operators that are also being removed at the same time.
+            if node_ids.contains(op_id) {
+                continue;
+            }
+
+            if let Some(Node::Operator(op_node)) = self.nodes.get_mut(op_id)
+                && let Some(index) = op_node
+                    .output_ids()
+                    .iter()
+                    .position(|id| *id == Some(*node_id))
+            {
+                op_node.clear_output(index);
+            }
+        }
+
         // Remove nodes from output value -> source operator edges.
         self.source_ids
             .retain(|val_id, op_id| !node_ids.contains(val_id) && !node_ids.contains(op_id));
@@ -381,17 +431,24 @@ impl Graph {
     /// Add a node to the graph and return its ID.
     ///
     /// This contains the common logic for adding different types of node to
-    /// the graph.
-    fn add_node(&mut self, node: Node) -> NodeId {
+    /// the graph. Fails if `node` has a name that is already used by another
+    /// node in the graph.
+    fn add_node(&mut self, node: Node) -> Result<NodeId, DuplicateNodeName> {
         let node_id = NodeId::from_u32(self.next_node_id);
+
+        if let Some(name) = node.name() {
+            match self.node_id_from_name.entry(name.to_string()) {
+                Entry::Occupied(entry) => return Err(DuplicateNodeName::new(entry.key())),
+                Entry::Vacant(entry) => {
+                    entry.insert(node_id);
+                }
+            }
+        }
+
         self.nodes.insert(node_id, node);
         self.next_node_id += 1;
 
-        if let Some(name) = self.nodes.get(&node_id).unwrap().name() {
-            self.node_id_from_name.insert(name.to_string(), node_id);
-        }
-
-        node_id
+        Ok(node_id)
     }
 
     /// Invalidate cached execution plans.
@@ -416,16 +473,17 @@ impl Graph {
     /// value. This enables replacing an operator while preserving metadata
     /// of the output value (name, shape etc.).
     ///
-    /// Returns the ID of the operator node.
+    /// Returns the ID of the operator node, or an error if `name` is already
+    /// used by another node.
     pub fn add_op(
         &mut self,
         name: Option<&str>,
         op: Arc<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
-    ) -> NodeId {
+    ) -> Result<NodeId, DuplicateNodeName> {
         let op_node = Node::Operator(OperatorNode::new(name, inputs, outputs, op));
-        let op_id = self.add_node(op_node);
+        let op_id = self.add_node(op_node)?;
 
         for output_id in outputs.iter().flatten() {
             self.source_ids.insert(*output_id, op_id);
@@ -442,7 +500,7 @@ impl Graph {
         // one of the output IDs.
         self.clear_cached_plan();
 
-        op_id
+        Ok(op_id)
     }
 
     /// Add an operator and output value node to the graph.
@@ -457,20 +515,26 @@ impl Graph {
         name: &str,
         op: Op,
         input_ids: &[NodeId],
-    ) -> (NodeId, NodeId) {
+    ) -> Result<(NodeId, NodeId), DuplicateNodeName> {
         let op_out_name = format!("{}_out", name);
-        let op_out_id = self.add_value(Some(&op_out_name), None, None);
+        let op_out_id = self.add_value(Some(&op_out_name), None, None)?;
         let input_ids: Vec<_> = input_ids.iter().copied().map(Some).collect();
-        let op_node_id = self.add_op(Some(name), Arc::new(op), &input_ids, &[op_out_id].map(Some));
-        (op_node_id, op_out_id)
+        let op_node_id =
+            self.add_op(Some(name), Arc::new(op), &input_ids, &[op_out_id].map(Some))?;
+        Ok((op_node_id, op_out_id))
     }
 
     /// Convert `value` to a constant node and add it to the graph.
     ///
     /// `name` is an identifier for this node that is used in debug messages etc.
     ///
-    /// Returns the ID of the added node.
-    pub fn add_constant<T, V>(&mut self, name: Option<&str>, value: V) -> NodeId
+    /// Returns the ID of the added node, or an error if `name` is already used
+    /// by another node.
+    pub fn add_constant<T, V>(
+        &mut self,
+        name: Option<&str>,
+        value: V,
+    ) -> Result<NodeId, DuplicateNodeName>
     where
         V: Into<ConstantNodeData<T>>,
         ConstantNode<T>: Into<Constant>,
@@ -583,8 +647,9 @@ impl Graph {
 
     /// Add a constant node to the graph.
     ///
-    /// Returns the ID of the added node.
-    pub fn add_constant_node(&mut self, node: Constant) -> NodeId {
+    /// Returns the ID of the added node, or an error if the node's name is
+    /// already used by another node.
+    pub fn add_constant_node(&mut self, node: Constant) -> Result<NodeId, DuplicateNodeName> {
         self.add_node(Node::Constant(node))
     }
 
@@ -597,13 +662,14 @@ impl Graph {
     /// This serves as a placeholder for a value which is available only when
     /// the graph is executed, such as an input or operator output.
     ///
-    /// Returns the ID of the added node.
+    /// Returns the ID of the added node, or an error if `name` is already used
+    /// by another node.
     pub fn add_value(
         &mut self,
         name: Option<&str>,
         shape: Option<Vec<Dimension>>,
         dtype: Option<ValueType>,
-    ) -> NodeId {
+    ) -> Result<NodeId, DuplicateNodeName> {
         let value_node = Node::Value(ValueNode::new(name, shape, dtype));
         self.add_node(value_node)
     }
@@ -646,36 +712,9 @@ impl Graph {
         self.consumer_ids.get(&id).map(|v| &**v)
     }
 
-    /// Retrieve a node by ID
-    pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
-        self.nodes.get_mut(&id)
-    }
-
-    /// Mark an operator output as unused.
-    ///
-    /// This allows the operator to skip computing the output when the graph is
-    /// run.
-    ///
-    /// Returns the ID of the value node which was previously produced at this
-    /// position, if any. Note this node is not automatically removed from the
-    /// graph.
-    pub fn clear_operator_output(&mut self, op_id: NodeId, index: usize) -> Option<NodeId> {
-        let Some(Node::Operator(op_node)) = self.get_node_mut(op_id) else {
-            panic!("operator node not found");
-        };
-        let output_id = op_node.clear_output(index)?;
-
-        if self.source_ids.get(&output_id) == Some(&op_id) {
-            self.source_ids.remove(&output_id);
-        }
-        self.clear_cached_plan();
-
-        Some(output_id)
-    }
-
     /// Replace an operator input with a different value or constant.
     pub fn replace_input(&mut self, op_id: NodeId, old_input_id: NodeId, new_input_id: NodeId) {
-        let Some(Node::Operator(op_node)) = self.get_node_mut(op_id) else {
+        let Some(Node::Operator(op_node)) = self.nodes.get_mut(&op_id) else {
             panic!("operator node not found");
         };
         op_node.replace_input(old_input_id, new_input_id);
@@ -694,7 +733,7 @@ impl Graph {
 
     /// Update the shape metadata for a value node.
     pub fn update_value_shape(&mut self, value_id: NodeId, shape: Vec<Dimension>) {
-        let Some(Node::Value(value_node)) = self.get_node_mut(value_id) else {
+        let Some(Node::Value(value_node)) = self.nodes.get_mut(&value_id) else {
             panic!("value node not found");
         };
         value_node.update_shape(shape);
@@ -702,7 +741,7 @@ impl Graph {
 
     /// Update the type metadata for a value node.
     pub fn update_value_type(&mut self, value_id: NodeId, dtype: ValueType) {
-        let Some(Node::Value(value_node)) = self.get_node_mut(value_id) else {
+        let Some(Node::Value(value_node)) = self.nodes.get_mut(&value_id) else {
             panic!("value node not found");
         };
         value_node.update_type(dtype);

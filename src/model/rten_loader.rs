@@ -278,7 +278,8 @@ fn add_graph_operator(
         ));
     }
 
-    let graph_node = graph.add_op(name, op, &inputs, &outputs);
+    let graph_node = graph.add_op(name, op.clone(), &inputs, &outputs)?;
+
     Ok(graph_node)
 }
 
@@ -304,7 +305,7 @@ fn add_graph_value(
         .map(|dtype| convert_dtype("", dtype))
         .transpose()
         .map_err(|err| load_error!(OperatorInvalid, name, err))?;
-    let graph_node = graph.add_value(name, shape, dtype.map(ValueType::Tensor));
+    let graph_node = graph.add_value(name, shape, dtype.map(ValueType::Tensor))?;
     Ok(graph_node)
 }
 
@@ -359,7 +360,7 @@ fn add_graph_constant(
                 ));
             }
         };
-        Ok(graph_node)
+        Ok(graph_node?)
     } else {
         // Constant data is stored inline in model
         let graph_node = if let Some(float_data) = constant.data_as_float_data() {
@@ -381,7 +382,7 @@ fn add_graph_constant(
                 "unsupported data type for inline constant"
             ));
         };
-        Ok(graph_node)
+        Ok(graph_node?)
     }
 }
 

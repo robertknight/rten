@@ -150,7 +150,7 @@ fn load_graph(
     // Add constants from initializers.
     for initializer in &onnx_graph.initializer {
         let constant = load_constant(initializer, loader, None)?;
-        graph.add_constant_node(constant);
+        graph.add_constant_node(constant)?;
     }
 
     // Add constants from "Constant" operators in the graph.
@@ -160,7 +160,7 @@ fn load_graph(
         .filter(|op| op.op_type.as_deref() == Some("Constant"))
     {
         let constant = load_constant_from_constant_op(const_op, loader)?;
-        graph.add_constant_node(constant);
+        graph.add_constant_node(constant)?;
     }
 
     // Create value nodes corresponding to graph inputs and outputs.
@@ -182,7 +182,7 @@ fn load_graph(
             continue;
         }
 
-        input_ids.push(add_value(&mut graph, name, value));
+        input_ids.push(add_value(&mut graph, name, value)?);
     }
 
     for value in &onnx_graph.output {
@@ -200,7 +200,7 @@ fn load_graph(
             continue;
         }
 
-        add_value(&mut graph, name, value);
+        add_value(&mut graph, name, value)?;
     }
 
     // Create map of value name to dtype and shape metadata.
@@ -241,10 +241,10 @@ fn load_graph(
             }
             if graph.get_node_id(name).is_none() {
                 let value_id = if let Some(value_info) = name_to_value_info.get(name.as_str()) {
-                    add_value(&mut graph, name, value_info)
+                    add_value(&mut graph, name, value_info)?
                 } else {
                     // Add node without dtype or shape metadata.
-                    graph.add_value(Some(name), None, None)
+                    graph.add_value(Some(name), None, None)?
                 };
 
                 // If no value with this name was present in this graph, but
@@ -1098,7 +1098,7 @@ fn add_operator(
     let outputs = node_ids_from_names(&onnx_op.output);
     for (idx, value) in const_inputs {
         let constant = constant_from_attr_value(value);
-        let const_id = graph.add_constant_node(constant);
+        let const_id = graph.add_constant_node(constant)?;
 
         let idx = idx as usize;
         if inputs.len() <= idx {
@@ -1139,18 +1139,16 @@ fn add_operator(
         ));
     }
 
-    let mut name = onnx_op.name.as_deref();
-
-    // It is possible for ONNX operators to have a name that conflicts with a
-    // value. We assume here that values have already been added to the graph,
-    // and if there is a conflict, we make the graph operator anonymous.
-    //
-    // See https://github.com/robertknight/rten/issues/1220.
-    if name.and_then(|n| graph.get_node_id(n)).is_some() {
-        name = None;
+    let name = onnx_op.name.as_deref();
+    if graph.add_op(name, op.clone(), &inputs, &outputs).is_err() {
+        // It is possible for ONNX operators to have a name that conflicts with
+        // a value. We assume here that values have already been added to the
+        // graph, and if there is a conflict, we make the graph operator
+        // anonymous.
+        //
+        // See https://github.com/robertknight/rten/issues/1220.
+        graph.add_op(None, op, &inputs, &outputs)?;
     }
-
-    graph.add_op(name, op, &inputs, &outputs);
 
     Ok(())
 }
