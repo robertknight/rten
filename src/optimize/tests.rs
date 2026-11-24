@@ -192,11 +192,11 @@ fn test_convert_captured_values_to_constants() -> Result<(), Box<dyn Error>> {
 
     // Add a ref-counted constant value that can be cheaply cloned.
     let const_tensor = arc_tensor_view(42.);
-    graph.add_constant(Some("const_a"), const_tensor);
+    graph.add_constant(Some("const_a"), const_tensor).unwrap();
 
     // Capture the constant in the subgraph as a value.
     let mut subgraph = Graph::new();
-    let sg_val = subgraph.add_value(Some("const_a"), None, None);
+    let sg_val = subgraph.add_value(Some("const_a"), None, None).unwrap();
     subgraph.set_captures(&[sg_val]);
     subgraph.set_output_ids(&[sg_val]);
 
@@ -222,13 +222,21 @@ fn test_constant_propagation() -> Result<(), Box<dyn Error>> {
     let mut graph = Graph::new();
 
     // Add an operator with constant inputs.
-    let const_a = graph.add_constant(Some("const_a"), Tensor::from([1, 2, 3]).into_arc());
-    let const_b = graph.add_constant(Some("const_b"), Tensor::from([4, 5, 6]).into_arc());
-    let (_, add_out) = graph.add_simple_op("add_1", Add {}, &[const_a, const_b]);
+    let const_a = graph
+        .add_constant(Some("const_a"), Tensor::from([1, 2, 3]).into_arc())
+        .unwrap();
+    let const_b = graph
+        .add_constant(Some("const_b"), Tensor::from([4, 5, 6]).into_arc())
+        .unwrap();
+    let (_, add_out) = graph
+        .add_simple_op("add_1", Add {}, &[const_a, const_b])
+        .unwrap();
 
     // Add an operator with a dynamic input and the output of the previous operator.
-    let input = graph.add_value(Some("input"), None, None);
-    let (add_op_2, add_2_out) = graph.add_simple_op("add_2", Add {}, &[add_out, input]);
+    let input = graph.add_value(Some("input"), None, None).unwrap();
+    let (add_op_2, add_2_out) = graph
+        .add_simple_op("add_2", Add {}, &[add_out, input])
+        .unwrap();
     graph.set_input_ids(&[input]);
     graph.set_output_ids(&[add_out, add_2_out]);
 
@@ -1031,38 +1039,46 @@ fn test_eliminate_noop_cast() {
 #[test]
 fn test_no_eliminate_value_captured_by_subgraph() {
     let mut graph = Graph::new();
-    let input = graph.add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)));
-    let cond = graph.add_value(Some("cond"), None, Some(ValueType::Tensor(DataType::Int32)));
+    let input = graph
+        .add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)))
+        .unwrap();
+    let cond = graph
+        .add_value(Some("cond"), None, Some(ValueType::Tensor(DataType::Int32)))
+        .unwrap();
     graph.set_input_ids(&[input, cond]);
 
     // No-op cast
-    let (_cast_op, _cast_out) = graph.add_simple_op(
-        "cast",
-        Cast {
-            to: DataType::Float,
-        },
-        &[input],
-    );
+    let (_cast_op, _cast_out) = graph
+        .add_simple_op(
+            "cast",
+            Cast {
+                to: DataType::Float,
+            },
+            &[input],
+        )
+        .unwrap();
 
     // Build then/else branches which each capture "cast_out" and return it.
     let make_branch = || {
         let mut sg = Graph::new();
-        let cap = sg.add_value(Some("cast_out"), None, None);
+        let cap = sg.add_value(Some("cast_out"), None, None).unwrap();
         sg.set_captures(&[cap]);
         sg.set_output_ids(&[cap]);
         sg
     };
 
-    let if_out = graph.add_value(Some("if_out"), None, None);
-    graph.add_op(
-        Some("If"),
-        Arc::new(If {
-            then_branch: make_branch(),
-            else_branch: make_branch(),
-        }),
-        &[Some(cond)],
-        &[Some(if_out)],
-    );
+    let if_out = graph.add_value(Some("if_out"), None, None).unwrap();
+    graph
+        .add_op(
+            Some("If"),
+            Arc::new(If {
+                then_branch: make_branch(),
+                else_branch: make_branch(),
+            }),
+            &[Some(cond)],
+            &[Some(if_out)],
+        )
+        .unwrap();
     graph.set_output_ids(&[if_out]);
 
     let graph = optimize_graph(graph).unwrap();
@@ -1151,39 +1167,47 @@ fn test_does_not_remove_output_used_by_operator() {
 #[test]
 fn test_does_not_remove_output_captured_by_subgraph() {
     let mut graph = Graph::new();
-    let input = graph.add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)));
-    let cond = graph.add_value(Some("cond"), None, Some(ValueType::Tensor(DataType::Int32)));
+    let input = graph
+        .add_value(Some("x"), None, Some(ValueType::Tensor(DataType::Float)))
+        .unwrap();
+    let cond = graph
+        .add_value(Some("cond"), None, Some(ValueType::Tensor(DataType::Int32)))
+        .unwrap();
     graph.set_input_ids(&[input, cond]);
 
-    let quant_out = graph.add_value(Some("quant_out"), None, None);
-    let scale = graph.add_value(Some("scale"), None, None);
-    let zero_point = graph.add_value(Some("zero_point"), None, None);
-    graph.add_op(
-        Some("quant"),
-        Arc::new(DynamicQuantizeLinear {}),
-        &[Some(input)],
-        &[quant_out, scale, zero_point].map(Some),
-    );
+    let quant_out = graph.add_value(Some("quant_out"), None, None).unwrap();
+    let scale = graph.add_value(Some("scale"), None, None).unwrap();
+    let zero_point = graph.add_value(Some("zero_point"), None, None).unwrap();
+    graph
+        .add_op(
+            Some("quant"),
+            Arc::new(DynamicQuantizeLinear {}),
+            &[Some(input)],
+            &[quant_out, scale, zero_point].map(Some),
+        )
+        .unwrap();
 
     // Build then/else branches which each capture "scale" and return it.
     let make_branch = || {
         let mut sg = Graph::new();
-        let cap = sg.add_value(Some("scale"), None, None);
+        let cap = sg.add_value(Some("scale"), None, None).unwrap();
         sg.set_captures(&[cap]);
         sg.set_output_ids(&[cap]);
         sg
     };
 
-    let if_out = graph.add_value(Some("if_out"), None, None);
-    graph.add_op(
-        Some("If"),
-        Arc::new(If {
-            then_branch: make_branch(),
-            else_branch: make_branch(),
-        }),
-        &[Some(cond)],
-        &[Some(if_out)],
-    );
+    let if_out = graph.add_value(Some("if_out"), None, None).unwrap();
+    graph
+        .add_op(
+            Some("If"),
+            Arc::new(If {
+                then_branch: make_branch(),
+                else_branch: make_branch(),
+            }),
+            &[Some(cond)],
+            &[Some(if_out)],
+        )
+        .unwrap();
     graph.set_output_ids(&[quant_out, if_out]);
 
     let graph = optimize_graph(graph).unwrap();
@@ -1427,7 +1451,7 @@ fn test_optimize_does_not_fuse_if_intermediate_outputs_reused() {
     // Add an operator which reuses an intermediate value from the Gelu
     // subgraph. This should prevent fusion.
     let erf_out = graph.get_node_id("Erf_out").unwrap();
-    graph.add_simple_op("neg", Neg {}, &[erf_out]);
+    graph.add_simple_op("neg", Neg {}, &[erf_out]).unwrap();
 
     let optimized = optimize_graph(graph).unwrap();
     let fused_op = optimized

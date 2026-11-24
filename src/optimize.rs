@@ -11,8 +11,8 @@ use smallvec::SmallVec;
 use crate::Value;
 use crate::env::str_as_bool;
 use crate::graph::{
-    CaptureEnv, Constant, ConstantNode, ConstantNodeData, Graph, Node, NodeId, OperatorNode,
-    PlanOptions, RunError,
+    CaptureEnv, Constant, ConstantNode, ConstantNodeData, DuplicateNodeName, Graph, Node, NodeId,
+    OperatorNode, PlanOptions, RunError,
 };
 use crate::infer_shapes::{InferError, InferShapeOptions, Shape, infer_shapes};
 use crate::operator::Operator;
@@ -43,6 +43,9 @@ pub enum OptimizeError {
     RunError(RunError),
     /// Shape inference failed.
     InferShapesError(InferError),
+    /// Adding a node to the graph failed due to a name conflict with another
+    /// node.
+    DuplicateNodeName(DuplicateNodeName),
 }
 
 impl Display for OptimizeError {
@@ -50,11 +53,18 @@ impl Display for OptimizeError {
         match self {
             Self::RunError(err) => write!(f, "partial evaluation failed: {}", err),
             Self::InferShapesError(err) => write!(f, "shape inference failed: {}", err),
+            Self::DuplicateNodeName(err) => write!(f, "failed to update graph: {}", err),
         }
     }
 }
 
 impl Error for OptimizeError {}
+
+impl From<DuplicateNodeName> for OptimizeError {
+    fn from(err: DuplicateNodeName) -> Self {
+        Self::DuplicateNodeName(err)
+    }
+}
 
 /// Holds a [`Graph`] and associated data structures while it is being mutated
 /// by an optimizer, and provides operations to update the graph.
@@ -76,7 +86,7 @@ impl GraphMutator {
         &mut self,
         name: Option<&str>,
         value: impl Into<ConstantNodeData<T>>,
-    ) -> NodeId
+    ) -> Result<NodeId, DuplicateNodeName>
     where
         Constant: From<ConstantNode<T>>,
     {
@@ -84,7 +94,7 @@ impl GraphMutator {
     }
 
     /// Add a new constant value to the graph.
-    fn add_constant_node(&mut self, const_node: Constant) -> NodeId {
+    fn add_constant_node(&mut self, const_node: Constant) -> Result<NodeId, DuplicateNodeName> {
         self.graph.add_constant_node(const_node)
     }
 
@@ -95,8 +105,9 @@ impl GraphMutator {
         op: Arc<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
-    ) {
-        self.graph.add_op(name, op, inputs, outputs);
+    ) -> Result<(), DuplicateNodeName> {
+        self.graph.add_op(name, op, inputs, outputs)?;
+        Ok(())
     }
 
     /// Return a reference to the graph.
@@ -121,7 +132,7 @@ impl GraphMutator {
         &mut self,
         diag: &Diagnostics,
         create_fusion: F,
-    ) -> usize {
+    ) -> Result<usize, DuplicateNodeName> {
         struct Replacement {
             unfused_ops: Vec<NodeId>,
             fusion: Fusion,
@@ -137,7 +148,7 @@ impl GraphMutator {
             self.graph.output_ids(),
             PlanOptions::default(),
         ) else {
-            return 0;
+            return Ok(0);
         };
 
         // Reverse the operator list so that we traverse from outputs towards
@@ -282,7 +293,7 @@ impl GraphMutator {
                     // place their IDs in the input list.
                     let mut input_ids = fusion.input_ids;
                     for (index, constant) in fusion.new_constant_inputs {
-                        let const_id = self.add_constant_node(constant);
+                        let const_id = self.add_constant_node(constant)?;
                         input_ids[index] = Some(const_id);
                     }
                     self.add_operator(
@@ -290,7 +301,7 @@ impl GraphMutator {
                         fusion.fused_op,
                         &input_ids,
                         &fusion.output_ids,
-                    );
+                    )?;
                 }
                 Fusion::Identity {
                     input_id,
@@ -306,7 +317,7 @@ impl GraphMutator {
                             Arc::new(Identity {}),
                             &[Some(input_id)],
                             &[Some(output_id)],
-                        )
+                        )?;
                     } else {
                         self.replace_value(output_id, input_id);
                     }
@@ -316,31 +327,22 @@ impl GraphMutator {
                     output_id,
                     value,
                 } => {
-                    let const_id = self.graph.add_constant_node(value);
+                    let const_id = self.graph.add_constant_node(value)?;
                     self.replace_value(output_id, const_id);
                 }
             }
         }
 
-        n_fusions
+        Ok(n_fusions)
     }
 
     fn output_ids(&self) -> &[NodeId] {
         &self.output_ids
     }
 
-    /// Mark operator outputs as unused and remove their value nodes from the
-    /// graph.
-    fn clear_operator_outputs(&mut self, outputs: &[(NodeId, usize)]) {
-        let removed_values: Vec<NodeId> = outputs
-            .iter()
-            .filter_map(|(op_id, index)| self.graph.clear_operator_output(*op_id, *index))
-            .collect();
-        self.graph.remove_nodes(&removed_values);
-    }
-
-    fn set_captures(&mut self, captures: &[NodeId]) {
-        self.graph.set_captures(captures)
+    /// Remove nodes from the graph.
+    fn remove_nodes(&mut self, node_ids: &[NodeId]) {
+        self.graph.remove_nodes(node_ids);
     }
 
     /// Replace `old_value_id` with `new_value_id` in operator inputs and graph
@@ -360,6 +362,41 @@ impl GraphMutator {
         for op_id in consumer_ids {
             self.graph.replace_input(op_id, old_value_id, new_value_id);
         }
+    }
+
+    /// Replace value nodes with constants.
+    ///
+    /// `replacements` is a list of `(value_id, constant)` pairs.
+    fn replace_values_with_constants(
+        &mut self,
+        replacements: Vec<(NodeId, Constant)>,
+    ) -> Result<(), DuplicateNodeName> {
+        let consumer_ids: Vec<SmallVec<[NodeId; 1]>> = replacements
+            .iter()
+            .map(|(value_id, _)| {
+                self.graph
+                    .get_consumers(*value_id)
+                    .map(SmallVec::from_slice)
+                    .unwrap_or_default()
+            })
+            .collect();
+
+        // Remove the old value nodes before adding the constants to avoid
+        // a name conflict.
+        let value_ids: Vec<NodeId> = replacements.iter().map(|(id, _)| *id).collect();
+        self.graph.remove_nodes(&value_ids);
+
+        for ((old_value_id, constant), consumer_ids) in replacements.into_iter().zip(consumer_ids) {
+            let const_id = self.graph.add_constant_node(constant)?;
+            for output_id in self.output_ids.iter_mut().filter(|id| **id == old_value_id) {
+                *output_id = const_id;
+            }
+            for op_id in consumer_ids {
+                self.graph.replace_input(op_id, old_value_id, const_id);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -398,7 +435,10 @@ fn add_typed_constant(
                 Tensor::from(elts?)
             }
         };
-        Some(graph.add_constant(None, tensor.into_arc()))
+        let const_id = graph
+            .add_constant(None, tensor.into_arc())
+            .expect("unnamed node should not conflict");
+        Some(const_id)
     }
 
     match dtype {
@@ -696,21 +736,15 @@ impl GraphOptimizer {
                     .is_some_and(|consumers| !consumers.is_empty())
         };
 
-        // Unused operator outputs as `(operator_id, output_index)` pairs.
-        let unused: Vec<(NodeId, usize)> = graph
+        let unused: Vec<NodeId> = graph
             .graph()
             .iter()
-            .filter_map(|(op_id, node)| node.as_operator().map(|op| (op_id, op)))
-            .flat_map(|(op_id, op)| {
-                op.output_ids()
-                    .iter()
-                    .enumerate()
-                    .filter(|(_index, output_id)| output_id.is_some_and(|id| !is_used(id)))
-                    .map(move |(index, _output_id)| (op_id, index))
-            })
+            .filter_map(|(_, node)| node.as_operator())
+            .flat_map(|op| op.output_ids().iter().flatten().copied())
+            .filter(|&id| !is_used(id))
             .collect();
 
-        graph.clear_operator_outputs(&unused);
+        graph.remove_nodes(&unused);
     }
 
     /// Replace captured values in a graph with constants if the captured value
@@ -738,16 +772,7 @@ impl GraphOptimizer {
             })
             .collect();
 
-        let mut new_captures: FxHashSet<_> = graph.graph().captures().iter().copied().collect();
-
-        for (capture_id, local_const) in captured_constants {
-            let const_id = graph.add_constant_node(local_const);
-            new_captures.remove(&capture_id);
-            graph.replace_value(capture_id, const_id);
-        }
-
-        let new_captures: Vec<_> = new_captures.into_iter().collect();
-        graph.set_captures(&new_captures);
+        graph.replace_values_with_constants(captured_constants)?;
 
         Ok(())
     }
@@ -766,37 +791,32 @@ impl GraphOptimizer {
         // nodes in the graph with the value and replace references to
         // `value_node_id` in operator inputs and model outputs with the new
         // constant.
+        let mut replacements = Vec::with_capacity(leaves.len());
         for (value_node_id, output) in leaves {
-            let const_name = graph
-                .graph()
-                .get_node(value_node_id)
-                .and_then(|n| n.name())
-                .map(|name| name.to_string());
-            let const_name = const_name.as_deref();
+            let const_name = graph.graph().get_node(value_node_id).and_then(|n| n.name());
 
-            let const_id = match output {
+            let constant: Constant = match output {
                 Value::FloatTensor(tensor) => {
-                    Some(graph.add_constant(const_name, tensor.into_arc()))
+                    ConstantNode::new(const_name, tensor.into_arc().into()).into()
                 }
                 Value::Int32Tensor(tensor) => {
-                    Some(graph.add_constant(const_name, tensor.into_arc()))
+                    ConstantNode::new(const_name, tensor.into_arc().into()).into()
                 }
                 Value::Int8Tensor(tensor) => {
-                    Some(graph.add_constant(const_name, tensor.into_arc()))
+                    ConstantNode::new(const_name, tensor.into_arc().into()).into()
                 }
                 Value::UInt8Tensor(tensor) => {
-                    Some(graph.add_constant(const_name, tensor.into_arc()))
+                    ConstantNode::new(const_name, tensor.into_arc().into()).into()
                 }
 
                 // Sequence constants are not yet supported, but we could add
                 // them in future. For now, the sequence generated by constant
                 // propagation is just discarded.
-                Value::Sequence(_) => None,
+                Value::Sequence(_) => continue,
             };
-            if let Some(const_id) = const_id {
-                graph.replace_value(value_node_id, const_id);
-            }
+            replacements.push((value_node_id, constant));
         }
+        graph.replace_values_with_constants(replacements)?;
 
         Ok(())
     }
@@ -836,7 +856,7 @@ impl GraphOptimizer {
                 }
             }
             None
-        });
+        })?;
 
         Ok(n_fusions)
     }

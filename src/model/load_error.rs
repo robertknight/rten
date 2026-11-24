@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::graph::DuplicateNodeName;
 use crate::optimize::OptimizeError;
 
 /// Errors that occur when loading a model.
@@ -36,6 +37,15 @@ impl LoadError {
     /// Return the category of error.
     pub fn kind(&self) -> LoadErrorKind {
         self.inner.kind()
+    }
+}
+
+impl From<DuplicateNodeName> for LoadError {
+    fn from(err: DuplicateNodeName) -> Self {
+        Self::for_node(
+            Some(err.name()),
+            LoadErrorImpl::GraphError("duplicate node name".into()),
+        )
     }
 }
 
@@ -144,7 +154,9 @@ impl LoadErrorImpl {
             Self::OperatorInvalid(_) => Kind::OperatorInvalid,
             Self::GraphError(_) => Kind::GraphError,
             Self::OptimizeError(err) => match **err {
-                OptimizeError::RunError(_) => Kind::OptimizeError,
+                OptimizeError::RunError(_) | OptimizeError::DuplicateNodeName(_) => {
+                    Kind::OptimizeError
+                }
                 OptimizeError::InferShapesError(_) => Kind::ShapeInferenceFailed,
             },
             Self::UnknownFileType => Kind::UnknownFileType,

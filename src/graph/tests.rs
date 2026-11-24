@@ -13,7 +13,8 @@ use smallvec::{SmallVec, smallvec};
 
 use super::{CachedPlan, CaptureEnv, PlanOptions};
 use crate::graph::{
-    Dimension, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions, TypedConstant,
+    Dimension, DuplicateNodeName, Graph, Node, NodeId, RunError, RunErrorKind, RunOptions,
+    TypedConstant,
 };
 use crate::infer_shapes::InferShapes;
 use crate::operator::{
@@ -166,20 +167,22 @@ fn test_graph_run() -> Result<(), Box<dyn Error>> {
         ],
     )
     .into_arc();
-    let weights_id = g.add_constant(Some("weight"), weights);
-    let input_id = g.add_value(Some("input"), None, None);
+    let weights_id = g.add_constant(Some("weight"), weights).unwrap();
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
-    let (_, conv_out) = g.add_simple_op(
-        "conv",
-        Conv {
-            dilations: vec![1, 1],
-            groups: 1,
-            padding: [1, 1, 1, 1].into(),
-            strides: vec![1, 1],
-        },
-        &[input_id, weights_id],
-    );
-    let (_, relu_out) = g.add_simple_op("relu", Relu {}, &[conv_out]);
+    let (_, conv_out) = g
+        .add_simple_op(
+            "conv",
+            Conv {
+                dilations: vec![1, 1],
+                groups: 1,
+                padding: [1, 1, 1, 1].into(),
+                strides: vec![1, 1],
+            },
+            &[input_id, weights_id],
+        )
+        .unwrap();
+    let (_, relu_out) = g.add_simple_op("relu", Relu {}, &[conv_out]).unwrap();
 
     let input = Tensor::from_data(
         &[1, 1, 3, 3],
@@ -213,8 +216,8 @@ fn test_graph_run() -> Result<(), Box<dyn Error>> {
 fn test_op_node_trailing_unused_outputs() {
     let mut g = Graph::new();
 
-    let input_id = g.add_value(Some("input"), None, None);
-    let relu_out_id = g.add_value(Some("relu_out"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let relu_out_id = g.add_value(Some("relu_out"), None, None).unwrap();
 
     g.add_op(
         Some("relu"),
@@ -223,7 +226,8 @@ fn test_op_node_trailing_unused_outputs() {
         // Add operator with unused output IDs. When checking actual vs
         // expected outputs at runtime, these should be ignored.
         &[Some(relu_out_id), None, None],
-    );
+    )
+    .unwrap();
 
     g.run(
         vec![(input_id, Tensor::from(1.).into())],
@@ -239,29 +243,33 @@ fn test_graph_node_debug_names() {
     let mut g = Graph::new();
 
     let weights = Tensor::from([0.3230]).into_arc();
-    let weights_id = g.add_constant(Some("weights"), weights.clone());
-    let input_id = g.add_value(Some("input"), None, None);
-    let relu_out_id = g.add_value(Some("relu_out"), None, None);
-    let relu_op_id = g.add_op(
-        Some("relu"),
-        Arc::new(Relu {}),
-        &[Some(input_id)],
-        &[Some(relu_out_id)],
-    );
+    let weights_id = g.add_constant(Some("weights"), weights.clone()).unwrap();
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let relu_out_id = g.add_value(Some("relu_out"), None, None).unwrap();
+    let relu_op_id = g
+        .add_op(
+            Some("relu"),
+            Arc::new(Relu {}),
+            &[Some(input_id)],
+            &[Some(relu_out_id)],
+        )
+        .unwrap();
 
     assert_eq!(g.node_name(weights_id), "weights");
     assert_eq!(g.node_name(input_id), "input");
     assert_eq!(g.node_name(relu_op_id), "relu");
 
-    let anon_weights_id = g.add_constant(None, weights);
-    let anon_input_id = g.add_value(None, None, None);
-    let anon_out_id = g.add_value(None, None, None);
-    let anon_op_id = g.add_op(
-        None,
-        Arc::new(Relu {}),
-        &[Some(input_id)],
-        &[Some(anon_out_id)],
-    );
+    let anon_weights_id = g.add_constant(None, weights).unwrap();
+    let anon_input_id = g.add_value(None, None, None).unwrap();
+    let anon_out_id = g.add_value(None, None, None).unwrap();
+    let anon_op_id = g
+        .add_op(
+            None,
+            Arc::new(Relu {}),
+            &[Some(input_id)],
+            &[Some(anon_out_id)],
+        )
+        .unwrap();
 
     assert_eq!(
         g.node_name(anon_weights_id),
@@ -275,25 +283,63 @@ fn test_graph_node_debug_names() {
 }
 
 #[test]
+fn test_add_node_with_duplicate_name() {
+    let mut g = Graph::new();
+    let input_id = g.add_value(Some("x"), None, None).unwrap();
+    let weights = Tensor::from([0.5]).into_arc();
+    let expected_err = Err(DuplicateNodeName::new("x"));
+
+    // Each node type shares the same namespace.
+    assert_eq!(g.add_value(Some("x"), None, None), expected_err);
+    assert_eq!(g.add_constant(Some("x"), weights.clone()), expected_err);
+    let relu_out = g.add_value(Some("relu_out"), None, None).unwrap();
+    assert_eq!(
+        g.add_op(
+            Some("x"),
+            Arc::new(Relu {}),
+            &[Some(input_id)],
+            &[Some(relu_out)]
+        ),
+        expected_err
+    );
+
+    // A failed add leaves the existing node in place.
+    assert_eq!(g.get_node_id("x"), Some(input_id));
+    assert!(g.get_consumers(input_id).is_none_or(|ids| ids.is_empty()));
+
+    // Anonymous nodes never conflict.
+    let anon_a = g.add_constant(None, weights.clone()).unwrap();
+    let anon_b = g.add_constant(None, weights).unwrap();
+    assert_ne!(anon_a, anon_b);
+
+    // The name can be reused after the node is removed.
+    g.remove_nodes(&[input_id]);
+    let new_id = g.add_value(Some("x"), None, None).unwrap();
+    assert_eq!(g.get_node_id("x"), Some(new_id));
+}
+
+#[test]
 fn test_graph_node_shapes() {
     let mut g = Graph::new();
 
     let weights = Tensor::from_data(&[1, 1, 2], vec![0.3230, 0.5]).into_arc();
-    let weights_id = g.add_constant(Some("weights"), weights.clone());
-    let input_id = g.add_value(
-        Some("input"),
-        Some(
-            [
-                Dimension::Symbolic("batch".to_string()),
-                Dimension::Fixed(3),
-                Dimension::Fixed(5),
-                Dimension::Fixed(5),
-            ]
-            .to_vec(),
-        ),
-        None,
-    );
-    let (relu_op_id, _) = g.add_simple_op("relu", Relu {}, &[input_id]);
+    let weights_id = g.add_constant(Some("weights"), weights.clone()).unwrap();
+    let input_id = g
+        .add_value(
+            Some("input"),
+            Some(
+                [
+                    Dimension::Symbolic("batch".to_string()),
+                    Dimension::Fixed(3),
+                    Dimension::Fixed(5),
+                    Dimension::Fixed(5),
+                ]
+                .to_vec(),
+            ),
+            None,
+        )
+        .unwrap();
+    let (relu_op_id, _) = g.add_simple_op("relu", Relu {}, &[input_id]).unwrap();
 
     assert_eq!(
         g.get_node(weights_id).and_then(|n| n.shape()),
@@ -380,12 +426,14 @@ fn test_graph_run_invalid_input() {
 
     cases.test_each(|case| {
         let mut g = Graph::new();
-        let input_id = g.add_value(
-            Some("input"),
-            case.expected_shape.clone(),
-            case.expected_dtype,
-        );
-        let (_, op_out) = g.add_simple_op("relu", Relu {}, &[input_id]);
+        let input_id = g
+            .add_value(
+                Some("input"),
+                case.expected_shape.clone(),
+                case.expected_dtype,
+            )
+            .unwrap();
+        let (_, op_out) = g.add_simple_op("relu", Relu {}, &[input_id]).unwrap();
 
         let result = g.run(
             vec![(input_id, case.input.as_view().into())],
@@ -415,7 +463,9 @@ fn test_graph_value_dtype() {
         DataType::UInt8,
         DataType::Int8,
     ] {
-        let input_id = g.add_value(None, None, Some(ValueType::Tensor(dtype)));
+        let input_id = g
+            .add_value(None, None, Some(ValueType::Tensor(dtype)))
+            .unwrap();
         let input_dtype = g.get_node(input_id).and_then(|n| n.dtype());
         assert_eq!(input_dtype, Some(ValueType::Tensor(dtype)));
     }
@@ -451,17 +501,21 @@ impl Operator for AddOne {
 fn test_graph_planning_order() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
 
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
-    let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
-    let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
+    let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]).unwrap();
+    let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]).unwrap();
 
     // op_c has both op_a and op_b as inputs. Since op_b depends on op_a,
     // execution must run op_a, then op_b, then op_c.
-    let (_, op_c_out) = g.add_simple_op("op_c", Concat { axis: 0 }, &[op_a_out, op_b_out]);
+    let (_, op_c_out) = g
+        .add_simple_op("op_c", Concat { axis: 0 }, &[op_a_out, op_b_out])
+        .unwrap();
 
     // op_d is the same as op_c, but input order is reversed
-    let (_, op_d_out) = g.add_simple_op("op_d", Concat { axis: 0 }, &[op_b_out, op_a_out]);
+    let (_, op_d_out) = g
+        .add_simple_op("op_d", Concat { axis: 0 }, &[op_b_out, op_a_out])
+        .unwrap();
 
     let input = Tensor::from([1.]);
 
@@ -489,11 +543,15 @@ fn test_graph_planning_order() -> Result<(), Box<dyn Error>> {
 fn test_runs_non_in_place_ops_first() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
 
-    let input_a_id = g.add_value(Some("input_a"), None, None);
-    let input_b_id = g.add_value(Some("input_b"), None, None);
+    let input_a_id = g.add_value(Some("input_a"), None, None).unwrap();
+    let input_b_id = g.add_value(Some("input_b"), None, None).unwrap();
 
-    let (add_op, add_out) = g.add_simple_op("add", Add {}, &[input_a_id, input_b_id]);
-    let (shape_op, shape_out) = g.add_simple_op("shape", Shape::default(), &[input_a_id]);
+    let (add_op, add_out) = g
+        .add_simple_op("add", Add {}, &[input_a_id, input_b_id])
+        .unwrap();
+    let (shape_op, shape_out) = g
+        .add_simple_op("shape", Shape::default(), &[input_a_id])
+        .unwrap();
 
     // The execution plan could run operators in either order and produce
     // the correct output. Since the `Add` op has the _potential_ to run in
@@ -524,9 +582,9 @@ fn test_runs_non_in_place_ops_first() -> Result<(), Box<dyn Error>> {
 fn test_graph_intermediate_output() {
     let mut g = Graph::new();
 
-    let input_id = g.add_value(Some("input"), None, None);
-    let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
-    let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]).unwrap();
+    let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]).unwrap();
 
     let input = Tensor::from(0.);
     let results = g
@@ -552,17 +610,18 @@ fn test_graph_many_steps() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
 
     let input = Tensor::from([1., 2., 3., 4., 5.]);
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
     let mut prev_output = input_id;
     for _ in 0..100 {
-        let next_output = g.add_value(None, None, None);
+        let next_output = g.add_value(None, None, None).unwrap();
         g.add_op(
             None,
             Arc::new(AddOne {}),
             &[Some(prev_output)],
             &[Some(next_output)],
-        );
+        )
+        .unwrap();
         prev_output = next_output;
     }
 
@@ -581,7 +640,7 @@ fn test_noop_graph() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
 
     let input = Tensor::from([1., 2., 3., 4., 5.]);
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
     let results = g
         .run(
@@ -602,7 +661,7 @@ fn test_constant_graph() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
 
     let value = Tensor::from([1., 2., 3., 4., 5.]).into_arc();
-    let const_id = g.add_constant(Some("weight"), value.clone());
+    let const_id = g.add_constant(Some("weight"), value.clone()).unwrap();
 
     let results = g.run(vec![], &[const_id], None, None).unwrap();
 
@@ -614,8 +673,10 @@ fn test_constant_graph() -> Result<(), Box<dyn Error>> {
 #[test]
 fn test_typed_constant() {
     let mut g = Graph::new();
-    let scalar_id = g.add_constant(None, Tensor::from(42.).into_arc());
-    let vec_id = g.add_constant(None, Tensor::from([1, 2, 3]).into_arc());
+    let scalar_id = g.add_constant(None, Tensor::from(42.).into_arc()).unwrap();
+    let vec_id = g
+        .add_constant(None, Tensor::from([1, 2, 3]).into_arc())
+        .unwrap();
 
     let scalar_node = match g.get_node(scalar_id) {
         Some(Node::Constant(c)) => Some(c),
@@ -639,15 +700,20 @@ fn test_typed_constant() {
 #[test]
 fn test_total_params() {
     let mut g = Graph::new();
-    g.add_constant(Some("floats"), Tensor::<f32>::zeros(&[10, 10]).into_arc());
-    g.add_constant(Some("ints"), Tensor::<i32>::zeros(&[10, 10]).into_arc());
+    g.add_constant(Some("floats"), Tensor::<f32>::zeros(&[10, 10]).into_arc())
+        .unwrap();
+    g.add_constant(Some("ints"), Tensor::<i32>::zeros(&[10, 10]).into_arc())
+        .unwrap();
 
     let mut subgraph = Graph::new();
-    subgraph.add_constant(
-        Some("sg_floats"),
-        Tensor::<f32>::zeros(&[10, 10]).into_arc(),
-    );
-    g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+    subgraph
+        .add_constant(
+            Some("sg_floats"),
+            Tensor::<f32>::zeros(&[10, 10]).into_arc(),
+        )
+        .unwrap();
+    g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[])
+        .unwrap();
 
     assert_eq!(g.total_params(), 300);
 }
@@ -662,7 +728,7 @@ fn test_no_outputs() {
 #[test]
 fn test_duplicate_inputs() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
     let input = Tensor::from([1.]);
     let err = g
         .run(
@@ -687,8 +753,8 @@ fn test_duplicate_inputs() {
 fn test_duplicate_outputs() {
     let mut g = Graph::new();
 
-    let input_id = g.add_value(Some("input"), None, None);
-    let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]).unwrap();
 
     let input = Tensor::from([1.]);
 
@@ -712,7 +778,7 @@ fn test_duplicate_outputs() {
 #[test]
 fn test_no_source_for_output() {
     let mut g = Graph::new();
-    let output_id = g.add_value(Some("output"), None, None);
+    let output_id = g.add_value(Some("output"), None, None).unwrap();
     let err = g.run(vec![], &[output_id], None, None).err().unwrap();
     assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
@@ -725,7 +791,7 @@ fn test_no_source_for_output() {
 fn test_graph_input_as_output() -> Result<(), Box<dyn Error>> {
     // Graph with a value that is both an input and an output.
     let mut g = Graph::new();
-    let val = g.add_value(Some("x"), None, None);
+    let val = g.add_value(Some("x"), None, None).unwrap();
 
     // A partial run with no inputs, as used for constant propagation, should
     // succeed and produce no values for the pass-through output.
@@ -744,7 +810,7 @@ fn test_graph_input_as_output() -> Result<(), Box<dyn Error>> {
 fn test_invalid_input_id() {
     let mut g = Graph::new();
 
-    let (op_id, op_out) = g.add_simple_op("op", AddOne {}, &[]);
+    let (op_id, op_out) = g.add_simple_op("op", AddOne {}, &[]).unwrap();
     let input = Tensor::from([1.]);
     let invalid_id = NodeId::from_u32(1234);
 
@@ -774,8 +840,8 @@ fn test_invalid_input_id() {
 fn test_invalid_output_id() {
     let mut g = Graph::new();
 
-    let input_id = g.add_value(None, None, None);
-    let (op_id, _op_out) = g.add_simple_op("op", AddOne {}, &[input_id]);
+    let input_id = g.add_value(None, None, None).unwrap();
+    let (op_id, _op_out) = g.add_simple_op("op", AddOne {}, &[input_id]).unwrap();
     let input = Tensor::from([1.]);
     let invalid_id = NodeId::from_u32(1234);
 
@@ -805,16 +871,18 @@ fn test_invalid_output_id() {
 fn test_cycle() {
     let mut g = Graph::new();
 
-    let input_id = g.add_value(Some("input"), None, None);
-    let output_id = g.add_value(Some("output"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let output_id = g.add_value(Some("output"), None, None).unwrap();
 
     // Add an operator which depends on its own output, creating a cycle.
-    let _op_id = g.add_op(
-        Some("identity_0"),
-        Arc::new(Identity {}),
-        &[Some(output_id)],
-        &[Some(output_id)],
-    );
+    let _op_id = g
+        .add_op(
+            Some("identity_0"),
+            Arc::new(Identity {}),
+            &[Some(output_id)],
+            &[Some(output_id)],
+        )
+        .unwrap();
 
     let input = Tensor::from([1.]);
     let err = g
@@ -841,13 +909,14 @@ fn test_call_op_with_missing_input() {
     // Call an operator with an input omitted by setting it to `None`,
     // as opposed to passing a shorter input list. This enables omitting
     // an input but still providing subsequent ones.
-    let output = g.add_value(None, None, None);
+    let output = g.add_value(None, None, None).unwrap();
     g.add_op(
         Some("shape"),
         Arc::new(Shape::default()),
         &[None],
         &[Some(output)],
-    );
+    )
+    .unwrap();
 
     let err = g.run(vec![], &[output], None, None).err().unwrap();
 
@@ -858,7 +927,9 @@ fn test_call_op_with_missing_input() {
 #[test]
 fn test_err_if_missing_operator_input() {
     let mut g = Graph::new();
-    let (_, output) = g.add_simple_op("op", Relu {}, &[NodeId::from_u32(42)]);
+    let (_, output) = g
+        .add_simple_op("op", Relu {}, &[NodeId::from_u32(42)])
+        .unwrap();
     let err = g.run(vec![], &[output], None, None).err().unwrap();
     assert_eq!(err.kind(), RunErrorKind::PlanningError);
     assert_eq!(
@@ -914,12 +985,20 @@ impl Operator for AddOneInPlace {
 #[test]
 fn test_runs_op_in_place() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
-    let (_, op1_out) = g.add_simple_op("op1", AddOneInPlace {}, &[input_id]);
-    let (_, op2_out) = g.add_simple_op("op2", AddOneInPlace {}, &[op1_out]);
-    let (_, op3_out) = g.add_simple_op("op3", AddOneInPlace {}, &[op2_out]);
-    let (_, op4_out) = g.add_simple_op("op4", AddOneInPlace {}, &[op2_out]);
+    let (_, op1_out) = g
+        .add_simple_op("op1", AddOneInPlace {}, &[input_id])
+        .unwrap();
+    let (_, op2_out) = g
+        .add_simple_op("op2", AddOneInPlace {}, &[op1_out])
+        .unwrap();
+    let (_, op3_out) = g
+        .add_simple_op("op3", AddOneInPlace {}, &[op2_out])
+        .unwrap();
+    let (_, op4_out) = g
+        .add_simple_op("op4", AddOneInPlace {}, &[op2_out])
+        .unwrap();
     let input = Tensor::<f32>::zeros(&[1, 1]);
 
     // First operator should not be run in-place, since it has an
@@ -968,8 +1047,8 @@ fn test_runs_commutative_op_in_place() {
     use crate::ops::Add; // A commutative operator
 
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let bias_id = g.add_value(Some("bias"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let bias_id = g.add_value(Some("bias"), None, None).unwrap();
 
     let op1 = TrackUsage::new(Add {});
     let op1_metrics = op1.metrics();
@@ -977,15 +1056,17 @@ fn test_runs_commutative_op_in_place() {
     let op2 = TrackUsage::new(Add {});
     let op2_metrics = op2.metrics();
 
-    let (_, op1_out) = g.add_simple_op("op1", op1, &[input_id, bias_id]);
-    let (_, op2_out) = g.add_simple_op(
-        "op2",
-        op2,
-        // Note here the input ordering. The bias value is smaller, but
-        // is the first argument. This operator can run in place, but only
-        // if the inputs are swapped.
-        &[bias_id, op1_out],
-    );
+    let (_, op1_out) = g.add_simple_op("op1", op1, &[input_id, bias_id]).unwrap();
+    let (_, op2_out) = g
+        .add_simple_op(
+            "op2",
+            op2,
+            // Note here the input ordering. The bias value is smaller, but
+            // is the first argument. This operator can run in place, but only
+            // if the inputs are swapped.
+            &[bias_id, op1_out],
+        )
+        .unwrap();
     let input = Tensor::<f32>::zeros(&[2, 2]);
     let bias = Tensor::from(1.5);
 
@@ -1066,13 +1147,15 @@ impl Operator for InPlaceSecondInput {
 #[test]
 fn test_runs_non_commutative_op_in_place_with_non_first_input() {
     let mut g = Graph::new();
-    let first_id = g.add_value(Some("first"), None, None);
-    let second_id = g.add_value(Some("second"), None, None);
+    let first_id = g.add_value(Some("first"), None, None).unwrap();
+    let second_id = g.add_value(Some("second"), None, None).unwrap();
 
-    let (_, second_temp) = g.add_simple_op("identity", Identity {}, &[second_id]);
+    let (_, second_temp) = g
+        .add_simple_op("identity", Identity {}, &[second_id])
+        .unwrap();
     let op = TrackUsage::new(InPlaceSecondInput {});
     let op_metrics = op.metrics();
-    let (_, op_out) = g.add_simple_op("op", op, &[first_id, second_temp]);
+    let (_, op_out) = g.add_simple_op("op", op, &[first_id, second_temp]).unwrap();
 
     let first = Tensor::from([1.0f32, 2.0, 3.0]);
     let second = Tensor::from([10.0f32, 20.0, 30.0]);
@@ -1161,14 +1244,16 @@ fn test_runs_op_in_place_with_multiple_inputs() {
     // Both inputs are owned temporaries, so the operator runs in-place.
     {
         let mut g = Graph::new();
-        let first_id = g.add_value(Some("first"), None, None);
-        let second_id = g.add_value(Some("second"), None, None);
-        let (_, first_temp) = g.add_simple_op("id1", Identity {}, &[first_id]);
-        let (_, second_temp) = g.add_simple_op("id2", Identity {}, &[second_id]);
+        let first_id = g.add_value(Some("first"), None, None).unwrap();
+        let second_id = g.add_value(Some("second"), None, None).unwrap();
+        let (_, first_temp) = g.add_simple_op("id1", Identity {}, &[first_id]).unwrap();
+        let (_, second_temp) = g.add_simple_op("id2", Identity {}, &[second_id]).unwrap();
 
         let op = TrackUsage::new(AddTwoInPlace {});
         let op_metrics = op.metrics();
-        let (_, op_out) = g.add_simple_op("op", op, &[first_temp, second_temp]);
+        let (_, op_out) = g
+            .add_simple_op("op", op, &[first_temp, second_temp])
+            .unwrap();
 
         let results = g
             .run(
@@ -1200,13 +1285,13 @@ fn test_runs_op_in_place_with_multiple_inputs() {
     // With the all-or-nothing approach the operator does not run in-place.
     {
         let mut g = Graph::new();
-        let first_id = g.add_value(Some("first"), None, None);
-        let second_id = g.add_value(Some("second"), None, None);
-        let (_, second_temp) = g.add_simple_op("id2", Identity {}, &[second_id]);
+        let first_id = g.add_value(Some("first"), None, None).unwrap();
+        let second_id = g.add_value(Some("second"), None, None).unwrap();
+        let (_, second_temp) = g.add_simple_op("id2", Identity {}, &[second_id]).unwrap();
 
         let op = TrackUsage::new(AddTwoInPlace {});
         let op_metrics = op.metrics();
-        let (_, op_out) = g.add_simple_op("op", op, &[first_id, second_temp]);
+        let (_, op_out) = g.add_simple_op("op", op, &[first_id, second_temp]).unwrap();
 
         let results = g
             .run(
@@ -1287,9 +1372,9 @@ impl Operator for Split {
 #[test]
 fn test_multiple_outputs() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let left_split_out = g.add_value(Some("left_split"), None, None);
-    let right_split_out = g.add_value(Some("right_split"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let left_split_out = g.add_value(Some("left_split"), None, None).unwrap();
+    let right_split_out = g.add_value(Some("right_split"), None, None).unwrap();
 
     let split_op = Arc::new(Split::new());
     let run_count = split_op.run_count.clone();
@@ -1299,7 +1384,8 @@ fn test_multiple_outputs() {
         split_op,
         &[Some(input_id)],
         &[left_split_out, right_split_out].map(Some),
-    );
+    )
+    .unwrap();
 
     let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
     let mut results = g
@@ -1323,8 +1409,8 @@ fn test_multiple_outputs() {
 #[test]
 fn test_ignore_unused_outputs() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let left_split_out = g.add_value(Some("left_split"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let left_split_out = g.add_value(Some("left_split"), None, None).unwrap();
 
     // Add an operator which produces two outputs, but the graph only has one
     // output.
@@ -1335,7 +1421,8 @@ fn test_ignore_unused_outputs() {
         Arc::new(split_op),
         &[Some(input_id)],
         &[Some(left_split_out)],
-    );
+    )
+    .unwrap();
 
     let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
     let mut results = g
@@ -1355,10 +1442,10 @@ fn test_ignore_unused_outputs() {
 #[test]
 fn test_not_enough_outputs() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let out_1 = g.add_value(Some("out-1"), None, None);
-    let out_2 = g.add_value(Some("out-2"), None, None);
-    let out_3 = g.add_value(Some("out-3"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let out_1 = g.add_value(Some("out-1"), None, None).unwrap();
+    let out_2 = g.add_value(Some("out-2"), None, None).unwrap();
+    let out_3 = g.add_value(Some("out-3"), None, None).unwrap();
 
     // Add an operator which produces two outputs, but the graph node expects
     // three.
@@ -1369,7 +1456,8 @@ fn test_not_enough_outputs() {
         Arc::new(split_op),
         &[Some(input_id)],
         &[out_1, out_2, out_3].map(Some),
-    );
+    )
+    .unwrap();
 
     let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
     let err = g
@@ -1400,14 +1488,20 @@ fn test_partial_run() -> Result<(), Box<dyn Error>> {
     // Where `Cn` are constants, `Vn` are input values and `OpN` are
     // operators.
     let mut g = Graph::new();
-    let const_0 = g.add_constant(Some("c0"), Tensor::from(3.).into_arc());
-    let val_0 = g.add_value(Some("i0"), None, None);
-    let const_1 = g.add_constant(Some("c1"), Tensor::from(4.).into_arc());
-    let val_1 = g.add_value(Some("i1"), None, None);
+    let const_0 = g
+        .add_constant(Some("c0"), Tensor::from(3.).into_arc())
+        .unwrap();
+    let val_0 = g.add_value(Some("i0"), None, None).unwrap();
+    let const_1 = g
+        .add_constant(Some("c1"), Tensor::from(4.).into_arc())
+        .unwrap();
+    let val_1 = g.add_value(Some("i1"), None, None).unwrap();
 
-    let (_, op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_0, val_0]);
-    let (_, op_1_out) = g.add_simple_op("Add_1", Add {}, &[const_1, val_1]);
-    let (_, op_2_out) = g.add_simple_op("Add_2", Add {}, &[op_0_out, op_1_out]);
+    let (_, op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_0, val_0]).unwrap();
+    let (_, op_1_out) = g.add_simple_op("Add_1", Add {}, &[const_1, val_1]).unwrap();
+    let (_, op_2_out) = g
+        .add_simple_op("Add_2", Add {}, &[op_0_out, op_1_out])
+        .unwrap();
 
     // Run graph with no inputs. This is equivalent to constant evaluation.
     // In this case no operators can be evaluated with graph constants
@@ -1479,22 +1573,30 @@ impl Operator for Counter {
 #[test]
 fn test_partial_run_non_deterministic_ops() -> Result<(), Box<dyn Error>> {
     let mut g = Graph::new();
-    let const_val = g.add_constant(Some("c0"), Tensor::from(3).into_arc());
+    let const_val = g
+        .add_constant(Some("c0"), Tensor::from(3).into_arc())
+        .unwrap();
 
     // Add deterministic op with constant inputs.
-    let (_, add_op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_val, const_val]);
+    let (_, add_op_0_out) = g
+        .add_simple_op("Add_0", Add {}, &[const_val, const_val])
+        .unwrap();
 
     // Add non-deterministic op.
-    let (_, count_op_out) = g.add_simple_op(
-        "Count",
-        Counter {
-            count: AtomicI32::new(0),
-        },
-        &[],
-    );
+    let (_, count_op_out) = g
+        .add_simple_op(
+            "Count",
+            Counter {
+                count: AtomicI32::new(0),
+            },
+            &[],
+        )
+        .unwrap();
 
     // Add final op that combines outputs from other ops.
-    let (_, add_op_1_out) = g.add_simple_op("Add_1", Add {}, &[add_op_0_out, count_op_out]);
+    let (_, add_op_1_out) = g
+        .add_simple_op("Add_1", Add {}, &[add_op_0_out, count_op_out])
+        .unwrap();
 
     // Do a partial run with no inputs. This should propagate constants
     // though all the deterministic operators, but skip any
@@ -1612,30 +1714,38 @@ impl SubgraphOperator for Subgraph {
 #[test]
 fn test_subgraph() {
     let mut g = Graph::new();
-    let input = g.add_value(Some("input"), None, None);
+    let input = g.add_value(Some("input"), None, None).unwrap();
 
     // Add subgraphs for `If` operation. These capture `input`.
     let mut then_branch = Graph::new();
-    let tb_input = then_branch.add_value(Some("input"), None, None);
-    let two = then_branch.add_constant(None, Tensor::from(2.).into_arc());
-    let (_, tb_output) = then_branch.add_simple_op("Mul", Mul {}, &[tb_input, two]);
+    let tb_input = then_branch.add_value(Some("input"), None, None).unwrap();
+    let two = then_branch
+        .add_constant(None, Tensor::from(2.).into_arc())
+        .unwrap();
+    let (_, tb_output) = then_branch
+        .add_simple_op("Mul", Mul {}, &[tb_input, two])
+        .unwrap();
     then_branch.set_captures(&[tb_input]);
     then_branch.set_output_ids(&[tb_output]);
 
     let mut else_branch = Graph::new();
-    let eb_input = else_branch.add_value(Some("input"), None, None);
-    let three = else_branch.add_constant(None, Tensor::from(3.).into_arc());
-    let (_, eb_output) = else_branch.add_simple_op("Mul", Mul {}, &[eb_input, three]);
+    let eb_input = else_branch.add_value(Some("input"), None, None).unwrap();
+    let three = else_branch
+        .add_constant(None, Tensor::from(3.).into_arc())
+        .unwrap();
+    let (_, eb_output) = else_branch
+        .add_simple_op("Mul", Mul {}, &[eb_input, three])
+        .unwrap();
     else_branch.set_captures(&[eb_input]);
     else_branch.set_output_ids(&[eb_output]);
 
     // Add `If` operator that runs one of two subgraphs.
-    let cond = g.add_value(Some("cond"), None, None);
+    let cond = g.add_value(Some("cond"), None, None).unwrap();
     let branch = If {
         then_branch,
         else_branch,
     };
-    let (_, if_out) = g.add_simple_op("If", branch, &[cond]);
+    let (_, if_out) = g.add_simple_op("If", branch, &[cond]).unwrap();
 
     // Evaluate `then` branch
     let mut result = g
@@ -1671,25 +1781,31 @@ fn test_subgraph() {
 #[test]
 fn test_nested_subgraph() {
     let mut g = Graph::new();
-    let input = g.add_value(Some("input"), None, None);
+    let input = g.add_value(Some("input"), None, None).unwrap();
 
     let mut subgraph = Graph::new();
 
     let mut nested_subgraph = Graph::new();
-    let ns_input = nested_subgraph.add_value(Some("input"), None, None);
+    let ns_input = nested_subgraph
+        .add_value(Some("input"), None, None)
+        .unwrap();
     nested_subgraph.set_captures(&[ns_input]);
     nested_subgraph.set_output_ids(&[ns_input]);
 
-    let (_, ns_out) = subgraph.add_simple_op(
-        "Subgraph",
-        Subgraph {
-            graph: nested_subgraph,
-        },
-        &[],
-    );
+    let (_, ns_out) = subgraph
+        .add_simple_op(
+            "Subgraph",
+            Subgraph {
+                graph: nested_subgraph,
+            },
+            &[],
+        )
+        .unwrap();
     subgraph.set_output_ids(&[ns_out]);
 
-    let (_, sg_out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+    let (_, sg_out) = g
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[])
+        .unwrap();
 
     let mut result = g
         .run(
@@ -1706,9 +1822,11 @@ fn test_nested_subgraph() {
 #[test]
 fn test_captures_not_available_when_subgraph_is_run_directly() {
     let mut subgraph = Graph::new();
-    let sg_input = subgraph.add_value(Some("input"), None, None);
+    let sg_input = subgraph.add_value(Some("input"), None, None).unwrap();
     subgraph.set_captures(&[sg_input]);
-    let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+    let (_, sg_add) = subgraph
+        .add_simple_op("Id", Identity {}, &[sg_input])
+        .unwrap();
     subgraph.set_output_ids(&[sg_add]);
 
     // When a subgraph is run via `run_subgraph` the planner will assume
@@ -1735,15 +1853,19 @@ fn test_captures_not_available_when_subgraph_is_run_directly() {
 #[test]
 fn test_partial_run_considers_subgraph_captures() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
     let mut subgraph = Graph::new();
-    let sg_input = subgraph.add_value(Some("input"), None, None);
+    let sg_input = subgraph.add_value(Some("input"), None, None).unwrap();
     subgraph.set_captures(&[sg_input]);
-    let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+    let (_, sg_add) = subgraph
+        .add_simple_op("Id", Identity {}, &[sg_input])
+        .unwrap();
     subgraph.set_output_ids(&[sg_add]);
 
-    let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+    let (_, out) = g
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[])
+        .unwrap();
 
     // `partial_run` should skip operators that can't be evaluated due to
     // missing captures.
@@ -1761,19 +1883,25 @@ fn test_partial_run_considers_subgraph_captures() {
 #[test]
 fn test_plan_considers_capture_dependencies() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
-    let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
+    let (_, _) = g
+        .add_simple_op("Add", Add {}, &[input_id, input_id])
+        .unwrap();
 
     // Add a subgraph with a captured value that is the output of an
     // operation in the parent graph.
     let mut subgraph = Graph::new();
-    let sg_input = subgraph.add_value(Some("Add_out"), None, None);
+    let sg_input = subgraph.add_value(Some("Add_out"), None, None).unwrap();
     subgraph.set_captures(&[sg_input]);
-    let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+    let (_, sg_out) = subgraph
+        .add_simple_op("Id", Identity {}, &[sg_input])
+        .unwrap();
     subgraph.set_output_ids(&[sg_out]);
 
-    let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+    let (_, out) = g
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[])
+        .unwrap();
 
     // Run the graph. The planner must account for captured dependencies
     // in the `Subgraph` op.
@@ -1788,29 +1916,39 @@ fn test_plan_considers_capture_dependencies() {
 #[test]
 fn test_plan_considers_transitive_capture_dependencies() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
-    let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
+    let (_, _) = g
+        .add_simple_op("Add", Add {}, &[input_id, input_id])
+        .unwrap();
 
     // Add nested subgraphs where an operation in the innermost graph has
     // a dependency on an operator output in the top-level graph.
     let mut subgraph = Graph::new();
     let mut nested_subgraph = Graph::new();
-    let ns_input = nested_subgraph.add_value(Some("Add_out"), None, None);
+    let ns_input = nested_subgraph
+        .add_value(Some("Add_out"), None, None)
+        .unwrap();
     nested_subgraph.set_captures(&[ns_input]);
-    let (_, ns_out) = nested_subgraph.add_simple_op("Id", Identity {}, &[ns_input]);
+    let (_, ns_out) = nested_subgraph
+        .add_simple_op("Id", Identity {}, &[ns_input])
+        .unwrap();
     nested_subgraph.set_output_ids(&[ns_out]);
 
-    let (_, sg_out) = subgraph.add_simple_op(
-        "Subgraph",
-        Subgraph {
-            graph: nested_subgraph,
-        },
-        &[],
-    );
+    let (_, sg_out) = subgraph
+        .add_simple_op(
+            "Subgraph",
+            Subgraph {
+                graph: nested_subgraph,
+            },
+            &[],
+        )
+        .unwrap();
     subgraph.set_output_ids(&[sg_out]);
 
-    let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+    let (_, out) = g
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[])
+        .unwrap();
 
     // Run the graph. The planner must account for captured dependencies
     // from the innermost graph in the `Subgraph` op.
@@ -1825,24 +1963,28 @@ fn test_plan_considers_transitive_capture_dependencies() {
 #[test]
 fn test_keeps_temp_value_needed_as_subgraph_capture() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
     // Compute a temporary `id_out` value and use it in the main graph.
-    let (_, id_out) = g.add_simple_op("Id", Identity {}, &[input_id]);
-    let (_, mul_out) = g.add_simple_op("Mul", Mul {}, &[id_out, id_out]);
+    let (_, id_out) = g.add_simple_op("Id", Identity {}, &[input_id]).unwrap();
+    let (_, mul_out) = g.add_simple_op("Mul", Mul {}, &[id_out, id_out]).unwrap();
 
     // Add a subgraph which depends on the temporary `id_out` value via a
     // capture. Graph execution must keep the `id_out` value around until
     // this has run, even though no ops in the main graph need it as inputs.
     let mut subgraph = Graph::new();
-    let sg_input = subgraph.add_value(Some("Id_out"), None, None);
+    let sg_input = subgraph.add_value(Some("Id_out"), None, None).unwrap();
     subgraph.set_captures(&[sg_input]);
-    let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+    let (_, sg_out) = subgraph
+        .add_simple_op("SubgraphId", Identity {}, &[sg_input])
+        .unwrap();
     subgraph.set_output_ids(&[sg_out]);
 
     // Add op to main graph which runs the subgraph. This has a dummy
     // dependency on `mul_out`.
-    let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[mul_out]);
+    let (_, out) = g
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[mul_out])
+        .unwrap();
 
     let input = Tensor::from(3.);
     let mut result = g
@@ -1857,17 +1999,19 @@ fn test_captures_by_value_if_possible() {
     // Set up a graph that runs a subgraph and passes captures by value,
     // if the value is passed to the graph as an owned value.
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
 
     let mut subgraph = Graph::new();
-    let sg_input = subgraph.add_value(Some("input"), None, None);
+    let sg_input = subgraph.add_value(Some("input"), None, None).unwrap();
     subgraph.set_captures(&[sg_input]);
 
     let id_op = TrackUsage::new(Identity {});
     let id_op_metrics = id_op.metrics();
-    let (_, id_out) = subgraph.add_simple_op("Id", id_op, &[sg_input]);
+    let (_, id_out) = subgraph.add_simple_op("Id", id_op, &[sg_input]).unwrap();
     subgraph.set_output_ids(&[id_out]);
-    let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+    let (_, out) = g
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[])
+        .unwrap();
 
     // Run graph with an owned value as input.
     let input = Tensor::from(42.);
@@ -1958,24 +2102,32 @@ fn test_prepack_weights() {
     let mut graph = Graph::new();
     let mut cache = WeightCache::new();
 
-    let input = graph.add_value(Some("input"), None, None);
-    let weights = graph.add_constant(None, Tensor::<f32>::zeros(&[10, 7]).into_arc());
-    let (_, matmul_out) =
-        graph.add_simple_op("MatMul", MatMulExpectPacked::new(), &[input, weights]);
+    let input = graph.add_value(Some("input"), None, None).unwrap();
+    let weights = graph
+        .add_constant(None, Tensor::<f32>::zeros(&[10, 7]).into_arc())
+        .unwrap();
+    let (_, matmul_out) = graph
+        .add_simple_op("MatMul", MatMulExpectPacked::new(), &[input, weights])
+        .unwrap();
 
     let mut subgraph = Graph::new();
-    let sg_input = subgraph.add_value(Some("sg-input"), None, None);
-    let sg_weights = subgraph.add_constant(None, Tensor::<f32>::zeros(&[7, 5]).into_arc());
-    let (_, sg_matmul_out) = subgraph.add_simple_op(
-        "sg-MatMul",
-        MatMulExpectPacked::new(),
-        &[sg_input, sg_weights],
-    );
+    let sg_input = subgraph.add_value(Some("sg-input"), None, None).unwrap();
+    let sg_weights = subgraph
+        .add_constant(None, Tensor::<f32>::zeros(&[7, 5]).into_arc())
+        .unwrap();
+    let (_, sg_matmul_out) = subgraph
+        .add_simple_op(
+            "sg-MatMul",
+            MatMulExpectPacked::new(),
+            &[sg_input, sg_weights],
+        )
+        .unwrap();
     subgraph.set_input_ids(&[sg_input]);
     subgraph.set_output_ids(&[sg_matmul_out]);
 
-    let (subgraph_op, subgraph_out) =
-        graph.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[matmul_out]);
+    let (subgraph_op, subgraph_out) = graph
+        .add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[matmul_out])
+        .unwrap();
     graph.set_input_ids(&[input]);
     graph.set_output_ids(&[subgraph_out]);
 
@@ -2016,28 +2168,44 @@ fn test_prepack_weights_shared_with_different_inputs() {
     let mut graph = Graph::new();
     let mut rng = XorShiftRng::new(1234);
 
-    let input = graph.add_value(Some("input"), None, None);
-    let weights = graph.add_constant(None, Tensor::<i8>::rand(&[10, 7], &mut rng).into_arc());
-    let input_zero = graph.add_constant(None, Tensor::from(3u8).into_arc());
-    let input_zero_2 = graph.add_constant(None, Tensor::from(4u8).into_arc());
-    let zero_a = graph.add_constant(None, Tensor::from(5i8).into_arc());
-    let zero_b = graph.add_constant(None, Tensor::from(-7i8).into_arc());
+    let input = graph.add_value(Some("input"), None, None).unwrap();
+    let weights = graph
+        .add_constant(None, Tensor::<i8>::rand(&[10, 7], &mut rng).into_arc())
+        .unwrap();
+    let input_zero = graph
+        .add_constant(None, Tensor::from(3u8).into_arc())
+        .unwrap();
+    let input_zero_2 = graph
+        .add_constant(None, Tensor::from(4u8).into_arc())
+        .unwrap();
+    let zero_a = graph
+        .add_constant(None, Tensor::from(5i8).into_arc())
+        .unwrap();
+    let zero_b = graph
+        .add_constant(None, Tensor::from(-7i8).into_arc())
+        .unwrap();
 
-    let (_, out_a) = graph.add_simple_op(
-        "matmul_a",
-        MatMulInteger {},
-        &[input, weights, input_zero, zero_a],
-    );
-    let (_, out_a2) = graph.add_simple_op(
-        "matmul_a2",
-        MatMulInteger {},
-        &[input, weights, input_zero_2, zero_a],
-    );
-    let (_, out_b) = graph.add_simple_op(
-        "matmul_b",
-        MatMulInteger {},
-        &[input, weights, input_zero, zero_b],
-    );
+    let (_, out_a) = graph
+        .add_simple_op(
+            "matmul_a",
+            MatMulInteger {},
+            &[input, weights, input_zero, zero_a],
+        )
+        .unwrap();
+    let (_, out_a2) = graph
+        .add_simple_op(
+            "matmul_a2",
+            MatMulInteger {},
+            &[input, weights, input_zero_2, zero_a],
+        )
+        .unwrap();
+    let (_, out_b) = graph
+        .add_simple_op(
+            "matmul_b",
+            MatMulInteger {},
+            &[input, weights, input_zero, zero_b],
+        )
+        .unwrap();
     graph.set_input_ids(&[input]);
     graph.set_output_ids(&[out_a, out_a2, out_b]);
 
@@ -2065,9 +2233,9 @@ fn test_prepack_weights_shared_with_different_inputs() {
 #[test]
 fn test_run_context_outputs() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let out_0 = g.add_value(Some("out_0"), None, None);
-    let out_1 = g.add_value(Some("out_1"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let out_0 = g.add_value(Some("out_0"), None, None).unwrap();
+    let out_1 = g.add_value(Some("out_1"), None, None).unwrap();
     g.add_op(
         Some("test_op"),
         Arc::new(RunFn::new(|ctx| {
@@ -2091,19 +2259,20 @@ fn test_run_context_outputs() {
         &[Some(input_id)],
         // Operator has 4 outputs, only two are used.
         &[Some(out_0), None, None, Some(out_1)],
-    );
+    )
+    .unwrap();
     let input = Tensor::from([1, 2, 3]);
     g.run(vec![(input_id, input.into())], &[out_0, out_1], None, None)
         .unwrap();
 }
 
 #[test]
-fn test_clear_operator_output() {
+fn test_remove_operator_output() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let out_0 = g.add_value(Some("out_0"), None, None);
-    let out_1 = g.add_value(Some("out_1"), None, None);
-    let op_id = g.add_op(
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let out_0 = g.add_value(Some("out_0"), None, None).unwrap();
+    let out_1 = g.add_value(Some("out_1"), None, None).unwrap();
+    g.add_op(
         Some("test_op"),
         Arc::new(RunFn::new(|ctx| {
             assert_eq!(ctx.outputs(), OutputMask::new(BitSet::from_indices([0]), 2));
@@ -2113,10 +2282,10 @@ fn test_clear_operator_output() {
         })),
         &[Some(input_id)],
         &[Some(out_0), Some(out_1)],
-    );
+    )
+    .unwrap();
 
-    assert_eq!(g.clear_operator_output(op_id, 1), Some(out_1));
-    assert_eq!(g.clear_operator_output(op_id, 1), None);
+    g.remove_nodes(&[out_1]);
 
     let (_, op) = g.get_source_node(out_0).unwrap();
     assert_eq!(op.output_ids(), [Some(out_0), None]);
@@ -2134,9 +2303,14 @@ fn test_operator_with_many_outputs() {
     let n_outputs = 65;
 
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
     let output_ids: Vec<_> = (0..n_outputs)
-        .map(|i| Some(g.add_value(Some(&format!("out_{}", i)), None, None)))
+        .map(|i| {
+            Some(
+                g.add_value(Some(&format!("out_{}", i)), None, None)
+                    .unwrap(),
+            )
+        })
         .collect();
     g.add_op(
         Some("test_op"),
@@ -2148,7 +2322,8 @@ fn test_operator_with_many_outputs() {
         })),
         &[Some(input_id)],
         &output_ids,
-    );
+    )
+    .unwrap();
 
     let input = Tensor::from([1, 2, 3]);
     let last_out = output_ids.last().copied().flatten().unwrap();
@@ -2162,15 +2337,17 @@ fn test_operator_with_many_outputs() {
 #[test]
 fn test_run_context_name() {
     let mut g = Graph::new();
-    let input_id = g.add_value(Some("input"), None, None);
-    let (_, op_out) = g.add_simple_op(
-        "test_op",
-        RunFn::new(|ctx| {
-            assert_eq!(ctx.name(), Some("test_op"));
-            Ok([Tensor::from_scalar(0.).into()].into_iter().collect())
-        }),
-        &[input_id],
-    );
+    let input_id = g.add_value(Some("input"), None, None).unwrap();
+    let (_, op_out) = g
+        .add_simple_op(
+            "test_op",
+            RunFn::new(|ctx| {
+                assert_eq!(ctx.name(), Some("test_op"));
+                Ok([Tensor::from_scalar(0.).into()].into_iter().collect())
+            }),
+            &[input_id],
+        )
+        .unwrap();
     let input = Tensor::from([1, 2, 3]);
     g.run(vec![(input_id, input.into())], &[op_out], None, None)
         .unwrap();
@@ -2179,7 +2356,7 @@ fn test_run_context_name() {
 #[test]
 fn test_remove_nodes() {
     let mut g = Graph::new();
-    let val_id = g.add_value(Some("value"), None, None);
+    let val_id = g.add_value(Some("value"), None, None).unwrap();
     g.set_input_ids(&[val_id]);
     g.set_output_ids(&[val_id]);
 
@@ -2194,8 +2371,8 @@ fn test_remove_nodes() {
     assert!(g.output_ids().is_empty());
 
     // Removing an operator should remove it as the source node for its outputs.
-    let val_id = g.add_value(Some("value2"), None, None);
-    let (op_id, out_id) = g.add_simple_op("Mul", Mul {}, &[val_id, val_id]);
+    let val_id = g.add_value(Some("value2"), None, None).unwrap();
+    let (op_id, out_id) = g.add_simple_op("Mul", Mul {}, &[val_id, val_id]).unwrap();
     assert!(g.get_source_node(out_id).is_some());
 
     g.remove_nodes(&[op_id]);
