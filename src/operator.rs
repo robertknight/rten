@@ -16,6 +16,7 @@ use smallvec::SmallVec;
 use crate::BufferPool;
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::infer_shapes::InferShapes;
+use crate::random_seed::RandomSeed;
 use crate::timing::Profiler;
 use crate::value::{DataType, DataTypeOf, TryFromValueError, Value, ValueType, ValueView};
 use crate::weight_cache::WeightCache;
@@ -364,6 +365,7 @@ pub struct OpRunContext<'a, 'i> {
     inputs: &'a InputList<'i>,
     outputs: OutputMask,
     name: Option<&'a str>,
+    run_seed: Option<RandomSeed>,
 }
 
 impl<'a, 'i> OpRunContext<'a, 'i> {
@@ -377,6 +379,7 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
             inputs,
             outputs,
             name: None,
+            run_seed: None,
         }
     }
 
@@ -420,6 +423,20 @@ impl<'a, 'i> OpRunContext<'a, 'i> {
     /// Return the name of the current node in the graph.
     pub fn name(&self) -> Option<&str> {
         self.name
+    }
+
+    /// Set the random seed for the current run of the graph.
+    pub fn set_run_seed(&mut self, seed: Option<RandomSeed>) {
+        self.run_seed = seed;
+    }
+
+    /// Return the random seed for the current run of the graph.
+    ///
+    /// Random operators which don't have a seed specified in the model should
+    /// derive their seed from this value and the node name. This is `None` if
+    /// the operator is being run outside of a graph.
+    pub fn run_seed(&self) -> Option<RandomSeed> {
+        self.run_seed
     }
 }
 

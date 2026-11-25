@@ -90,6 +90,10 @@ struct Args {
     #[argh(option, short = 'r')]
     range: Vec<String>,
 
+    /// seed for generating inputs and random operators. Set to a fixed value to make runs reproducible.
+    #[argh(option)]
+    seed: Option<u64>,
+
     /// specify size for a dynamic dimension in the form `dim_name=size` or `input_name.dim_name=size`. Can be specified multiple times.
     /// Input and dimension names may be quoted (eg. `"input.one"."dim.two"=3`).
     #[argh(option, short = 's')]
@@ -188,7 +192,7 @@ fn run_model(
     // Indexes of entries in `ranges` that didn't match any inputs.
     let mut unused_ranges: HashSet<usize> = (0..input_config.ranges.len()).collect();
 
-    let mut input_generator = RandomInputGenerator::new();
+    let mut input_generator = RandomInputGenerator::with_seed(run_opts.seed);
 
     // Fetch or generate model inputs
     let inputs: Vec<(NodeId, ValueOrView)> = model.input_ids().iter().copied().try_fold(
@@ -571,7 +575,8 @@ fn main() {
         .with_timing(profile_mode != ProfileMode::None)
         .with_timing_by_shape(profile_mode == ProfileMode::Detailed)
         .with_verbose(args.verbose)
-        .with_thread_pool(thread_pool);
+        .with_thread_pool(thread_pool)
+        .with_seed(args.seed);
 
     // Read values for inputs, if provided.
     let mut input_values = HashMap::new();

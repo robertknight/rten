@@ -10,6 +10,7 @@ use crate::operator::{
     SubgraphOperator,
 };
 use crate::ops::{map_value, map_value_view, resolve_axis};
+use crate::random_seed::RandomSeed;
 use crate::timing::Profiler;
 use crate::value::Value;
 use crate::value::{ValueOrView, ValueView};
@@ -17,6 +18,29 @@ use crate::weight_cache::WeightCache;
 
 fn output_list_from_vec(xs: Vec<Value>) -> OutputList {
     xs.into_iter().collect()
+}
+
+/// Return the run options for a subgraph invocation.
+fn subgraph_run_opts(
+    run_opts: Option<&RunOptions>,
+    ctx: &OpRunContext,
+    iteration: Option<usize>,
+) -> Option<RunOptions> {
+    let mut opts = run_opts?.clone();
+
+    // Derive the seed for random operators in the subgraph from the parent
+    // graph's seed, the name of the control flow node and the iteration index
+    // for loops. This makes random operators produce different values in each
+    // iteration, and in different subgraphs that contain nodes with the same
+    // name.
+    if let Some(seed) = opts.seed {
+        let mut seed = RandomSeed::new(seed).mix_str(ctx.name().unwrap_or_default());
+        if let Some(iteration) = iteration {
+            seed = seed.mix(iteration as u64);
+        }
+        opts.seed = Some(seed.as_u64());
+    }
+    Some(opts)
 }
 
 pub struct If {
@@ -99,7 +123,7 @@ impl SubgraphOperator for If {
                     ctx.pool(),
                     weight_caches.map(|wcs| &wcs[0]),
                     profiler,
-                    run_opts,
+                    subgraph_run_opts(run_opts.as_ref(), ctx, None),
                 )
                 .map(output_list_from_vec)
         } else {
@@ -111,7 +135,7 @@ impl SubgraphOperator for If {
                     ctx.pool(),
                     weight_caches.map(|wcs| &wcs[1]),
                     profiler,
-                    run_opts,
+                    subgraph_run_opts(run_opts.as_ref(), ctx, None),
                 )
                 .map(output_list_from_vec)
         }
@@ -231,7 +255,7 @@ impl SubgraphOperator for Loop {
                 ctx.pool(),
                 weight_caches.map(|wcs| &wcs[0]),
                 profiler.as_deref_mut(),
-                run_opts.clone(),
+                subgraph_run_opts(run_opts.as_ref(), ctx, Some(step_index)),
             )?;
 
             // `step_outputs` format is `[condition, loop_carried_dependencies...,
@@ -503,7 +527,7 @@ impl SubgraphOperator for Scan {
                 ctx.pool(),
                 weight_caches.map(|wcs| &wcs[0]),
                 profiler.as_deref_mut(),
-                run_opts.clone(),
+                subgraph_run_opts(run_opts.as_ref(), ctx, Some(step)),
             )?;
 
             // `step_outputs` format is `[state_variables..., scan_output_elements...]`.

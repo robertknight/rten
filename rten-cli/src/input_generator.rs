@@ -63,10 +63,14 @@ pub struct RandomInputGenerator {
 }
 
 impl RandomInputGenerator {
-    pub fn new() -> Self {
-        RandomInputGenerator {
-            rng: fastrand::Rng::new(),
-        }
+    /// Create a generator which is seeded with `seed`, or randomly seeded if
+    /// `None`.
+    pub fn with_seed(seed: Option<u64>) -> Self {
+        let rng = match seed {
+            Some(seed) => fastrand::Rng::with_seed(seed),
+            None => fastrand::Rng::new(),
+        };
+        RandomInputGenerator { rng }
     }
 
     /// Generate a random value for an input using the name, shape and dtype
@@ -223,7 +227,7 @@ mod tests {
             min,
             max,
         });
-        let mut generator = RandomInputGenerator::new();
+        let mut generator = RandomInputGenerator::with_seed(None);
         generator.generate(
             name,
             Some(ValueType::Tensor(dtype)),

@@ -20,6 +20,7 @@ use crate::env::env_flag;
 use crate::operator::{
     InPlaceInputs, InputList, OpRunContext, Operator, OutputList, PrepackedInput,
 };
+use crate::random_seed::RandomSeed;
 use crate::threading;
 use crate::timing::{Instant, ProfileFormat, Profiler, TimingFilter, TimingRecord, TimingSort};
 use crate::value::{Value, ValueMeta, ValueOrView, ValueType, ValueView};
@@ -160,6 +161,15 @@ pub struct RunOptions {
     /// The thread pool to execute the model on. By default the model is
     /// executed on the global thread pool.
     pub thread_pool: Option<Arc<threading::ThreadPool>>,
+
+    /// Seed for random operators which don't specify a seed in the model.
+    ///
+    /// This option can be used to make models with random operators such as
+    /// `RandomNormal` produce consistent outputs. Random operators derive their
+    /// seed from a combination of this value, the node name and the names of
+    /// parent nodes (in models with subgraphs). If this is `None` a new random
+    /// seed is generated for each run.
+    pub seed: Option<u64>,
 }
 
 impl RunOptions {
@@ -197,6 +207,19 @@ impl RunOptions {
         self.thread_pool = pool;
         self
     }
+
+    /// Set the seed for random operators. See [`seed`](Self::seed).
+    pub fn with_seed(mut self, seed: Option<u64>) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Set the seed to a newly generated random seed, if not already set.
+    fn init_seed(mut self) -> Self {
+        self.seed
+            .get_or_insert_with(|| RandomSeed::random().as_u64());
+        self
+    }
 }
 
 impl std::fmt::Debug for RunOptions {
@@ -206,6 +229,7 @@ impl std::fmt::Debug for RunOptions {
             .field("timing_sort", &self.timing_sort)
             .field("timing_by_shape", &self.timing_by_shape)
             .field("verbose", &self.verbose)
+            .field("seed", &self.seed)
             .finish()
     }
 }
@@ -218,6 +242,7 @@ impl PartialEq<Self> for RunOptions {
             && self.timing_sort == other.timing_sort
             && self.timing_by_shape == other.timing_by_shape
             && self.verbose == other.verbose
+            && self.seed == other.seed
     }
 }
 
@@ -859,7 +884,7 @@ impl Graph {
         self.validate_inputs(&inputs)?;
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, false /* is_subgraph */)?;
-        let opts = opts.unwrap_or_default();
+        let opts = opts.unwrap_or_default().init_seed();
         opts.thread_pool().run(|| {
             let mut profiler =
                 (opts.timing || opts.verbose).then(|| Profiler::with_capacity(plan.plan().len()));
@@ -906,7 +931,7 @@ impl Graph {
     ) -> Result<Vec<Value>, RunError> {
         let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
         let plan = self.get_cached_plan(&input_ids, outputs, true /* is_subgraph */)?;
-        let opts = opts.unwrap_or_default();
+        let opts = opts.unwrap_or_default().init_seed();
         self.run_plan(
             inputs,
             plan.plan(),
@@ -1220,6 +1245,7 @@ impl Graph {
             let inputs = InputList::from_optional(&op_inputs).with_prepacked(&get_prepacked);
             let mut ctx = OpRunContext::new(pool, &inputs, op_node.output_mask());
             ctx.set_name(op_node.name());
+            ctx.set_run_seed(opts.seed.map(RandomSeed::new));
 
             let op_result = if !in_place_taken.is_empty() {
                 // Record the metadata of the in-place inputs before they are
@@ -1456,7 +1482,7 @@ impl Graph {
             },
         )?;
         let (pruned_plan, pruned_plan_output_ids) = planner.prune_plan(&plan, &input_ids, outputs);
-        let opts = opts.unwrap_or_default();
+        let opts = opts.unwrap_or_default().init_seed();
         let outputs = opts.thread_pool().run(|| {
             let mut profiler =
                 (opts.timing || opts.verbose).then(|| Profiler::with_capacity(pruned_plan.len()));
