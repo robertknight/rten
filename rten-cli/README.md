@@ -77,6 +77,13 @@ rten model.onnx -i inputs.safetensors --check-outputs expected.safetensors
 
 Use `--print` to print the values of output tensors.
 
+Generated inputs and the outputs of random operators such as `RandomNormal`
+differ on each run. Use `--seed` to make them reproducible:
+
+```sh
+rten model.onnx --seed 42 --print
+```
+
 ## Benchmarking and profiling
 
 Use `-n` to run the model multiple times. When run more than once, rten-cli

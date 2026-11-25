@@ -2379,3 +2379,130 @@ fn test_remove_nodes() {
 
     assert!(g.get_source_node(out_id).is_none());
 }
+
+/// Create a graph which outputs a random vector of length `len` from a
+/// `RandomUniform` node named `name`.
+#[cfg(feature = "random")]
+fn random_uniform_graph(name: &str, len: usize) -> (Graph, NodeId) {
+    use crate::ops::RandomUniform;
+
+    let mut g = Graph::new();
+    let op = RandomUniform {
+        low: 0.,
+        high: 1.,
+        shape: vec![len],
+        seed: None,
+    };
+    let (_, out) = g.add_simple_op(name, op, &[]).unwrap();
+    g.set_output_ids(&[out]);
+    (g, out)
+}
+
+#[cfg(feature = "random")]
+#[test]
+fn test_run_seed() {
+    use crate::ops::RandomUniform;
+
+    let mut g = Graph::new();
+    let make_op = || RandomUniform {
+        low: 0.,
+        high: 1.,
+        shape: vec![10],
+        seed: None,
+    };
+    let (_, out_a) = g.add_simple_op("rand_a", make_op(), &[]).unwrap();
+    let (_, out_b) = g.add_simple_op("rand_b", make_op(), &[]).unwrap();
+
+    let run = |seed: Option<u64>| -> [Tensor<f32>; 2] {
+        let opts = RunOptions::default().with_seed(seed);
+        let outputs = g.run(vec![], &[out_a, out_b], None, Some(opts)).unwrap();
+        let [a, b] = outputs.try_into().unwrap();
+        [a.try_into().unwrap(), b.try_into().unwrap()]
+    };
+
+    // Runs with the same seed produce the same outputs.
+    let [a, b] = run(Some(1));
+    assert_eq!(run(Some(1)), [a.clone(), b.clone()]);
+
+    // Nodes with different names produce different outputs.
+    assert_ne!(a, b);
+
+    // Runs with different seeds produce different outputs.
+    let [a_2, _] = run(Some(2));
+    assert_ne!(a, a_2);
+
+    // Without a seed, each run produces different outputs.
+    assert_ne!(run(None), run(None));
+}
+
+#[cfg(feature = "random")]
+#[test]
+fn test_subgraph_run_seed() {
+    use crate::ops::Loop;
+
+    let mut g = Graph::new();
+
+    // Add two `If` nodes whose branches contain random nodes with the same
+    // name.
+    let cond = g
+        .add_constant(Some("cond"), Tensor::from(1i32).into_arc())
+        .unwrap();
+    let mut if_outputs = Vec::new();
+    for if_name in ["if_a", "if_b"] {
+        let op = If {
+            then_branch: random_uniform_graph("rand", 4).0,
+            else_branch: random_uniform_graph("rand", 4).0,
+        };
+        let (_, out) = g.add_simple_op(if_name, op, &[cond]).unwrap();
+        if_outputs.push(out);
+    }
+
+    // Add a `Loop` whose body contains a random node.
+    let body = {
+        let (mut body, rand_out) = random_uniform_graph("rand", 4);
+        let iter_num = body.add_value(Some("iter_num"), None, None).unwrap();
+        let cond = body.add_value(Some("cond"), None, None).unwrap();
+        body.set_input_ids(&[iter_num, cond]);
+        body.set_output_ids(&[cond, rand_out]);
+        body
+    };
+    let trip_count = g
+        .add_constant(Some("trip_count"), Tensor::from(3i32).into_arc())
+        .unwrap();
+    let (_, loop_out) = g
+        .add_simple_op("loop", Loop { body }, &[trip_count, cond])
+        .unwrap();
+
+    let run = || -> [Tensor<f32>; 3] {
+        let opts = RunOptions::default().with_seed(Some(1));
+        let outputs = g
+            .run(
+                vec![],
+                &[if_outputs[0], if_outputs[1], loop_out],
+                None,
+                Some(opts),
+            )
+            .unwrap();
+        let [a, b, c] = outputs.try_into().unwrap();
+        [
+            a.try_into().unwrap(),
+            b.try_into().unwrap(),
+            c.try_into().unwrap(),
+        ]
+    };
+
+    // Runs with the same seed produce the same outputs.
+    let outputs = run();
+    assert_eq!(run(), outputs);
+    let [if_a, if_b, loop_out] = outputs;
+
+    // Nodes with the same name in different subgraphs produce different
+    // outputs.
+    assert_ne!(if_a, if_b);
+
+    // Each loop iteration produces different outputs.
+    assert_eq!(loop_out.shape(), [3, 4]);
+    let iters: Vec<_> = loop_out.axis_iter(0).collect();
+    assert_ne!(iters[0], iters[1]);
+    assert_ne!(iters[1], iters[2]);
+}

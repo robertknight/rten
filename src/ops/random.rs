@@ -10,15 +10,21 @@ use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
     OutputTypesContext,
 };
+use crate::random_seed::RandomSeed;
 use crate::value::{DataType, Value, ValueType};
 
-/// Create a random number generator, seeded with `seed` if it is provided.
+/// Create a random number generator for an operator.
 ///
-/// The seed is an `f32` for consistency with the ONNX specification, which
-/// specifies random seeds for operators as floats.
-fn rng_from_seed(seed: Option<f32>) -> Rng {
+/// `seed` is the seed specified by the operator's attributes. If not set, the
+/// seed is derived from the run seed and node name. If there is no run seed,
+/// the generator is randomly seeded.
+fn op_rng(seed: Option<RandomSeed>, ctx: &OpRunContext) -> Rng {
+    let seed = seed.or_else(|| {
+        ctx.run_seed()
+            .map(|run_seed| run_seed.mix_str(ctx.name().unwrap_or_default()))
+    });
     match seed {
-        Some(seed) => Rng::with_seed(seed.to_bits() as u64),
+        Some(seed) => Rng::with_seed(seed.as_u64()),
         None => Rng::new(),
     }
 }
@@ -53,7 +59,7 @@ impl Operator for RandomUniform {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
 
-        let mut rng = rng_from_seed(self.seed);
+        let mut rng = op_rng(self.seed.map(RandomSeed::from_f32), ctx);
         Tensor::from_simple_fn_in(ctx.pool(), shape, || scale_value(rng.f32())).into_op_result()
     }
 
@@ -143,7 +149,7 @@ impl Operator for RandomNormal {
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
         let shape = self.shape.as_slice();
 
-        let mut rng = rng_from_seed(self.seed);
+        let mut rng = op_rng(self.seed.map(RandomSeed::from_f32), ctx);
 
         // Use `Rng::f32_normal_approx` here rather than `Rng::f32_normal`
         // because the approximation is much faster and good enough for use
@@ -242,7 +248,7 @@ impl Operator for Multinomial {
             return Err(OpError::invalid_value("input must have at least one class"));
         }
 
-        let mut rng = rng_from_seed(self.seed);
+        let mut rng = op_rng(self.seed.map(RandomSeed::from_f32), ctx);
 
         let input = input.to_contiguous_in(pool).auto_return(pool);
         let input = input.data();
@@ -341,11 +347,7 @@ impl Operator for Dropout {
                 let mask = Tensor::<i32>::full(input.shape(), 1);
                 (input.to_tensor(), mask)
             } else {
-                let mut rng = if let Some(seed) = self.seed {
-                    Rng::with_seed(seed as u64)
-                } else {
-                    Rng::new()
-                };
+                let mut rng = op_rng(self.seed.map(|seed| RandomSeed::new(seed as u64)), ctx);
                 let scale = 1. / (1. - ratio);
 
                 let mask = Tensor::<i32>::from_simple_fn(input.shape(), || {
@@ -402,6 +404,7 @@ mod tests {
     use crate::buffer_pool::BufferPool;
     use crate::operator::{InputList, OpError, OpRunContext, Operator, OperatorExt, OutputMask};
     use crate::ops::operators::{FloatOperators, Operators};
+    use crate::random_seed::RandomSeed;
 
     use super::{
         Dropout, Multinomial, RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike,
@@ -505,6 +508,42 @@ mod tests {
                 assert_ne!(output, output_2);
             }
         })
+    }
+
+    #[test]
+    fn test_random_uniform_run_seed() {
+        let run = |op: &RandomUniform, name: &str, run_seed: Option<u64>| -> Tensor {
+            let pool = BufferPool::new();
+            let inputs = InputList::new();
+            let mut ctx = OpRunContext::new(&pool, &inputs, OutputMask::all_used(1));
+            ctx.set_name(Some(name));
+            ctx.set_run_seed(run_seed.map(RandomSeed::new));
+            op.run(&ctx).unwrap().remove(0).try_into().unwrap()
+        };
+
+        let unseeded = RandomUniform {
+            low: 0.,
+            high: 1.,
+            shape: vec![10],
+            seed: None,
+        };
+
+        // The same run seed and node name produce the same output.
+        assert_eq!(run(&unseeded, "a", Some(1)), run(&unseeded, "a", Some(1)));
+
+        // Different run seeds or node names produce different outputs.
+        assert_ne!(run(&unseeded, "a", Some(1)), run(&unseeded, "a", Some(2)));
+        assert_ne!(run(&unseeded, "a", Some(1)), run(&unseeded, "b", Some(1)));
+
+        // Without a run seed, the output is random.
+        assert_ne!(run(&unseeded, "a", None), run(&unseeded, "a", None));
+
+        // A seed specified by the model takes precedence over the run seed.
+        let seeded = RandomUniform {
+            seed: Some(0.5),
+            ..unseeded
+        };
+        assert_eq!(run(&seeded, "a", Some(1)), run(&seeded, "b", Some(2)));
     }
 
     #[test]

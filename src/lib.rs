@@ -170,6 +170,7 @@ mod model;
 mod op_registry;
 mod operator;
 mod optimize;
+mod random_seed;
 mod shift_cast;
 mod slice_reductions;
 mod threading;
