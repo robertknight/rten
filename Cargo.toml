@@ -36,7 +36,6 @@ default-members = [
 [workspace.dependencies]
 argh = "0.1"
 fastrand = "2.0.2"
-fastrand-contrib = "0.1.0"
 flatbuffers = "25.12.19"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 libm = "0.2.6"
@@ -64,8 +63,6 @@ rust-version = "1.94.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fastrand = { workspace = true, optional = true }
-fastrand-contrib = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
 memmap2 = { version = "0.9.4", optional = true }
 num_cpus = "1.16.0"
@@ -109,7 +106,7 @@ onnx_format = ["dep:rten-onnx"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
 # Enable operators that generate random numbers.
-random = ["dep:fastrand", "dep:fastrand-contrib"]
+random = []
 # Enable support for loading .rten models
 rten_format = ["dep:flatbuffers", "dep:rten-model-file"]
 

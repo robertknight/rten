@@ -94,7 +94,7 @@
 //! - The `fft` feature enables operators related to the Fast Fourier Transform
 //!   (eg. STFT) using [rten-fft](https://docs.rs/crate/rten-fft).
 //! - The `random` feature enables operators that generate random numbers (eg.
-//!   `RandomUniform`) using [fastrand](https://docs.rs/crate/fastrand).
+//!   `RandomUniform`).
 //!
 //! As a convenience, the `all-ops` feature enables all of the above features.
 //!
