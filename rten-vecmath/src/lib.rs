@@ -101,6 +101,7 @@ mod log;
 mod min_max;
 mod normalize;
 mod quantize;
+mod random;
 mod relu;
 mod sin_cos;
 mod softmax;
@@ -129,6 +130,9 @@ pub use min_max::{MaxNum, MinMax, MinNum};
 pub use normalize::{Normalize, NormalizeOptions};
 pub use softmax::{LogSoftmax, Softmax};
 pub use sum::{Sum, SumAbs, SumExpSub, SumSquare, SumSquareSub};
+
+// Random number generation.
+pub use random::{RandomNormal, RandomUniform};
 
 // Conversion functions.
 pub use convert::{BF16ToF32, F16ToF32, F32ToBF16, F32ToF16};
