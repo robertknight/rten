@@ -682,6 +682,11 @@ pub trait FloatOps<T: Elem>: NumOps<T> {
     /// This is like [`f32::round_ties_even`].
     fn round_ties_even(self, x: Self::Simd) -> Self::Simd;
 
+    /// Compute the square root of `x`.
+    ///
+    /// This is like [`f32::sqrt`].
+    fn sqrt(self, x: Self::Simd) -> Self::Simd;
+
     /// Compute `c - a * b`.
     fn mul_sub_from(self, a: Self::Simd, b: Self::Simd, c: Self::Simd) -> Self::Simd {
         self.sub(c, self.mul(a, b))
@@ -1222,6 +1227,19 @@ mod tests {
                         let expected = ops.splat(-3 as $elem);
                         let actual = ops.neg(x);
                         assert_simd_eq!(actual, expected);
+                    })
+                }
+
+                #[test]
+                fn test_sqrt() {
+                    test_simd_op!(isa, {
+                        let ops = isa.$elem();
+
+                        let x = ops.splat(2.25 as $elem);
+                        assert_simd_eq!(ops.sqrt(x), ops.splat(1.5 as $elem));
+
+                        let x = ops.splat(-1. as $elem);
+                        assert!(ops.sqrt(x).to_array().into_iter().all(|x| x.is_nan()));
                     })
                 }
 

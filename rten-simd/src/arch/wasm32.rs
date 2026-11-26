@@ -16,8 +16,8 @@ use std::arch::wasm32::{
     v128_not, v128_or, v128_store, v128_xor,
 };
 use std::arch::wasm32::{
-    u32x4_add, u32x4_eq, u32x4_ge, u32x4_gt, u32x4_le, u32x4_lt, u32x4_max, u32x4_min, u32x4_mul,
-    u32x4_shl, u32x4_sub, u64x2_extmul_high_u32x4, u64x2_extmul_low_u32x4,
+    f32x4_sqrt, u32x4_add, u32x4_eq, u32x4_ge, u32x4_gt, u32x4_le, u32x4_lt, u32x4_max, u32x4_min,
+    u32x4_mul, u32x4_shl, u32x4_sub, u64x2_extmul_high_u32x4, u64x2_extmul_low_u32x4,
 };
 use std::mem::transmute;
 
@@ -334,6 +334,11 @@ impl FloatOps<f32> for Wasm32Isa {
         {
             F32x4(f32x4_sub(c.0, f32x4_mul(a.0, b.0)))
         }
+    }
+
+    #[inline]
+    fn sqrt(self, x: F32x4) -> F32x4 {
+        F32x4(f32x4_sqrt(x.0))
     }
 
     #[inline]

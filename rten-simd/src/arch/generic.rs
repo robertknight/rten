@@ -372,6 +372,11 @@ impl FloatOps<f32> for GenericIsa {
     }
 
     #[inline]
+    fn sqrt(self, x: F32x4) -> F32x4 {
+        x.map(|x| x.sqrt())
+    }
+
+    #[inline]
     fn round_ties_even(self, x: F32x4) -> F32x4 {
         x.map(|x| x.round_ties_even())
     }

@@ -26,7 +26,8 @@ use std::arch::x86_64::{
     _mm512_xor_si512,
 };
 use std::arch::x86_64::{
-    _mm512_cmp_epu32_mask, _mm512_max_epu32, _mm512_min_epu32, _mm512_mul_epu32, _mm512_srli_epi64,
+    _mm512_cmp_epu32_mask, _mm512_max_epu32, _mm512_min_epu32, _mm512_mul_epu32, _mm512_sqrt_ps,
+    _mm512_srli_epi64,
 };
 use std::mem::transmute;
 
@@ -338,6 +339,11 @@ impl FloatOps<f32> for Avx512Isa {
     #[inline]
     fn mul_sub_from(self, a: F32x16, b: F32x16, c: F32x16) -> F32x16 {
         unsafe { _mm512_fnmadd_ps(a.0, b.0, c.0) }.into()
+    }
+
+    #[inline]
+    fn sqrt(self, x: F32x16) -> F32x16 {
+        unsafe { _mm512_sqrt_ps(x.0) }.into()
     }
 
     #[inline]

@@ -22,8 +22,8 @@ use std::arch::aarch64::{
 };
 use std::arch::aarch64::{
     vceqq_u32, vcgeq_u32, vcgtq_u32, vcleq_u32, vcltq_u32, vget_low_u32, vmaxq_u32, vminq_u32,
-    vmull_high_u32, vmull_u32, vmulq_u32, vreinterpretq_u32_u64, vshlq_n_u32, vst1q_u32, vsubq_u32,
-    vuzp2q_u32,
+    vmull_high_u32, vmull_u32, vmulq_u32, vreinterpretq_u32_u64, vshlq_n_u32, vsqrtq_f32,
+    vst1q_u32, vsubq_u32, vuzp2q_u32,
 };
 use std::mem::transmute;
 
@@ -336,6 +336,11 @@ impl FloatOps<f32> for ArmNeonIsa {
     #[inline]
     fn mul_sub_from(self, a: float32x4_t, b: float32x4_t, c: float32x4_t) -> float32x4_t {
         unsafe { vfmsq_f32(c, a, b) }
+    }
+
+    #[inline]
+    fn sqrt(self, x: float32x4_t) -> float32x4_t {
+        unsafe { vsqrtq_f32(x) }
     }
 
     #[inline]

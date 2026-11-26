@@ -23,7 +23,8 @@ use std::arch::x86_64::{
     _mm256_xor_ps, _mm256_xor_si256,
 };
 use std::arch::x86_64::{
-    _mm256_blend_epi32, _mm256_max_epu32, _mm256_min_epu32, _mm256_mul_epu32, _mm256_srli_epi64,
+    _mm256_blend_epi32, _mm256_max_epu32, _mm256_min_epu32, _mm256_mul_epu32, _mm256_sqrt_ps,
+    _mm256_srli_epi64,
 };
 use std::is_x86_feature_detected;
 use std::mem::transmute;
@@ -348,6 +349,11 @@ impl FloatOps<f32> for Avx2Isa {
     #[inline]
     fn mul_sub_from(self, a: F32x8, b: F32x8, c: F32x8) -> F32x8 {
         unsafe { _mm256_fnmadd_ps(a.0, b.0, c.0) }.into()
+    }
+
+    #[inline]
+    fn sqrt(self, x: F32x8) -> F32x8 {
+        unsafe { _mm256_sqrt_ps(x.0) }.into()
     }
 
     #[inline]
