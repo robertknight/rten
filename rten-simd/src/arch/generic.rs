@@ -2,7 +2,7 @@ use std::array;
 use std::mem::transmute;
 
 use crate::ops::{
-    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, MulHigh, NarrowSaturate, NumOps,
     SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd, bf16, f16};
@@ -143,6 +143,10 @@ unsafe impl Isa for GenericIsa {
     }
 
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
+        self
+    }
+
+    fn u32(self) -> impl IntOps<u32, Simd = Self::U32> + MulHigh<u32> {
         self
     }
 
@@ -520,6 +524,14 @@ impl_interleave!(u8, U8x16);
 
 impl_simd_int_ops!(U8x16, u8, 16, M8);
 impl_simd_int_ops!(U16x8, u16, 8, M16);
+impl_simd_int_ops!(U32x4, u32, 4, M32);
+
+impl MulHigh<u32> for GenericIsa {
+    #[inline]
+    fn mul_high(self, x: U32x4, y: U32x4) -> U32x4 {
+        x.map_with(y, |x, y| ((x as u64 * y as u64) >> 32) as u32)
+    }
+}
 
 impl ToFloat<i32> for GenericIsa {
     type Output = F32x4;

@@ -20,11 +20,16 @@ use std::arch::aarch64::{
     vsubq_s8, vsubq_s16, vsubq_s32, vsubq_u8, vsubq_u16, vuzp2q_u16, vzip1q_s8, vzip1q_s16,
     vzip1q_u8, vzip1q_u16, vzip2q_s8, vzip2q_s16, vzip2q_u8, vzip2q_u16,
 };
+use std::arch::aarch64::{
+    vceqq_u32, vcgeq_u32, vcgtq_u32, vcleq_u32, vcltq_u32, vget_low_u32, vmaxq_u32, vminq_u32,
+    vmull_high_u32, vmull_u32, vmulq_u32, vreinterpretq_u32_u64, vshlq_n_u32, vst1q_u32, vsubq_u32,
+    vuzp2q_u32,
+};
 use std::mem::transmute;
 
 use super::simd_type;
 use crate::ops::{
-    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, MulHigh, NarrowSaturate, NumOps,
     SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd, bf16, f16};
@@ -111,6 +116,10 @@ unsafe impl Isa for ArmNeonIsa {
         self
     }
 
+    fn u32(self) -> impl IntOps<u32, Simd = Self::U32> + MulHigh<u32> {
+        self
+    }
+
     fn m32(self) -> impl MaskOps<Self::M32> {
         self
     }
@@ -168,6 +177,7 @@ macro_rules! simd_ops_common {
         // Since bitwise ops work on individual bits, we can use the same
         // implementation regardless of numeric type.
         #[inline]
+        #[allow(clippy::useless_transmute)]
         fn and(self, x: $simd, y: $simd) -> $simd {
             unsafe {
                 let x = transmute::<$simd, uint32x4_t>(x);
@@ -180,6 +190,7 @@ macro_rules! simd_ops_common {
         // Since bitwise ops work on individual bits, we can use the same
         // implementation regardless of numeric type.
         #[inline]
+        #[allow(clippy::useless_transmute)]
         fn or(self, x: $simd, y: $simd) -> $simd {
             unsafe {
                 let x = transmute::<$simd, uint32x4_t>(x);
@@ -190,6 +201,7 @@ macro_rules! simd_ops_common {
         }
 
         #[inline]
+        #[allow(clippy::useless_transmute)]
         fn not(self, x: $simd) -> $simd {
             unsafe {
                 let x = transmute::<$simd, uint32x4_t>(x);
@@ -199,6 +211,7 @@ macro_rules! simd_ops_common {
         }
 
         #[inline]
+        #[allow(clippy::useless_transmute)]
         fn xor(self, x: $simd, y: $simd) -> $simd {
             unsafe {
                 let x = transmute::<$simd, uint32x4_t>(x);
@@ -912,6 +925,112 @@ impl IntOps<u16> for ArmNeonIsa {
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: uint16x8_t) -> uint16x8_t {
         unsafe { vshrq_n_u16::<SHIFT>(x) }
+    }
+}
+
+unsafe impl BitOps<u32> for ArmNeonIsa {
+    simd_ops_common!(uint32x4_t, uint32x4_t);
+
+    #[inline]
+    fn splat(self, x: u32) -> uint32x4_t {
+        unsafe { vdupq_n_u32(x) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const u32) -> uint32x4_t {
+        unsafe { vld1q_u32(ptr) }
+    }
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> uint32x4_t {
+        let mask: [u32; 4] = std::array::from_fn(|i| if i < n { u32::MAX } else { 0 });
+        unsafe { vld1q_u32(mask.as_ptr()) }
+    }
+
+    #[inline]
+    fn select(self, x: uint32x4_t, y: uint32x4_t, mask: <uint32x4_t as Simd>::Mask) -> uint32x4_t {
+        unsafe { vbslq_u32(mask, x, y) }
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: uint32x4_t, ptr: *mut u32) {
+        unsafe { vst1q_u32(ptr, x) }
+    }
+}
+
+unsafe impl NumOps<u32> for ArmNeonIsa {
+    #[inline]
+    fn add(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vaddq_u32(x, y) }
+    }
+
+    #[inline]
+    fn sub(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vsubq_u32(x, y) }
+    }
+
+    #[inline]
+    fn mul(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vmulq_u32(x, y) }
+    }
+
+    #[inline]
+    fn lt(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vcltq_u32(x, y) }
+    }
+
+    #[inline]
+    fn le(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vcleq_u32(x, y) }
+    }
+
+    #[inline]
+    fn eq(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vceqq_u32(x, y) }
+    }
+
+    #[inline]
+    fn ge(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vcgeq_u32(x, y) }
+    }
+
+    #[inline]
+    fn gt(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vcgtq_u32(x, y) }
+    }
+
+    #[inline]
+    fn min(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vminq_u32(x, y) }
+    }
+
+    #[inline]
+    fn max(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe { vmaxq_u32(x, y) }
+    }
+}
+
+impl IntOps<u32> for ArmNeonIsa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: uint32x4_t) -> uint32x4_t {
+        unsafe { vshlq_n_u32::<SHIFT>(x) }
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: uint32x4_t) -> uint32x4_t {
+        unsafe { vshrq_n_u32::<SHIFT>(x) }
+    }
+}
+
+impl MulHigh<u32> for ArmNeonIsa {
+    #[inline]
+    fn mul_high(self, x: uint32x4_t, y: uint32x4_t) -> uint32x4_t {
+        unsafe {
+            let prod_lo = vreinterpretq_u32_u64(vmull_u32(vget_low_u32(x), vget_low_u32(y)));
+            let prod_hi = vreinterpretq_u32_u64(vmull_high_u32(x, y));
+            // Take the high half of each 64-bit product.
+            vuzp2q_u32(prod_lo, prod_hi)
+        }
     }
 }
 

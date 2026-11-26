@@ -122,6 +122,9 @@ pub unsafe trait Isa: Copy {
     /// Operations on SIMD vectors with `u16` elements.
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16>;
 
+    /// Operations on SIMD vectors with `u32` elements.
+    fn u32(self) -> impl IntOps<u32, Simd = Self::U32> + MulHigh<u32>;
+
     /// Operations on mask vectors for 32-bit lanes.
     fn m32(self) -> impl MaskOps<Self::M32>;
 
@@ -196,6 +199,7 @@ impl_get_ops!(GetNumOps, num_ops, NumOps, i16);
 impl_get_ops!(GetNumOps, num_ops, NumOps, i32);
 impl_get_ops!(GetNumOps, num_ops, NumOps, i8);
 impl_get_ops!(GetNumOps, num_ops, NumOps, u16);
+impl_get_ops!(GetNumOps, num_ops, NumOps, u32);
 impl_get_ops!(GetNumOps, num_ops, NumOps, u8);
 
 /// Get the [`BitOps`] implementation from an [`Isa`] for a given element type.
@@ -218,6 +222,7 @@ impl_get_ops!(GetBitOps, bit_ops, BitOps, i16);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, i32);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, i8);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, u16);
+impl_get_ops!(GetBitOps, bit_ops, BitOps, u32);
 impl_get_ops!(GetBitOps, bit_ops, BitOps, u8);
 
 /// Get the [`Simd`] implementation from an [`Isa`] for a given element type.
@@ -244,6 +249,7 @@ impl_getsimd!(i16, I16);
 impl_getsimd!(i32, I32);
 impl_getsimd!(i8, I8);
 impl_getsimd!(u16, U16);
+impl_getsimd!(u32, U32);
 impl_getsimd!(u8, U8);
 
 /// Get the [`FloatOps`] implementation from an [`Isa`] for a given element type.
@@ -271,6 +277,7 @@ impl_get_ops!(GetIntOps, int_ops, IntOps, i32);
 impl_get_ops!(GetIntOps, int_ops, IntOps, i8);
 impl_get_ops!(GetIntOps, int_ops, IntOps, u8);
 impl_get_ops!(GetIntOps, int_ops, IntOps, u16);
+impl_get_ops!(GetIntOps, int_ops, IntOps, u32);
 
 /// Get the [`SignedIntOps`] implementation from an [`Isa`] for a given element type.
 ///
@@ -718,6 +725,15 @@ pub trait SignedIntOps<T: Elem>: IntOps<T> {
     }
 }
 
+/// Compute the high half of the full-width product of integers.
+pub trait MulHigh<T: Elem>: NumOps<T> {
+    /// Multiply lanes in `x` and `y` and return the high half of each product.
+    ///
+    /// For example with `u32` lanes this computes `((x as u64 * y as u64) >> 32) as u32`.
+    /// The low half of the product is returned by [`mul`](NumOps::mul).
+    fn mul_high(self, x: Self::Simd, y: Self::Simd) -> Self::Simd;
+}
+
 /// Widen lanes to a type with twice the width.
 ///
 /// For integer types, the extended type has the same signed-ness. For `f16`
@@ -799,8 +815,8 @@ pub trait NarrowSaturate<T: Elem, U: Elem>: NumOps<T> {
 mod tests {
     use crate::elem::WrappingAdd;
     use crate::ops::{
-        BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
-        SignedIntOps, ToFloat,
+        BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, MulHigh, NarrowSaturate,
+        NumOps, SignedIntOps, ToFloat,
     };
     use crate::{Isa, Mask, Simd, SimdOp, assert_simd_eq, assert_simd_ne, test_simd_op};
     use crate::{bf16, f16};
@@ -1110,6 +1126,7 @@ mod tests {
     test_num_ops!(num_ops_i8, i8, m8);
     test_num_ops!(num_ops_u8, u8, m8);
     test_num_ops!(num_ops_u16, u16, m16);
+    test_num_ops!(num_ops_u32, u32, m32);
 
     // Test that x8 multiply truncates result as expected.
     #[test]
@@ -1288,6 +1305,44 @@ mod tests {
     }
 
     test_unsigned_int_ops!(uint_ops_u16, u16);
+    test_unsigned_int_ops!(uint_ops_u32, u32);
+
+    // Shifting right must be a logical shift for unsigned types, even when the
+    // high bit is set.
+    #[test]
+    fn test_shift_right_logical_u32() {
+        test_simd_op!(isa, {
+            let ops = isa.u32();
+            let x = ops.splat(0x8000_0001);
+            let y = ops.shift_right::<4>(x);
+            assert_simd_eq!(y, ops.splat(0x0800_0000));
+        })
+    }
+
+    #[test]
+    fn test_mul_u32() {
+        test_simd_op!(isa, {
+            let ops = isa.u32();
+            let x: Vec<u32> = (0..ops.len() as u32)
+                .map(|i| 0xd251_1f53u32.wrapping_mul(i + 1))
+                .collect();
+            let y: Vec<u32> = (0..ops.len() as u32)
+                .map(|i| 0xcd9e_8d57u32.wrapping_add(i.wrapping_mul(0x1234_5678)))
+                .collect();
+            let x_vec = ops.load(&x);
+            let y_vec = ops.load(&y);
+
+            let expected_lo: Vec<u32> = x.iter().zip(&y).map(|(x, y)| x.wrapping_mul(*y)).collect();
+            let expected_hi: Vec<u32> = x
+                .iter()
+                .zip(&y)
+                .map(|(&x, &y)| ((x as u64 * y as u64) >> 32) as u32)
+                .collect();
+
+            assert_eq!(ops.mul(x_vec, y_vec).to_array().as_ref(), expected_lo);
+            assert_eq!(ops.mul_high(x_vec, y_vec).to_array().as_ref(), expected_hi);
+        })
+    }
 
     // Generate tests for operations available on signed integer types.
     macro_rules! test_signed_int_ops {
@@ -1404,6 +1459,24 @@ mod tests {
 
     // For small positive values, signed comparison ops will work on unsigned
     // values. Make sure we really are using unsigned comparison.
+    #[test]
+    fn test_cmp_u32() {
+        test_simd_op!(isa, {
+            let ops = isa.u32();
+            let m32 = isa.m32();
+
+            let x = ops.splat(i32::MAX as u32);
+            let y = ops.splat(i32::MAX as u32 + 1);
+
+            assert!(m32.all(ops.gt(y, x)));
+            assert!(m32.all(ops.ge(y, x)));
+            assert!(m32.all(ops.lt(x, y)));
+            assert!(m32.all(ops.le(x, y)));
+            assert_simd_eq!(ops.min(x, y), x);
+            assert_simd_eq!(ops.max(x, y), y);
+        });
+    }
+
     #[test]
     fn test_cmp_gt_ge_u16() {
         test_simd_op!(isa, {
