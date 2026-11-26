@@ -109,15 +109,51 @@ pub fn simd_apply<
     dest
 }
 
+/// Apply `f` to each element of an array and return an array of the results.
+///
+/// This is like [`array::map`](https://doc.rust-lang.org/std/primitive.array.html#method.map),
+/// but is always inlined. `array::map` is not `#[inline]`, so the compiler may
+/// not inline it into the caller. SIMD intrinsics in `f` are then compiled
+/// without the caller's target features, turning them into function calls.
+/// To avoid this, `f` should also be marked `#[inline(always)]`.
+///
+/// See also <https://github.com/rust-lang/rust/issues/108765>.
+#[inline(always)]
+pub fn array_map<T: Copy, U: Copy, F: FnMut(T) -> U, const N: usize>(
+    xs: [T; N],
+    mut f: F,
+) -> [U; N] {
+    const { assert!(N > 0, "array must not be empty") };
+
+    let mut ys = [f(xs[0]); N];
+    for i in 1..N {
+        ys[i] = f(xs[i]);
+    }
+    ys
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ops::NumOps;
     use crate::{Isa, SimdOp};
 
-    use super::{simd_apply, simd_map};
+    use super::{array_map, simd_apply, simd_map};
 
     // f32 vector length, chosen to exercise main and tail loops for all ISAs.
     const TEST_LEN: usize = 18;
+
+    #[test]
+    fn test_array_map() {
+        let mut calls = Vec::new();
+        let ys = array_map([1, 2, 3], |x| {
+            calls.push(x);
+            x as f32 * 2.
+        });
+        assert_eq!(ys, [2., 4., 6.]);
+
+        // Each element is visited once, in order.
+        assert_eq!(calls, [1, 2, 3]);
+    }
 
     #[test]
     fn test_simd_map() {
