@@ -1333,7 +1333,7 @@ impl<T, L: Clone + Layout> TensorBase<Vec<T>, L> {
     {
         let len = shape.iter().product();
         let mut data = alloc.alloc(len);
-        data.extend(std::iter::from_fn(|| Some(f())).take(len));
+        data.extend((0..len).map(|_| f()));
         TensorBase::from_data(shape, data)
     }
 
