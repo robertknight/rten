@@ -54,7 +54,6 @@ edition = "2024"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 resolver = "2"
 include = ["/src", "/CHANGELOG.md", "/README.md", "/docs"]
