@@ -279,6 +279,11 @@ pub struct RandomUniform<'d> {
 }
 
 impl<'d> RandomUniform<'d> {
+    /// Create an operation which fills `dest` with values uniformly
+    /// distributed between `low` and `high`.
+    ///
+    /// The values are determined by `seed` and the position of `dest` in the
+    /// random sequence (see [`with_offset`](Self::with_offset)).
     pub fn new(dest: &'d mut [MaybeUninit<f32>], seed: u64, low: f32, high: f32) -> Self {
         RandomUniform {
             dest,
@@ -322,6 +327,11 @@ pub struct RandomNormal<'d> {
 }
 
 impl<'d> RandomNormal<'d> {
+    /// Create an operation which fills `dest` with values from a normal
+    /// distribution with the given `mean` and standard deviation `std_dev`.
+    ///
+    /// The values are determined by `seed` and the position of `dest` in the
+    /// random sequence (see [`with_offset`](Self::with_offset)).
     pub fn new(dest: &'d mut [MaybeUninit<f32>], seed: u64, mean: f32, std_dev: f32) -> Self {
         RandomNormal {
             dest,
