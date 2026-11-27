@@ -5,7 +5,6 @@ edition = "2024"
 authors = ["Robert Knight"]
 description = "Machine-learning oriented matrix multiplication"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 
 [dependencies]

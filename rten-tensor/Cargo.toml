@@ -5,7 +5,6 @@ edition = "2024"
 authors = ["Robert Knight"]
 description = "Tensor library for the RTen machine learning runtime"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
