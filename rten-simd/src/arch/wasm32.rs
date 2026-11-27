@@ -15,6 +15,10 @@ use std::arch::wasm32::{
     u16x8_sub, u32x4_shr, u32x4_splat, v128, v128_and, v128_any_true, v128_bitselect, v128_load,
     v128_not, v128_or, v128_store, v128_xor,
 };
+use std::arch::wasm32::{
+    f32x4_sqrt, u32x4_add, u32x4_eq, u32x4_ge, u32x4_gt, u32x4_le, u32x4_lt, u32x4_max, u32x4_min,
+    u32x4_mul, u32x4_shl, u32x4_sub, u64x2_extmul_high_u32x4, u64x2_extmul_low_u32x4,
+};
 use std::mem::transmute;
 
 #[cfg(target_feature = "relaxed-simd")]
@@ -22,7 +26,7 @@ use std::arch::wasm32::{f32x4_relaxed_madd, f32x4_relaxed_nmadd};
 
 use super::{lanes, simd_type};
 use crate::ops::{
-    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, NarrowSaturate, NumOps,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, MulHigh, NarrowSaturate, NumOps,
     SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd, bf16, f16};
@@ -113,6 +117,10 @@ unsafe impl Isa for Wasm32Isa {
     }
 
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
+        self
+    }
+
+    fn u32(self) -> impl IntOps<u32, Simd = Self::U32> + MulHigh<u32> {
         self
     }
 
@@ -326,6 +334,11 @@ impl FloatOps<f32> for Wasm32Isa {
         {
             F32x4(f32x4_sub(c.0, f32x4_mul(a.0, b.0)))
         }
+    }
+
+    #[inline]
+    fn sqrt(self, x: F32x4) -> F32x4 {
+        F32x4(f32x4_sqrt(x.0))
     }
 
     #[inline]
@@ -725,6 +738,89 @@ impl IntOps<u16> for Wasm32Isa {
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: U16x8) -> U16x8 {
         U16x8(u16x8_shr(x.0, SHIFT as u32))
+    }
+}
+
+unsafe impl BitOps<u32> for Wasm32Isa {
+    simd_ops_common!(U32x4, M32, u32);
+
+    #[inline]
+    fn splat(self, x: u32) -> U32x4 {
+        U32x4(u32x4_splat(x))
+    }
+}
+
+unsafe impl NumOps<u32> for Wasm32Isa {
+    #[inline]
+    fn add(self, x: U32x4, y: U32x4) -> U32x4 {
+        U32x4(u32x4_add(x.0, y.0))
+    }
+
+    #[inline]
+    fn sub(self, x: U32x4, y: U32x4) -> U32x4 {
+        U32x4(u32x4_sub(x.0, y.0))
+    }
+
+    #[inline]
+    fn mul(self, x: U32x4, y: U32x4) -> U32x4 {
+        U32x4(u32x4_mul(x.0, y.0))
+    }
+
+    #[inline]
+    fn lt(self, x: U32x4, y: U32x4) -> M32 {
+        M32(u32x4_lt(x.0, y.0))
+    }
+
+    #[inline]
+    fn le(self, x: U32x4, y: U32x4) -> M32 {
+        M32(u32x4_le(x.0, y.0))
+    }
+
+    #[inline]
+    fn eq(self, x: U32x4, y: U32x4) -> M32 {
+        M32(u32x4_eq(x.0, y.0))
+    }
+
+    #[inline]
+    fn ge(self, x: U32x4, y: U32x4) -> M32 {
+        M32(u32x4_ge(x.0, y.0))
+    }
+
+    #[inline]
+    fn gt(self, x: U32x4, y: U32x4) -> M32 {
+        M32(u32x4_gt(x.0, y.0))
+    }
+
+    #[inline]
+    fn min(self, x: U32x4, y: U32x4) -> U32x4 {
+        U32x4(u32x4_min(x.0, y.0))
+    }
+
+    #[inline]
+    fn max(self, x: U32x4, y: U32x4) -> U32x4 {
+        U32x4(u32x4_max(x.0, y.0))
+    }
+}
+
+impl IntOps<u32> for Wasm32Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U32x4) -> U32x4 {
+        U32x4(u32x4_shl(x.0, SHIFT as u32))
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U32x4) -> U32x4 {
+        U32x4(u32x4_shr(x.0, SHIFT as u32))
+    }
+}
+
+impl MulHigh<u32> for Wasm32Isa {
+    #[inline]
+    fn mul_high(self, x: U32x4, y: U32x4) -> U32x4 {
+        let prod_lo = u64x2_extmul_low_u32x4(x.0, y.0);
+        let prod_hi = u64x2_extmul_high_u32x4(x.0, y.0);
+        // Take the high half of each 64-bit product.
+        U32x4(i32x4_shuffle::<1, 3, 5, 7>(prod_lo, prod_hi))
     }
 }
 

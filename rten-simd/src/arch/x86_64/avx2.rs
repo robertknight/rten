@@ -22,13 +22,17 @@ use std::arch::x86_64::{
     _mm256_unpackhi_epi8, _mm256_unpackhi_epi16, _mm256_unpacklo_epi8, _mm256_unpacklo_epi16,
     _mm256_xor_ps, _mm256_xor_si256,
 };
+use std::arch::x86_64::{
+    _mm256_blend_epi32, _mm256_max_epu32, _mm256_min_epu32, _mm256_mul_epu32, _mm256_sqrt_ps,
+    _mm256_srli_epi64,
+};
 use std::is_x86_feature_detected;
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::ops::{
-    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
-    SignedIntOps, ToFloat,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, MulHigh, Narrow, NarrowSaturate,
+    NumOps, SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd, bf16, f16};
 
@@ -124,6 +128,10 @@ unsafe impl Isa for Avx2Isa {
     }
 
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
+        self
+    }
+
+    fn u32(self) -> impl IntOps<u32, Simd = Self::U32> + MulHigh<u32> {
         self
     }
 
@@ -341,6 +349,11 @@ impl FloatOps<f32> for Avx2Isa {
     #[inline]
     fn mul_sub_from(self, a: F32x8, b: F32x8, c: F32x8) -> F32x8 {
         unsafe { _mm256_fnmadd_ps(a.0, b.0, c.0) }.into()
+    }
+
+    #[inline]
+    fn sqrt(self, x: F32x8) -> F32x8 {
+        unsafe { _mm256_sqrt_ps(x.0) }.into()
     }
 
     #[inline]
@@ -1052,6 +1065,124 @@ impl IntOps<u16> for Avx2Isa {
     #[inline]
     fn shift_right<const SHIFT: i32>(self, x: U16x16) -> U16x16 {
         unsafe { _mm256_srli_epi16(x.0, SHIFT) }.into()
+    }
+}
+
+unsafe impl BitOps<u32> for Avx2Isa {
+    simd_ops_common!(U32x8, M32);
+    simd_int_ops_common!(U32x8);
+
+    #[inline]
+    fn first_n_mask(self, n: usize) -> M32 {
+        let mask: [i32; 8] = std::array::from_fn(|i| if i < n { -1 } else { 0 });
+        M32(unsafe { _mm256_loadu_si256(mask.as_ptr() as *const __m256i) })
+    }
+
+    #[inline]
+    fn splat(self, x: u32) -> U32x8 {
+        unsafe { _mm256_set1_epi32(x as i32) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const u32) -> U32x8 {
+        unsafe { _mm256_loadu_si256(ptr as *const __m256i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: U32x8, y: U32x8, mask: M32) -> U32x8 {
+        unsafe { _mm256_blendv_epi8(y.0, x.0, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: U32x8, ptr: *mut u32) {
+        unsafe { _mm256_storeu_si256(ptr as *mut __m256i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const u32, mask: M32) -> U32x8 {
+        unsafe { _mm256_maskload_epi32(ptr as *const i32, mask.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: U32x8, ptr: *mut u32, mask: M32) {
+        unsafe { _mm256_maskstore_epi32(ptr as *mut i32, mask.0, x.0) }
+    }
+}
+
+unsafe impl NumOps<u32> for Avx2Isa {
+    #[inline]
+    fn add(self, x: U32x8, y: U32x8) -> U32x8 {
+        unsafe { _mm256_add_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: U32x8, y: U32x8) -> U32x8 {
+        unsafe { _mm256_sub_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: U32x8, y: U32x8) -> U32x8 {
+        unsafe { _mm256_mullo_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: U32x8, y: U32x8) -> M32 {
+        M32(unsafe { _mm256_cmpeq_epi32(x.0, y.0) })
+    }
+
+    #[inline]
+    fn ge(self, x: U32x8, y: U32x8) -> M32 {
+        M32(unsafe { _mm256_cmpeq_epi32(_mm256_max_epu32(x.0, y.0), x.0) })
+    }
+
+    #[inline]
+    fn gt(self, x: U32x8, y: U32x8) -> M32 {
+        // AVX2 lacks u32 comparison. Flip the sign bits and use signed compare.
+        M32(unsafe {
+            let sign = _mm256_set1_epi32(i32::MIN);
+            let x_i32 = _mm256_xor_si256(x.0, sign);
+            let y_i32 = _mm256_xor_si256(y.0, sign);
+            _mm256_cmpgt_epi32(x_i32, y_i32)
+        })
+    }
+
+    #[inline]
+    fn min(self, x: U32x8, y: U32x8) -> U32x8 {
+        unsafe { _mm256_min_epu32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn max(self, x: U32x8, y: U32x8) -> U32x8 {
+        unsafe { _mm256_max_epu32(x.0, y.0) }.into()
+    }
+}
+
+impl IntOps<u32> for Avx2Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U32x8) -> U32x8 {
+        unsafe { _mm256_slli_epi32(x.0, SHIFT) }.into()
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U32x8) -> U32x8 {
+        unsafe { _mm256_srli_epi32(x.0, SHIFT) }.into()
+    }
+}
+
+impl MulHigh<u32> for Avx2Isa {
+    #[inline]
+    fn mul_high(self, x: U32x8, y: U32x8) -> U32x8 {
+        unsafe {
+            // `_mm256_mul_epu32` multiplies the even lanes, producing 64-bit
+            // products. Shift the odd lanes down to compute their products.
+            let prod_even = _mm256_mul_epu32(x.0, y.0);
+            let prod_odd = _mm256_mul_epu32(_mm256_srli_epi64(x.0, 32), _mm256_srli_epi64(y.0, 32));
+
+            // Take the high half of each 64-bit product.
+            let hi_even = _mm256_srli_epi64(prod_even, 32);
+            _mm256_blend_epi32(hi_even, prod_odd, 0b10101010)
+        }
+        .into()
     }
 }
 

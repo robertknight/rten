@@ -1,10 +1,12 @@
-use fastrand::Rng;
-use fastrand_contrib::RngExt;
+use std::mem::MaybeUninit;
+
+use rten_parallel::par_init_chunks;
 use rten_shape_inference::ops as shape_ops;
+use rten_simd::SimdOp;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
-use crate::buffer_pool::AutoReturn;
+use crate::buffer_pool::{AutoReturn, BufferPool};
 use crate::infer_shapes::{InferShapes, UnaryOp, impl_infer_shapes};
 use crate::operator::{
     IntoOpResult, OpError, OpRunContext, Operator, OutputList, OutputType, OutputTypeList,
@@ -13,20 +15,46 @@ use crate::operator::{
 use crate::random_seed::RandomSeed;
 use crate::value::{DataType, Value, ValueType};
 
-/// Create a random number generator for an operator.
+/// Return the seed for an operator's random number generator.
 ///
 /// `seed` is the seed specified by the operator's attributes. If not set, the
 /// seed is derived from the run seed and node name. If there is no run seed,
-/// the generator is randomly seeded.
-fn op_rng(seed: Option<RandomSeed>, ctx: &OpRunContext) -> Rng {
-    let seed = seed.or_else(|| {
+/// a random seed is generated.
+fn op_seed(seed: Option<RandomSeed>, ctx: &OpRunContext) -> u64 {
+    seed.or_else(|| {
         ctx.run_seed()
             .map(|run_seed| run_seed.mix_str(ctx.name().unwrap_or_default()))
+    })
+    .unwrap_or_else(RandomSeed::random)
+    .as_u64()
+}
+
+/// Number of elements in each chunk that is generated on a single thread.
+const CHUNK_SIZE: usize = 32 * 1024;
+
+/// Generate a tensor of random values in parallel.
+///
+/// `fill_chunk` is called with each chunk of the output and the offset of the
+/// chunk in the random sequence. It returns the chunk after initializing it.
+fn random_tensor<F>(pool: &BufferPool, shape: &[usize], fill_chunk: F) -> Tensor
+where
+    F: Fn(&mut [MaybeUninit<f32>], u64) -> &mut [f32] + Sync,
+{
+    let len = shape.iter().product();
+    let data = par_init_chunks(pool.alloc(len), len, CHUNK_SIZE, |idx, chunk| {
+        fill_chunk(chunk, (idx * CHUNK_SIZE) as u64)
     });
-    match seed {
-        Some(seed) => Rng::with_seed(seed.as_u64()),
-        None => Rng::new(),
-    }
+    Tensor::from_data(shape, data)
+}
+
+/// Generate a tensor of random values uniformly distributed between `low` and
+/// `high`.
+fn random_uniform(pool: &BufferPool, shape: &[usize], seed: u64, low: f32, high: f32) -> Tensor {
+    random_tensor(pool, shape, |chunk, offset| {
+        rten_vecmath::RandomUniform::new(chunk, seed, low, high)
+            .with_offset(offset)
+            .dispatch()
+    })
 }
 
 #[derive(Debug)]
@@ -56,11 +84,8 @@ impl Operator for RandomUniform {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let scale_value = |val: f32| self.low + val * (self.high - self.low);
-        let shape = self.shape.as_slice();
-
-        let mut rng = op_rng(self.seed.map(RandomSeed::from_f32), ctx);
-        Tensor::from_simple_fn_in(ctx.pool(), shape, || scale_value(rng.f32())).into_op_result()
+        let seed = op_seed(self.seed.map(RandomSeed::from_f32), ctx);
+        random_uniform(ctx.pool(), &self.shape, seed, self.low, self.high).into_op_result()
     }
 
     fn output_types(&self, _ctx: &OutputTypesContext) -> Option<OutputTypeList> {
@@ -147,19 +172,11 @@ impl Operator for RandomNormal {
     }
 
     fn run(&self, ctx: &OpRunContext) -> Result<OutputList, OpError> {
-        let shape = self.shape.as_slice();
-
-        let mut rng = op_rng(self.seed.map(RandomSeed::from_f32), ctx);
-
-        // Use `Rng::f32_normal_approx` here rather than `Rng::f32_normal`
-        // because the approximation is much faster and good enough for use
-        // cases for random normal distributions in ML models.
-        //
-        // See https://marc-b-reynolds.github.io/distribution/2021/03/18/CheapGaussianApprox.html
-        // for more info on the algorithm. The non-approximate version uses the
-        // Box-Muller transform.
-        Tensor::from_simple_fn_in(ctx.pool(), shape, || {
-            rng.f32_normal_approx(self.mean, self.scale)
+        let seed = op_seed(self.seed.map(RandomSeed::from_f32), ctx);
+        random_tensor(ctx.pool(), &self.shape, |chunk, offset| {
+            rten_vecmath::RandomNormal::new(chunk, seed, self.mean, self.scale)
+                .with_offset(offset)
+                .dispatch()
         })
         .into_op_result()
     }
@@ -248,7 +265,10 @@ impl Operator for Multinomial {
             return Err(OpError::invalid_value("input must have at least one class"));
         }
 
-        let mut rng = op_rng(self.seed.map(RandomSeed::from_f32), ctx);
+        let seed = op_seed(self.seed.map(RandomSeed::from_f32), ctx);
+        let uniforms =
+            random_uniform(pool, &[batch_size * self.sample_size], seed, 0., 1.).auto_return(pool);
+        let mut uniforms = uniforms.iter();
 
         let input = input.to_contiguous_in(pool).auto_return(pool);
         let input = input.data();
@@ -273,10 +293,10 @@ impl Operator for Multinomial {
 
             for _ in 0..self.sample_size {
                 // Scale the `[0, 1)` draw by `sum` to match the scale of `cdf`.
-                let threshold = rng.f32() * sum;
+                let threshold = uniforms.next().unwrap() * sum;
                 // Sample the first class whose cumulative probability exceeds
                 // the threshold. The last value in `cdf` is exactly `sum` and
-                // `rng.f32() < 1`, so the maximum value of `idx` is
+                // the uniform sample is `< 1`, so the maximum value of `idx` is
                 // `class_size - 1`.
                 let idx = cdf.partition_point(|&c| c <= threshold);
                 output.push(idx as i32);
@@ -342,30 +362,29 @@ impl Operator for Dropout {
 
         let training_mode = inputs.get_as::<i32>(2)?.unwrap_or(0) != 0;
 
-        let (output, mask) =
-            if !training_mode || ratio == 0. {
-                let mask = Tensor::<i32>::full(input.shape(), 1);
-                (input.to_tensor(), mask)
-            } else {
-                let mut rng = op_rng(self.seed.map(|seed| RandomSeed::new(seed as u64)), ctx);
-                let scale = 1. / (1. - ratio);
+        let (output, mask) = if !training_mode || ratio == 0. {
+            let mask = Tensor::<i32>::full(input.shape(), 1);
+            (input.to_tensor(), mask)
+        } else {
+            let seed = op_seed(self.seed.map(|seed| RandomSeed::new(seed as u64)), ctx);
+            let scale = 1. / (1. - ratio);
 
-                let mask = Tensor::<i32>::from_simple_fn(input.shape(), || {
-                    if rng.f32() < ratio { 0 } else { 1 }
-                });
-                let input = input.to_contiguous_in(ctx.pool());
+            let pool = ctx.pool();
+            let uniforms = random_uniform(pool, input.shape(), seed, 0., 1.).auto_return(pool);
+            let mask = uniforms.map(|&u| if u < ratio { 0 } else { 1 });
+            let input = input.to_contiguous_in(pool);
 
-                let output = Tensor::from_data(
-                    input.shape(),
-                    input
-                        .data()
-                        .iter()
-                        .zip(mask.data().unwrap())
-                        .map(|(&x, &mask)| x * scale * mask as f32)
-                        .collect::<Vec<_>>(),
-                );
-                (output, mask)
-            };
+            let output = Tensor::from_data(
+                input.shape(),
+                input
+                    .data()
+                    .iter()
+                    .zip(mask.data().unwrap())
+                    .map(|(&x, &mask)| x * scale * mask as f32)
+                    .collect::<Vec<_>>(),
+            );
+            (output, mask)
+        };
 
         Ok([Value::from(output), Value::from(mask)]
             .into_iter()
@@ -844,9 +863,11 @@ mod tests {
         let cases = [
             Case {
                 // The spec disallows setting the dropout ratio to exactly 1.
+                // Each element is retained with probability 1e-5. Allow for
+                // one retained element, which happens with the fixed seed.
                 ratio: Some(0.99999),
                 expected_dropout_ratio: 1.,
-                tolerance: 0.,
+                tolerance: 0.01,
             },
             Case {
                 ratio: None, // Default ratio is 0.5

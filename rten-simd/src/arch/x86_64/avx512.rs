@@ -25,12 +25,16 @@ use std::arch::x86_64::{
     _mm512_unpackhi_epi16, _mm512_unpacklo_epi8, _mm512_unpacklo_epi16, _mm512_xor_ps,
     _mm512_xor_si512,
 };
+use std::arch::x86_64::{
+    _mm512_cmp_epu32_mask, _mm512_max_epu32, _mm512_min_epu32, _mm512_mul_epu32, _mm512_sqrt_ps,
+    _mm512_srli_epi64,
+};
 use std::mem::transmute;
 
 use super::super::{lanes, simd_type};
 use crate::ops::{
-    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, Narrow, NarrowSaturate, NumOps,
-    SignedIntOps, ToFloat,
+    BitOps, Concat, Extend, FloatOps, IntOps, Interleave, MaskOps, MulHigh, Narrow, NarrowSaturate,
+    NumOps, SignedIntOps, ToFloat,
 };
 use crate::{Isa, Mask, Simd, bf16, f16};
 
@@ -123,6 +127,10 @@ unsafe impl Isa for Avx512Isa {
     }
 
     fn u16(self) -> impl IntOps<u16, Simd = Self::U16> {
+        self
+    }
+
+    fn u32(self) -> impl IntOps<u32, Simd = Self::U32> + MulHigh<u32> {
         self
     }
 
@@ -331,6 +339,11 @@ impl FloatOps<f32> for Avx512Isa {
     #[inline]
     fn mul_sub_from(self, a: F32x16, b: F32x16, c: F32x16) -> F32x16 {
         unsafe { _mm512_fnmadd_ps(a.0, b.0, c.0) }.into()
+    }
+
+    #[inline]
+    fn sqrt(self, x: F32x16) -> F32x16 {
+        unsafe { _mm512_sqrt_ps(x.0) }.into()
     }
 
     #[inline]
@@ -1047,6 +1060,114 @@ impl IntOps<u16> for Avx512Isa {
     fn shift_right<const SHIFT: i32>(self, x: U16x32) -> U16x32 {
         let count: I16x32 = self.splat(SHIFT as i16);
         unsafe { _mm512_srlv_epi16(x.0, count.0) }.into()
+    }
+}
+
+unsafe impl BitOps<u32> for Avx512Isa {
+    simd_ops_common!(U32x16, __mmask16);
+    simd_int_ops_common!(U32x16);
+
+    #[inline]
+    fn splat(self, x: u32) -> U32x16 {
+        unsafe { _mm512_set1_epi32(x as i32) }.into()
+    }
+
+    #[inline]
+    unsafe fn load_ptr(self, ptr: *const u32) -> U32x16 {
+        unsafe { _mm512_loadu_si512(ptr as *const __m512i) }.into()
+    }
+
+    #[inline]
+    fn select(self, x: U32x16, y: U32x16, mask: <U32x16 as Simd>::Mask) -> U32x16 {
+        unsafe { _mm512_mask_blend_epi32(mask, y.0, x.0) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr(self, x: U32x16, ptr: *mut u32) {
+        unsafe { _mm512_storeu_si512(ptr as *mut __m512i, x.0) }
+    }
+
+    #[inline]
+    unsafe fn load_ptr_mask(self, ptr: *const u32, mask: __mmask16) -> U32x16 {
+        unsafe { _mm512_mask_loadu_epi32(_mm512_set1_epi32(0), mask, ptr as *const i32) }.into()
+    }
+
+    #[inline]
+    unsafe fn store_ptr_mask(self, x: U32x16, ptr: *mut u32, mask: __mmask16) {
+        unsafe { _mm512_mask_storeu_epi32(ptr as *mut i32, mask, x.0) }
+    }
+}
+
+unsafe impl NumOps<u32> for Avx512Isa {
+    #[inline]
+    fn add(self, x: U32x16, y: U32x16) -> U32x16 {
+        unsafe { _mm512_add_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn sub(self, x: U32x16, y: U32x16) -> U32x16 {
+        unsafe { _mm512_sub_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn mul(self, x: U32x16, y: U32x16) -> U32x16 {
+        unsafe { _mm512_mullo_epi32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn eq(self, x: U32x16, y: U32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epu32_mask(x.0, y.0, _MM_CMPINT_EQ) }
+    }
+
+    #[inline]
+    fn ge(self, x: U32x16, y: U32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epu32_mask(x.0, y.0, _MM_CMPINT_NLT) }
+    }
+
+    #[inline]
+    fn gt(self, x: U32x16, y: U32x16) -> __mmask16 {
+        unsafe { _mm512_cmp_epu32_mask(x.0, y.0, _MM_CMPINT_NLE) }
+    }
+
+    #[inline]
+    fn min(self, x: U32x16, y: U32x16) -> U32x16 {
+        unsafe { _mm512_min_epu32(x.0, y.0) }.into()
+    }
+
+    #[inline]
+    fn max(self, x: U32x16, y: U32x16) -> U32x16 {
+        unsafe { _mm512_max_epu32(x.0, y.0) }.into()
+    }
+}
+
+impl IntOps<u32> for Avx512Isa {
+    #[inline]
+    fn shift_left<const SHIFT: i32>(self, x: U32x16) -> U32x16 {
+        let count: I32x16 = self.splat(SHIFT);
+        unsafe { _mm512_sllv_epi32(x.0, count.0) }.into()
+    }
+
+    #[inline]
+    fn shift_right<const SHIFT: i32>(self, x: U32x16) -> U32x16 {
+        let count: I32x16 = self.splat(SHIFT);
+        unsafe { _mm512_srlv_epi32(x.0, count.0) }.into()
+    }
+}
+
+impl MulHigh<u32> for Avx512Isa {
+    #[inline]
+    fn mul_high(self, x: U32x16, y: U32x16) -> U32x16 {
+        unsafe {
+            // `_mm512_mul_epu32` multiplies the even lanes, producing 64-bit
+            // products. Shift the odd lanes down to compute their products.
+            let prod_even = _mm512_mul_epu32(x.0, y.0);
+            let prod_odd = _mm512_mul_epu32(_mm512_srli_epi64(x.0, 32), _mm512_srli_epi64(y.0, 32));
+
+            // Take the high half of each 64-bit product.
+            let hi_even = _mm512_srli_epi64(prod_even, 32);
+            _mm512_mask_blend_epi32(0xaaaa, hi_even, prod_odd)
+        }
+        .into()
     }
 }
 
