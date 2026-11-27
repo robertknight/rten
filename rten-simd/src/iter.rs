@@ -66,7 +66,7 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
     /// multiple of the SIMD vector length, the final vector will be padded with
     /// zeros. If a padded vector is used for the final update, the accumulator
     /// vector will only be updated with the results from the non-padding lanes.
-    #[inline]
+    #[inline(always)]
     pub fn fold<F: FnMut(O::Simd, O::Simd) -> O::Simd>(
         mut self,
         mut accum: O::Simd,
@@ -93,7 +93,7 @@ impl<'a, T: Elem, O: NumOps<T>> Iter<'a, T, O> {
     ///
     /// When the `fold` operation is simple, this can improve performance over
     /// `self.fold` by achieving better instruction level parallelism.
-    #[inline]
+    #[inline(always)]
     pub fn fold_unroll<const UNROLL: usize>(
         mut self,
         accum: O::Simd,
@@ -233,7 +233,7 @@ impl<'a, T: Elem, O: NumOps<T>> IterPad<'a, T, O> {
 impl<T: Elem, O: NumOps<T>> Iterator for IterPad<'_, T, O> {
     type Item = O::Simd;
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(chunk) = self.iter.next() {
             Some(chunk)

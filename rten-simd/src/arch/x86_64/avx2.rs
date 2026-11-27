@@ -1363,7 +1363,7 @@ impl Extend<bf16> for Avx2Isa {
 /// significant 16 bits of each 32-bit lane.
 ///
 /// See `rten_simd::bfloat16::f32_to_bf16` for an explanation of the arithmetic.
-#[inline]
+#[inline(always)]
 unsafe fn round_to_bf16(x: F32x8) -> __m256i {
     unsafe {
         let bits = _mm256_castps_si256(x.0);
@@ -1385,7 +1385,7 @@ unsafe fn round_to_bf16(x: F32x8) -> __m256i {
 impl NarrowSaturate<f32, bf16> for Avx2Isa {
     type Output = BF16x16;
 
-    #[inline]
+    #[inline(always)]
     fn narrow_saturate(self, low: F32x8, high: F32x8) -> BF16x16 {
         unsafe {
             // Move the most significant 16 bits of each 32-bit lane into the

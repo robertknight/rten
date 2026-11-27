@@ -33,6 +33,7 @@ impl<'a, T: Elem> SliceWriter<'a, T> {
     /// useful when writing several vectors per loop iteration.
     ///
     /// Panics if the slice does not have space for `N * ops.len()` elements.
+    #[inline(always)]
     pub fn write_vecs<O: BitOps<T>, const N: usize>(&mut self, ops: O, xs: [O::Simd; N]) {
         let written = ops.store_many_uninit(xs, &mut self.buf[self.n_init..]);
         self.n_init += written.len();
