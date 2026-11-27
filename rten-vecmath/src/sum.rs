@@ -149,10 +149,14 @@ impl SimdOp for SumExpSub<'_> {
         let ops = isa.f32();
         let offset_vec = ops.splat(self.offset);
 
-        let vec_sum = self.input.simd_iter(ops).fold(ops.zero(), |sum, x| {
-            let exp = Exp::apply(isa, ops.sub(x, offset_vec));
-            ops.add(sum, exp)
-        });
+        let vec_sum = self.input.simd_iter(ops).fold(
+            ops.zero(),
+            #[inline(always)]
+            |sum, x| {
+                let exp = Exp::apply(isa, ops.sub(x, offset_vec));
+                ops.add(sum, exp)
+            },
+        );
 
         vec_sum.to_array().into_iter().sum()
     }
