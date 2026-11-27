@@ -232,7 +232,7 @@ mod tests {
     use rten_simd::SimdOp;
 
     use super::{LogSoftmax, Softmax};
-    use crate::testing::{IntoUninit, benchmark_op, check_f32s_are_equal_ulps, triples};
+    use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples};
 
     fn reference_log_softmax(xs: &[f32], ys: &mut [f32]) {
         let max = xs.iter().copied().fold(f32::MIN, |max, x| max.max(x));
@@ -266,10 +266,10 @@ mod tests {
         let expected = &([
             0.11715934, 0.23623686, 0.18871443, 0.2273828, 0.10522857, 0.12527795,
         ]);
-        let mut actual = vec![0.; input.len()];
 
-        Softmax::new(&input, actual.as_mut_slice().into_uninit()).dispatch();
-        check_f32s_are_equal_ulps(triples(&input, &actual, expected), 1. /* max ULPs */);
+        let mut actual = Vec::with_capacity(input.len());
+        let actual = Softmax::new(&input, actual.spare_capacity_mut()).dispatch();
+        check_f32s_are_equal_ulps(triples(&input, actual, expected), 1. /* max ULPs */);
 
         // Test against reference implementation for various lengths.
         for len in 1..20 {
@@ -277,10 +277,10 @@ mod tests {
             let mut expected = vec![0.; input.len()];
             reference_softmax(&input, &mut expected);
 
-            let mut actual = vec![0.; input.len()];
-            Softmax::new(&input, actual.as_mut_slice().into_uninit()).dispatch();
+            let mut actual = Vec::with_capacity(input.len());
+            let actual = Softmax::new(&input, actual.spare_capacity_mut()).dispatch();
 
-            check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 3. /* max ULPs */);
+            check_f32s_are_equal_ulps(triples(&input, actual, &expected), 3. /* max ULPs */);
         }
     }
 
@@ -305,10 +305,10 @@ mod tests {
             let mut expected = vec![0.; input.len()];
             reference_log_softmax(&input, &mut expected);
 
-            let mut actual = vec![0.; input.len()];
-            LogSoftmax::new(&input, actual.as_mut_slice().into_uninit()).dispatch();
+            let mut actual = Vec::with_capacity(input.len());
+            let actual = LogSoftmax::new(&input, actual.spare_capacity_mut()).dispatch();
 
-            check_f32s_are_equal_ulps(triples(&input, &actual, &expected), 3. /* max ULPs */);
+            check_f32s_are_equal_ulps(triples(&input, actual, &expected), 3. /* max ULPs */);
         }
     }
 

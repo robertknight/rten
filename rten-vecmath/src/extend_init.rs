@@ -50,6 +50,14 @@ impl<T> ExtendInit for Vec<T> {
     }
 }
 
+/// Construct a [`Vec`] with capacity `len` and initialize its elements using `f`.
+#[cfg(test)]
+pub(crate) fn init_vec<T, F: Fn(&mut [MaybeUninit<T>]) -> &[T]>(len: usize, f: F) -> Vec<T> {
+    let mut buf = Vec::with_capacity(len);
+    buf.extend_init(f);
+    buf
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;

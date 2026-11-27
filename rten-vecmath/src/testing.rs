@@ -7,23 +7,6 @@ use std::time::Instant;
 use crate::ulp::Ulp;
 use rten_simd::SimdUnaryOp;
 
-/// Trait for converting containers of initialized values into uninitialized
-/// ones.
-pub trait IntoUninit {
-    type Output;
-
-    /// Convert all elements from `T` to `MaybeUninit<T>`
-    fn into_uninit(self) -> Self::Output;
-}
-
-impl<'a, T: Copy> IntoUninit for &'a mut [T] {
-    type Output = &'a mut [MaybeUninit<T>];
-
-    fn into_uninit(self) -> Self::Output {
-        unsafe { std::mem::transmute(self) }
-    }
-}
-
 /// Iterator over all possible f32 values.
 #[derive(Clone)]
 pub struct AllF32s {
@@ -213,7 +196,7 @@ pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit
         .take(1_000_000)
         .collect();
 
-    let mut output = vec![0.; input.len()];
+    let mut output = Vec::with_capacity(input.len());
     let iters = 100;
 
     let reference_start = Instant::now();
@@ -224,7 +207,7 @@ pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit
 
     let vecmath_vec_start = Instant::now();
     for _ in 0..iters {
-        vectorized(&input, output.as_mut_slice().into_uninit());
+        vectorized(&input, output.spare_capacity_mut());
     }
     let vecmath_vec_elapsed = vecmath_vec_start.elapsed().as_micros();
 
