@@ -366,7 +366,8 @@ mod tests {
     use rten_simd::{Isa, Simd, SimdOp};
 
     use super::{BLOCK_COUNTERS, BLOCK_SIZE, RandomNormal, RandomUniform, philox4x32};
-    use crate::testing::{IntoUninit, check_f32s_are_equal_atol};
+    use crate::extend_init::init_vec;
+    use crate::testing::check_f32s_are_equal_atol;
 
     /// Scalar reference implementation of Philox4x32-10.
     fn reference_philox4x32(ctr: [u32; 4], key: [u32; 2]) -> [u32; 4] {
@@ -440,19 +441,19 @@ mod tests {
     }
 
     fn uniform(len: usize, seed: u64, offset: u64) -> Vec<f32> {
-        let mut buf = vec![0.; len];
-        RandomUniform::new(buf.as_mut_slice().into_uninit(), seed, 0., 1.)
-            .with_offset(offset)
-            .dispatch();
-        buf
+        init_vec(len, |buf| {
+            RandomUniform::new(buf, seed, 0., 1.)
+                .with_offset(offset)
+                .dispatch()
+        })
     }
 
     fn normal(len: usize, seed: u64, offset: u64) -> Vec<f32> {
-        let mut buf = vec![0.; len];
-        RandomNormal::new(buf.as_mut_slice().into_uninit(), seed, 0., 1.)
-            .with_offset(offset)
-            .dispatch();
-        buf
+        init_vec(len, |buf| {
+            RandomNormal::new(buf, seed, 0., 1.)
+                .with_offset(offset)
+                .dispatch()
+        })
     }
 
     #[test]
@@ -476,11 +477,10 @@ mod tests {
         let len = BLOCK_SIZE * 3 + 5;
         let seed = 42;
 
-        let mut buf = vec![0.; len];
-        RandomUniform::new(buf.as_mut_slice().into_uninit(), seed, -2., 3.).eval(GenericIsa::new());
-
-        let mut native = vec![0.; len];
-        RandomUniform::new(native.as_mut_slice().into_uninit(), seed, -2., 3.).dispatch();
+        let buf = init_vec(len, |buf| {
+            RandomUniform::new(buf, seed, -2., 3.).eval(GenericIsa::new())
+        });
+        let native = init_vec(len, |buf| RandomUniform::new(buf, seed, -2., 3.).dispatch());
 
         // Results differ by up to 1 ULP if only one ISA uses fused
         // multiply-add.
@@ -498,8 +498,9 @@ mod tests {
         let len = BLOCK_SIZE * 3 + 5;
         let seed = 42;
 
-        let mut buf = vec![0.; len];
-        RandomNormal::new(buf.as_mut_slice().into_uninit(), seed, 0., 1.).eval(GenericIsa::new());
+        let buf = init_vec(len, |buf| {
+            RandomNormal::new(buf, seed, 0., 1.).eval(GenericIsa::new())
+        });
         let native = normal(len, seed, 0);
 
         check_f32s_are_equal_atol(
@@ -567,8 +568,7 @@ mod tests {
         let low = -3.;
         let high = 5.;
         let len = 100_000;
-        let mut buf = vec![0.; len];
-        RandomUniform::new(buf.as_mut_slice().into_uninit(), 7, low, high).dispatch();
+        let buf = init_vec(len, |buf| RandomUniform::new(buf, 7, low, high).dispatch());
 
         let mut buckets = [0usize; 10];
         let bucket_size = (high - low) / buckets.len() as f32;
@@ -590,8 +590,9 @@ mod tests {
         let mean = 2.;
         let std_dev = 0.5;
         let len = 100_000;
-        let mut buf = vec![0.; len];
-        RandomNormal::new(buf.as_mut_slice().into_uninit(), 7, mean, std_dev).dispatch();
+        let buf = init_vec(len, |buf| {
+            RandomNormal::new(buf, 7, mean, std_dev).dispatch()
+        });
 
         assert!(buf.iter().all(|x| x.is_finite()));
 
@@ -629,13 +630,14 @@ mod tests {
     #[ignore]
     #[test]
     fn bench_random() {
+        use std::mem::MaybeUninit;
         use std::time::Instant;
 
         let len = 1 << 22;
         let iters = 50;
-        let mut buf = vec![0.; len];
+        let mut buf = Vec::with_capacity(len);
 
-        let mut time = |name: &str, f: &mut dyn FnMut(&mut [f32])| {
+        let mut time = |name: &str, f: &mut dyn FnMut(&mut [MaybeUninit<f32>])| {
             f(&mut buf); // Warm up
             let start = Instant::now();
             for _ in 0..iters {
@@ -647,13 +649,13 @@ mod tests {
 
         let mut rng = fastrand::Rng::with_seed(1);
         time("scalar fastrand uniform", &mut |buf| {
-            buf.fill_with(|| rng.f32());
+            buf.fill_with(|| MaybeUninit::new(rng.f32()));
         });
         time("vectorized uniform", &mut |buf| {
-            RandomUniform::new(buf.into_uninit(), 1, 0., 1.).dispatch();
+            RandomUniform::new(buf, 1, 0., 1.).dispatch();
         });
         time("vectorized normal", &mut |buf| {
-            RandomNormal::new(buf.into_uninit(), 1, 0., 1.).dispatch();
+            RandomNormal::new(buf, 1, 0., 1.).dispatch();
         });
     }
 }
