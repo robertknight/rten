@@ -178,6 +178,47 @@ def test_non_contiguous_input(add_path):
     np.testing.assert_array_equal(output, expected)
 
 
+def misaligned_copy(array):
+    """Return a C-contiguous copy of `array` whose data is not aligned."""
+    data = b"\0" + np.ascontiguousarray(array).tobytes()
+    copy = np.frombuffer(data, dtype=array.dtype, offset=1).reshape(array.shape)
+    assert not copy.flags.aligned
+    return copy
+
+
+def test_misaligned_input(add_path):
+    model = rten.Model(add_path)
+    a = np.arange(6, dtype=np.float32).reshape(2, 3)
+    b = np.ones((2, 3), dtype=np.float32)
+
+    (output,) = model.run(None, {"a": misaligned_copy(a), "b": b})
+
+    np.testing.assert_array_equal(output, a + b)
+
+
+def test_misaligned_non_contiguous_input(int64_path):
+    """An input which is converted to another type is misaligned and strided."""
+    model = rten.Model(int64_path)
+    ids = np.array([[1, 10, 2, 20, 3, 30]], dtype=np.int64)
+    strided = misaligned_copy(ids)[:, ::2]
+
+    (output,) = model.run(None, {"ids": strided})
+
+    np.testing.assert_array_equal(output, [[2, 3, 4]])
+
+
+def test_structured_array_field_input(add_path):
+    """An input has a stride which is not a multiple of the element size."""
+    model = rten.Model(add_path)
+    records = np.zeros((2, 3), dtype=[("x", "<f4"), ("y", "i1")])
+    records["x"] = np.arange(6).reshape(2, 3)
+    b = np.ones((2, 3), dtype=np.float32)
+
+    (output,) = model.run(None, {"a": records["x"], "b": b})
+
+    np.testing.assert_array_equal(output, np.arange(6).reshape(2, 3) + 1)
+
+
 def test_unknown_input_name(add_path):
     model = rten.Model(add_path)
     a = np.zeros((2, 3), dtype=np.float32)

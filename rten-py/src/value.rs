@@ -28,13 +28,7 @@ pub enum InputTensor<'py> {
 impl InputTensor<'_> {
     pub fn as_value_or_view(&self) -> ValueOrView<'_> {
         fn view<'a, T: Element>(array: &'a PyReadonlyArrayDyn<'_, T>) -> TensorView<'a, T> {
-            // The borrowed variants are only created for C-contiguous arrays,
-            // so `as_slice` always succeeds and the element count always
-            // matches the shape.
-            TensorView::from_data(
-                array.shape(),
-                array.as_slice().expect("array should be contiguous"),
-            )
+            TensorView::from_data(array.shape(), slice_from_array(array))
         }
 
         match self {
@@ -57,52 +51,44 @@ pub fn input_tensor<'py>(name: &str, value: &Bound<'py, PyAny>) -> PyResult<Inpu
         )));
     };
 
-    // Convert element types which RTen supports directly. This avoids a copy
-    // if the array is contiguous.
-    macro_rules! borrow_or_copy {
+    // Copy arrays that are not aligned and C-contiguous, so that all arrays
+    // below can be read as slices.
+    let value = if array.is_c_contiguous() && array.is_aligned() {
+        value.clone()
+    } else {
+        value.call_method1("copy", ("C",))?
+    };
+
+    // Borrow arrays with element types which RTen supports directly.
+    macro_rules! borrow {
         ($elem:ty, $variant:ident) => {
             if let Ok(array) = value.cast::<PyArrayDyn<$elem>>() {
-                let array = array.readonly();
-                if array.is_c_contiguous() {
-                    return Ok(InputTensor::$variant(array));
-                }
-                let data: Vec<$elem> = array.as_array().iter().copied().collect();
-                return Ok(owned(array.shape(), data));
+                return Ok(InputTensor::$variant(array.readonly()));
             }
         };
     }
-    borrow_or_copy!(f32, Float);
-    borrow_or_copy!(i32, Int32);
-    borrow_or_copy!(i8, Int8);
-    borrow_or_copy!(u8, UInt8);
+    borrow!(f32, Float);
+    borrow!(i32, Int32);
+    borrow!(i8, Int8);
+    borrow!(u8, UInt8);
 
     // Convert element types which RTen doesn't support directly to a supported
     // type.
     if let Ok(array) = value.cast::<PyArrayDyn<i64>>() {
-        let array = array.readonly();
-        let data = array
-            .as_array()
-            .iter()
-            .map(|&x| {
-                i32::try_from(x).map_err(|_| {
-                    PyOverflowError::new_err(format!(
-                        "input \"{}\" contains the value {} which does not fit in an int32. RTen converts int64 inputs to int32.",
-                        name, x
-                    ))
-                })
+        return convert_array(array, |x| {
+            i32::try_from(x).map_err(|_| {
+                PyOverflowError::new_err(format!(
+                    "input \"{}\" contains the value {} which does not fit in an int32. RTen converts int64 inputs to int32.",
+                    name, x
+                ))
             })
-            .collect::<PyResult<Vec<i32>>>()?;
-        return Ok(owned(array.shape(), data));
+        });
     }
     if let Ok(array) = value.cast::<PyArrayDyn<bool>>() {
-        let array = array.readonly();
-        let data: Vec<i32> = array.as_array().iter().map(|&x| x as i32).collect();
-        return Ok(owned(array.shape(), data));
+        return convert_array(array, |x| Ok(x as i32));
     }
     if let Ok(array) = value.cast::<PyArrayDyn<f64>>() {
-        let array = array.readonly();
-        let data: Vec<f32> = array.as_array().iter().map(|&x| x as f32).collect();
-        return Ok(owned(array.shape(), data));
+        return convert_array(array, |x| Ok(x as f32));
     }
 
     Err(PyTypeError::new_err(format!(
@@ -112,14 +98,31 @@ pub fn input_tensor<'py>(name: &str, value: &Bound<'py, PyAny>) -> PyResult<Inpu
     )))
 }
 
-fn owned<'py, T>(shape: &[usize], data: Vec<T>) -> InputTensor<'py>
+/// Return the elements of an array as a slice.
+///
+/// Panics if the array is not aligned and C-contiguous.
+fn slice_from_array<'a, T: Element>(array: &'a PyReadonlyArrayDyn<'_, T>) -> &'a [T] {
+    array
+        .as_slice()
+        .expect("array should be aligned and contiguous")
+}
+
+/// Convert the elements of an array to a supported type using `f`.
+fn convert_array<'py, T: Element + Copy, U>(
+    array: &Bound<'py, PyArrayDyn<T>>,
+    f: impl FnMut(T) -> PyResult<U>,
+) -> PyResult<InputTensor<'py>>
 where
-    Value: From<Tensor<T>>,
+    Value: From<Tensor<U>>,
 {
-    // `data` was created by iterating over an array with this shape, so the
-    // element count always matches.
-    let value = Value::from_shape(shape, data).expect("data length matches shape");
-    InputTensor::Converted(value)
+    let array = array.readonly();
+    let data = slice_from_array(&array)
+        .iter()
+        .copied()
+        .map(f)
+        .collect::<PyResult<Vec<U>>>()?;
+    let value = Value::from_shape(array.shape(), data).expect("data length matches shape");
+    Ok(InputTensor::Converted(value))
 }
 
 /// Convert a model output into a numpy array.

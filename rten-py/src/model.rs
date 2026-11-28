@@ -86,6 +86,8 @@ impl Model {
             .map(|(id, input)| (*id, input.as_value_or_view()))
             .collect();
 
+        // FIXME: Borrowed input arrays are read while the GIL is released, but
+        // nothing stops another Python thread from modifying them meanwhile.
         let outputs = py
             .detach(|| self.model.run(inputs, &output_ids, None))
             .map_err(|err| RtenError::new_err(err.to_string()))?;
