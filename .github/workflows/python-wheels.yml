@@ -1,0 +1,70 @@
+name: Python wheels
+on:
+  pull_request:
+    paths:
+    - 'rten-py/**'
+    - '.github/workflows/python-wheels.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { name: linux-x86_64, os: ubuntu-latest, target: x86_64 }
+        - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64 }
+        - { name: macos-aarch64, os: macos-latest, target: aarch64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Build wheel
+      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+      with:
+        working-directory: rten-py
+        target: ${{ matrix.target }}
+        manylinux: auto
+        args: --out dist
+    # Test with the oldest Python version that the abi3 wheel supports.
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+    - name: Test wheel
+      run: |
+        # Install dependencies first, so the wheel can be installed with
+        # `--no-index`. This ensures pip uses the wheel rather than an `rten`
+        # package from PyPI.
+        python -m pip install numpy pytest onnx
+        python -m pip install --no-index --find-links rten-py/dist rten
+        python -m pytest rten-py/tests
+    - name: Upload wheel
+      uses: actions/upload-artifact@v7
+      with:
+        name: wheel-${{ matrix.name }}
+        path: rten-py/dist/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Build sdist
+      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+      with:
+        working-directory: rten-py
+        command: sdist
+        args: --out dist
+    - name: Upload sdist
+      uses: actions/upload-artifact@v7
+      with:
+        name: sdist
+        path: rten-py/dist/*.tar.gz

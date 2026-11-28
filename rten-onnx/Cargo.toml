@@ -6,6 +6,7 @@ authors = ["Robert Knight"]
 description = "ONNX model parser"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/robertknight/rten"
+include = ["/src"]
 
 [lib]
 crate-type = ["lib"]

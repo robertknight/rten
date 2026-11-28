@@ -12,6 +12,7 @@ members = [
   "rten-onnx",
   "rten-parallel",
   "rten-sequence",
+  "rten-py",
   "rten-serialize",
   "rten-shape-inference",
   "rten-simd",
