@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "rten-py"
-version = "0.28.0"
+version = "0.29.0-alpha.1"
 dependencies = [
  "numpy",
  "pyo3",
